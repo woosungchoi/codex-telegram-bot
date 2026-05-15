@@ -29,7 +29,7 @@ const VALID = {
   liveProgressDeletePolicy: new Set(["always", "on_success", "never"])
 };
 
-const TIME_ZONE_CHOICES = [
+const UTC_OFFSET_TIME_ZONE_CHOICES = [
   ["utc_m11", "UTC-11", "Etc/GMT+11"],
   ["utc_m10", "UTC-10", "Etc/GMT+10"],
   ["utc_m09", "UTC-09", "Etc/GMT+9"],
@@ -54,6 +54,88 @@ const TIME_ZONE_CHOICES = [
   ["utc_p10", "UTC+10", "Etc/GMT-10"],
   ["utc_p11", "UTC+11", "Etc/GMT-11"],
   ["utc_p12", "UTC+12", "Etc/GMT-12"]
+];
+
+const REGIONAL_TIME_ZONE_CHOICES = {
+  asia: [
+    ["asia_seoul", "Seoul", "Asia/Seoul"],
+    ["asia_tokyo", "Tokyo", "Asia/Tokyo"],
+    ["asia_singapore", "Singapore", "Asia/Singapore"],
+    ["asia_shanghai", "Shanghai", "Asia/Shanghai"],
+    ["asia_hong_kong", "Hong Kong", "Asia/Hong_Kong"],
+    ["asia_taipei", "Taipei", "Asia/Taipei"],
+    ["asia_bangkok", "Bangkok", "Asia/Bangkok"],
+    ["asia_jakarta", "Jakarta", "Asia/Jakarta"],
+    ["asia_kolkata", "India", "Asia/Kolkata"],
+    ["asia_dubai", "Dubai", "Asia/Dubai"],
+    ["asia_tehran", "Tehran", "Asia/Tehran"]
+  ],
+  europe: [
+    ["europe_london", "London", "Europe/London"],
+    ["europe_dublin", "Dublin", "Europe/Dublin"],
+    ["europe_lisbon", "Lisbon", "Europe/Lisbon"],
+    ["europe_paris", "Paris", "Europe/Paris"],
+    ["europe_berlin", "Berlin", "Europe/Berlin"],
+    ["europe_madrid", "Madrid", "Europe/Madrid"],
+    ["europe_rome", "Rome", "Europe/Rome"],
+    ["europe_amsterdam", "Amsterdam", "Europe/Amsterdam"],
+    ["europe_stockholm", "Stockholm", "Europe/Stockholm"],
+    ["europe_warsaw", "Warsaw", "Europe/Warsaw"],
+    ["europe_athens", "Athens", "Europe/Athens"],
+    ["europe_istanbul", "Istanbul", "Europe/Istanbul"],
+    ["europe_moscow", "Moscow", "Europe/Moscow"]
+  ],
+  america: [
+    ["america_los_angeles", "Los Angeles", "America/Los_Angeles"],
+    ["america_vancouver", "Vancouver", "America/Vancouver"],
+    ["america_phoenix", "Phoenix", "America/Phoenix"],
+    ["america_denver", "Denver", "America/Denver"],
+    ["america_chicago", "Chicago", "America/Chicago"],
+    ["america_mexico_city", "Mexico City", "America/Mexico_City"],
+    ["america_new_york", "New York", "America/New_York"],
+    ["america_toronto", "Toronto", "America/Toronto"],
+    ["america_bogota", "Bogota", "America/Bogota"],
+    ["america_lima", "Lima", "America/Lima"],
+    ["america_santiago", "Santiago", "America/Santiago"],
+    ["america_buenos_aires", "Buenos Aires", "America/Argentina/Buenos_Aires"],
+    ["america_sao_paulo", "Sao Paulo", "America/Sao_Paulo"],
+    ["america_anchorage", "Anchorage", "America/Anchorage"]
+  ],
+  africa: [
+    ["africa_casablanca", "Casablanca", "Africa/Casablanca"],
+    ["africa_accra", "Accra", "Africa/Accra"],
+    ["africa_lagos", "Lagos", "Africa/Lagos"],
+    ["africa_tunis", "Tunis", "Africa/Tunis"],
+    ["africa_cairo", "Cairo", "Africa/Cairo"],
+    ["africa_johannesburg", "Johannesburg", "Africa/Johannesburg"],
+    ["africa_nairobi", "Nairobi", "Africa/Nairobi"],
+    ["africa_addis_ababa", "Addis Ababa", "Africa/Addis_Ababa"]
+  ],
+  oceania: [
+    ["oceania_perth", "Perth", "Australia/Perth"],
+    ["oceania_brisbane", "Brisbane", "Australia/Brisbane"],
+    ["oceania_sydney", "Sydney", "Australia/Sydney"],
+    ["oceania_melbourne", "Melbourne", "Australia/Melbourne"],
+    ["oceania_auckland", "Auckland", "Pacific/Auckland"],
+    ["oceania_fiji", "Fiji", "Pacific/Fiji"],
+    ["oceania_guam", "Guam", "Pacific/Guam"],
+    ["oceania_port_moresby", "Port Moresby", "Pacific/Port_Moresby"],
+    ["oceania_honolulu", "Honolulu", "Pacific/Honolulu"]
+  ]
+};
+
+const TIME_ZONE_GROUPS = [
+  ["asia", "🌏", "Asia"],
+  ["europe", "🌍", "Europe"],
+  ["america", "🌎", "America"],
+  ["africa", "🌍", "Africa"],
+  ["oceania", "🌊", "Oceania"],
+  ["utc", "🕘", "UTC Offset"]
+];
+
+const TIME_ZONE_CHOICES = [
+  ...UTC_OFFSET_TIME_ZONE_CHOICES,
+  ...Object.values(REGIONAL_TIME_ZONE_CHOICES).flat()
 ];
 
 const LOCALE_CHOICES = [
@@ -2996,6 +3078,10 @@ async function sendPanel(ctx, panel, options = {}) {
   } else if (panel === "settings_timezone") {
     html = settingPanelHtml(t("timeZoneTitle"), uiTimeZone(), t("timeZoneDescription"));
     keyboard = timeZoneKeyboard();
+  } else if (panel.startsWith("settings_timezone_")) {
+    const groupId = panel.slice("settings_timezone_".length);
+    html = timeZoneGroupPanelHtml(groupId);
+    keyboard = timeZoneGroupKeyboard(groupId);
   } else if (panel === "settings_locale") {
     html = settingPanelHtml(t("localeTitle"), uiLocale(), t("localeDescription"));
     keyboard = localeKeyboard();
@@ -3521,13 +3607,64 @@ function chunkButtons(buttons, size) {
 
 function timeZoneKeyboard() {
   return inlineKeyboard([
-    ...chunkButtons(TIME_ZONE_CHOICES.map(([id, label, timeZone]) => ({
-      text: uiTimeZone() === timeZone ? `✅ ${label}` : label,
-      callback_data: `set:timezone:${id}`
+    ...chunkButtons(TIME_ZONE_GROUPS.map(([id, emoji, label]) => ({
+      text: `${emoji} ${label}`,
+      callback_data: `p:settings_timezone_${id}`
     })), 2),
     [{ text: t("default"), callback_data: "set:timezone:default" }],
     [{ text: t("settings"), callback_data: "p:settings" }, { text: t("main"), callback_data: "p:main" }]
   ]);
+}
+
+function timeZoneGroupKeyboard(groupId) {
+  const choices = timeZoneChoicesForGroup(groupId);
+  const columns = groupId === "utc" ? 2 : 1;
+  return inlineKeyboard([
+    ...chunkButtons(choices.map(([id, label, timeZone]) => ({
+      text: uiTimeZone() === timeZone ? `✅ ${formatTimeZoneChoiceLabel(label, timeZone)}` : formatTimeZoneChoiceLabel(label, timeZone),
+      callback_data: `set:timezone:${id}`
+    })), columns),
+    [{ text: `← ${t("back")}`, callback_data: "p:settings_timezone" }],
+    [{ text: t("settings"), callback_data: "p:settings" }, { text: t("main"), callback_data: "p:main" }]
+  ]);
+}
+
+function timeZoneChoicesForGroup(groupId) {
+  if (groupId === "utc") return UTC_OFFSET_TIME_ZONE_CHOICES;
+  return REGIONAL_TIME_ZONE_CHOICES[groupId] ?? [];
+}
+
+function timeZoneGroupPanelHtml(groupId) {
+  const group = TIME_ZONE_GROUPS.find(([id]) => id === groupId);
+  if (!group) return settingPanelHtml(t("timeZoneTitle"), uiTimeZone(), t("timeZoneDescription"));
+  const [, emoji, label] = group;
+  const description = groupId === "utc" ? t("timeZoneUtcDescription") : t("timeZoneRegionDescription");
+  return settingPanelHtml(`${t("timeZoneTitle")} · ${emoji} ${label}`, uiTimeZone(), description);
+}
+
+function formatTimeZoneChoiceLabel(label, timeZone) {
+  if (/^UTC[+-]\d{2}$/.test(label) || label === "UTC+00") return label;
+  return `${formatUtcOffset(timeZone)} ${label}`;
+}
+
+function formatUtcOffset(timeZone) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+      timeZone,
+      timeZoneName: "shortOffset"
+    }).formatToParts(new Date());
+    const name = parts.find((part) => part.type === "timeZoneName")?.value || "GMT";
+    if (name === "GMT" || name === "UTC") return "UTC+00";
+    const match = name.match(/^GMT([+-])(\d{1,2})(?::?(\d{2}))?$/);
+    if (!match) return name.replace(/^GMT/, "UTC");
+    const [, sign, hour, minute = "00"] = match;
+    return `UTC${sign}${hour.padStart(2, "0")}${minute === "00" ? "" : `:${minute}`}`;
+  } catch {
+    return "UTC";
+  }
 }
 
 function localeKeyboard() {
