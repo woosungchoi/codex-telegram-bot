@@ -1,8 +1,31 @@
-# Codex Telegram Bot
+<p align="center">
+  <img src="assets/readme-hero.png" alt="Codex Telegram Bot hero image" width="100%">
+</p>
 
-[English](README.md)
+<h1 align="center">Codex Telegram Bot</h1>
 
-`@openai/codex-sdk`를 사용하는 Codex CLI용 Telegram 브리지입니다.
+<p align="center">
+  <strong>Telegram에서 Codex CLI를 제어하고, queue, inline 설정, 이미지 입력, cleanup, 안전한 유지보수 도구까지 한 번에 다룹니다.</strong>
+</p>
+
+<p align="center">
+  <a href="README.md">English</a>
+</p>
+
+<p align="center">
+  <img alt="Node.js" src="https://img.shields.io/badge/Node.js-18%2B-339933">
+  <img alt="Telegram" src="https://img.shields.io/badge/Telegram-Bot-26A5E4">
+  <img alt="Codex SDK" src="https://img.shields.io/badge/Codex-SDK-111827">
+  <img alt="Runtime settings" src="https://img.shields.io/badge/Runtime-settings-0EA5E9">
+</p>
+
+## 주요 기능
+
+- Telegram 텍스트, reply, 사진, 이미지 문서를 Codex turn으로 실행합니다.
+- Codex가 작업 중일 때 메시지를 queue에 저장하고, safe, interrupt, side-thread mode로 처리합니다.
+- model, reasoning, sandbox, approval, web, language, time zone, locale, runtime override를 inline 버튼으로 설정합니다.
+- raw command log나 reasoning text를 노출하지 않고 짧은 진행 알림을 보냅니다.
+- keep-codex-fast에서 영감을 받은 backup-first cleanup과 로컬 유지보수 도구를 제공합니다.
 
 안전한 로컬 상태 유지보수 도구는
 [keep-codex-fast](https://github.com/vibeforge1111/keep-codex-fast)에서 영감을 받았습니다.

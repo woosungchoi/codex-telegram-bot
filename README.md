@@ -1,8 +1,31 @@
-# Codex Telegram Bot
+<p align="center">
+  <img src="assets/readme-hero.png" alt="Codex Telegram Bot hero image" width="100%">
+</p>
 
-[한국어](README.ko.md)
+<h1 align="center">Codex Telegram Bot</h1>
 
-Telegram bridge for Codex CLI using `@openai/codex-sdk`.
+<p align="center">
+  <strong>Control Codex CLI from Telegram with queues, inline settings, images, cleanup, and safe maintenance tools.</strong>
+</p>
+
+<p align="center">
+  <a href="README.ko.md">한국어</a>
+</p>
+
+<p align="center">
+  <img alt="Node.js" src="https://img.shields.io/badge/Node.js-18%2B-339933">
+  <img alt="Telegram" src="https://img.shields.io/badge/Telegram-Bot-26A5E4">
+  <img alt="Codex SDK" src="https://img.shields.io/badge/Codex-SDK-111827">
+  <img alt="Runtime settings" src="https://img.shields.io/badge/Runtime-settings-0EA5E9">
+</p>
+
+## What It Does
+
+- Runs Codex turns from Telegram text, replies, photos, and image documents.
+- Queues messages while Codex is busy, with safe, interrupt, and side-thread modes.
+- Provides inline settings for model, reasoning, sandbox, approval, web, language, time zone, locale, and runtime overrides.
+- Sends short progress updates without streaming raw command logs or reasoning text.
+- Adds backup-first cleanup and local maintenance tools inspired by keep-codex-fast.
 
 The safe local-state maintenance tools were inspired by
 [keep-codex-fast](https://github.com/vibeforge1111/keep-codex-fast): inspect
