@@ -30,6 +30,14 @@
 - Sends short progress updates without streaming raw command logs or reasoning text.
 - Adds backup-first cleanup and local maintenance tools inspired by keep-codex-fast.
 
+## Screenshots
+
+Real Telegram screenshots from a running bot:
+
+| Control panel | Settings | Telegram session |
+| --- | --- | --- |
+| <img src="assets/screenshots/main-control.jpg" alt="Telegram main control panel screenshot" width="260"> | <img src="assets/screenshots/settings-panel.jpg" alt="Telegram settings panel screenshot" width="260"> | <img src="assets/screenshots/telegram-session.jpg" alt="Telegram Codex session screenshot" width="260"> |
+
 The safe local-state maintenance tools were inspired by
 [keep-codex-fast](https://github.com/vibeforge1111/keep-codex-fast): inspect
 first, back up before mutating, archive instead of deleting, and create
