@@ -173,7 +173,16 @@ const UI_TEXT = {
     menuHelp: "Open status, queue, settings, and tools in one panel.",
     settingsHelp: "Change model, thinking, sandbox, approval, web, network, stream, language, time zone, and locale settings with buttons.",
     toolsHelp: "Run health, doctor, logs, backup, export, cleanup, and forget with buttons.",
-    queueHelp: "Control pause/resume, mode, cancel, up, and next with buttons."
+    queueHelp: "Control pause/resume, mode, cancel, up, and next with buttons.",
+    commandMenu: "Open the control panel",
+    commandNew: "Start a new Codex thread",
+    commandResume: "Resume an existing thread",
+    commandStatus: "Show current thread and usage",
+    commandQueue: "Open the queue panel",
+    commandSettings: "Open settings buttons",
+    commandTools: "Open diagnostics and backup tools",
+    commandStop: "Stop the running Codex task",
+    commandHelp: "Show command help"
   },
   ko: {
     mainInstruction: "필요한 패널을 버튼으로 열어 조작하세요.",
@@ -297,7 +306,16 @@ const UI_TEXT = {
     menuHelp: "상태, 대기열, 설정, 도구를 한 화면에서 엽니다.",
     settingsHelp: "모델, thinking, sandbox, approval, web, network, stream, 언어, 시간대, 표시 형식을 버튼으로 바꿉니다.",
     toolsHelp: "health, doctor, logs, backup, export, cleanup, forget을 버튼으로 실행합니다.",
-    queueHelp: "pause/resume, mode, cancel, up, next를 버튼으로 조작합니다."
+    queueHelp: "pause/resume, mode, cancel, up, next를 버튼으로 조작합니다.",
+    commandMenu: "전체 조작 패널 열기",
+    commandNew: "새 Codex thread 시작",
+    commandResume: "기존 thread 이어가기",
+    commandStatus: "현재 thread와 사용량 확인",
+    commandQueue: "대기열 패널 열기",
+    commandSettings: "설정 버튼 패널 열기",
+    commandTools: "진단과 백업 도구 열기",
+    commandStop: "실행 중인 Codex 작업 중단",
+    commandHelp: "명령어 도움말"
   }
 };
 
@@ -4880,7 +4898,12 @@ function formatKeyValueHtml(title, rows) {
 async function registerTelegramCommands() {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
-      await withTimeout(bot.telegram.setMyCommands(telegramCommands()), 5000, "setMyCommands timed out");
+      const commands = telegramCommands(uiLanguage());
+      await withTimeout(Promise.all([
+        bot.telegram.setMyCommands(commands),
+        bot.telegram.setMyCommands(commands, { language_code: "en" }),
+        bot.telegram.setMyCommands(commands, { language_code: "ko" })
+      ]), 5000, "setMyCommands timed out");
       return;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -4890,17 +4913,18 @@ async function registerTelegramCommands() {
   }
 }
 
-function telegramCommands() {
+function telegramCommands(language = uiLanguage()) {
+  const text = (key) => UI_TEXT[language]?.[key] ?? UI_TEXT.en[key] ?? key;
   return [
-    { command: "menu", description: uiLanguage() === "ko" ? "전체 조작 패널 열기" : "Open the control panel" },
-    { command: "new", description: uiLanguage() === "ko" ? "새 Codex thread 시작" : "Start a new Codex thread" },
-    { command: "resume", description: uiLanguage() === "ko" ? "기존 thread 이어가기" : "Resume an existing thread" },
-    { command: "status", description: uiLanguage() === "ko" ? "현재 thread와 사용량 확인" : "Show current thread and usage" },
-    { command: "queue", description: uiLanguage() === "ko" ? "대기열 패널 열기" : "Open the queue panel" },
-    { command: "settings", description: uiLanguage() === "ko" ? "설정 버튼 패널 열기" : "Open settings buttons" },
-    { command: "tools", description: uiLanguage() === "ko" ? "진단과 백업 도구 열기" : "Open diagnostics and backup tools" },
-    { command: "stop", description: uiLanguage() === "ko" ? "실행 중인 Codex 작업 중단" : "Stop the running Codex task" },
-    { command: "help", description: uiLanguage() === "ko" ? "명령어 도움말" : "Show command help" }
+    { command: "menu", description: text("commandMenu") },
+    { command: "new", description: text("commandNew") },
+    { command: "resume", description: text("commandResume") },
+    { command: "status", description: text("commandStatus") },
+    { command: "queue", description: text("commandQueue") },
+    { command: "settings", description: text("commandSettings") },
+    { command: "tools", description: text("commandTools") },
+    { command: "stop", description: text("commandStop") },
+    { command: "help", description: text("commandHelp") }
   ];
 }
 
