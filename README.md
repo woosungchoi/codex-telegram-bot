@@ -93,6 +93,25 @@ Then run:
 npm start
 ```
 
+## GitHub Automation
+
+This repository includes GitHub Actions for CI, Codex PR review, and failed CI
+diagnosis.
+
+- `CI`: runs `npm ci`, `npm run check`, `npm test --if-present`, and `npm run build --if-present`.
+- `Codex PR Review`: runs `codex review` on pull requests and updates one PR comment.
+- `Codex CI Diagnosis`: when `CI` fails, runs `codex exec` on the CI log tail and comments on the PR when one exists.
+
+The Codex workflows do not use `OPENAI_API_KEY`. They only run when the
+repository secret `CODEX_ACCESS_TOKEN` is configured for Codex OAuth login:
+
+```bash
+gh secret set CODEX_ACCESS_TOKEN --body "$CODEX_ACCESS_TOKEN"
+```
+
+If that secret is not configured, the Codex jobs skip cleanly and the normal CI
+still runs.
+
 ## Telegram Commands
 
 The bot registers Telegram command suggestions with `setMyCommands()` at

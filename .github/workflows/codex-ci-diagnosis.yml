@@ -1,0 +1,121 @@
+name: Codex CI Diagnosis
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  diagnose:
+    name: Diagnose Failed CI
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion != 'success' }}
+
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check Codex OAuth token
+        id: codex-token
+        env:
+          CODEX_ACCESS_TOKEN: ${{ secrets.CODEX_ACCESS_TOKEN }}
+        run: |
+          if [ -n "$CODEX_ACCESS_TOKEN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip when Codex OAuth token is unavailable
+        if: ${{ steps.codex-token.outputs.configured != 'true' }}
+        run: |
+          {
+            echo "### Codex CI Diagnosis"
+            echo
+            echo "Skipped because the repository secret \`CODEX_ACCESS_TOKEN\` is not configured."
+            echo
+            echo "Run: ${{ github.event.workflow_run.html_url }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install Codex CLI
+        if: ${{ steps.codex-token.outputs.configured == 'true' }}
+        run: npm install -g @openai/codex@0.130.0
+
+      - name: Login with Codex OAuth token
+        if: ${{ steps.codex-token.outputs.configured == 'true' }}
+        env:
+          CODEX_ACCESS_TOKEN: ${{ secrets.CODEX_ACCESS_TOKEN }}
+          CODEX_HOME: ${{ runner.temp }}/codex-home
+        run: |
+          mkdir -p "$CODEX_HOME"
+          printf '%s' "$CODEX_ACCESS_TOKEN" | codex login --with-access-token
+          codex login status
+
+      - name: Download CI logs
+        if: ${{ steps.codex-token.outputs.configured == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
+        run: gh run view "$RUN_ID" --repo "$REPO" --log > ci-run.log || true
+
+      - name: Diagnose failure
+        if: ${{ steps.codex-token.outputs.configured == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CODEX_HOME: ${{ runner.temp }}/codex-home
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -o pipefail
+          tail -c 60000 ci-run.log > ci-run-tail.log || true
+          cat > codex-ci-prompt.txt <<'PROMPT'
+          Diagnose this failed GitHub Actions CI run.
+
+          Use the log evidence to identify the likely cause and the smallest useful fix.
+          Structure the answer as:
+          - Likely cause
+          - Evidence
+          - Suggested fix
+          - Re-run command
+
+          Keep it concise. Do not invent files or commands that are not supported by the log.
+          PROMPT
+          {
+            echo "Failed run: $RUN_URL"
+            echo
+            echo "CI log tail:"
+            echo
+            cat ci-run-tail.log
+          } >> codex-ci-prompt.txt
+          codex exec \
+            --sandbox read-only \
+            --ask-for-approval never \
+            --ephemeral \
+            --output-last-message codex-ci-diagnosis.md \
+            - < codex-ci-prompt.txt
+          {
+            echo "## Codex CI Diagnosis"
+            echo
+            cat codex-ci-diagnosis.md
+          } > codex-ci-diagnosis.full.md
+          mv codex-ci-diagnosis.full.md codex-ci-diagnosis.md
+          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+            node scripts/github_comment_upsert.mjs "$PR_NUMBER" "ci-diagnosis-$RUN_ID" codex-ci-diagnosis.md
+          else
+            cat codex-ci-diagnosis.md >> "$GITHUB_STEP_SUMMARY"
+          fi

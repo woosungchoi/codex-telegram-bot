@@ -6,7 +6,7 @@
   "description": "Telegram bridge for Codex CLI via @openai/codex-sdk",
   "scripts": {
     "start": "node src/bot.js",
-    "check": "node --check src/bot.js"
+    "check": "node --check src/bot.js && node --check scripts/*.mjs"
   },
   "dependencies": {
     "@openai/codex-sdk": "0.130.0",

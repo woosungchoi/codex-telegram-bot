@@ -81,6 +81,23 @@ cp .env.example .env
 npm start
 ```
 
+## GitHub 자동화
+
+이 저장소에는 CI, Codex PR review, 실패한 CI 진단용 GitHub Actions가 포함되어 있습니다.
+
+- `CI`: `npm ci`, `npm run check`, `npm test --if-present`, `npm run build --if-present` 실행
+- `Codex PR Review`: pull request에서 `codex review` 실행 후 PR comment 하나를 생성/수정
+- `Codex CI Diagnosis`: `CI` 실패 시 CI log tail을 `codex exec`로 진단하고 PR이 있으면 comment 생성
+
+Codex workflow는 `OPENAI_API_KEY`를 사용하지 않습니다. Codex OAuth login용
+repository secret `CODEX_ACCESS_TOKEN`이 있을 때만 실행됩니다.
+
+```bash
+gh secret set CODEX_ACCESS_TOKEN --body "$CODEX_ACCESS_TOKEN"
+```
+
+secret이 없으면 Codex job은 정상적으로 skip되고 기본 CI만 실행됩니다.
+
 ## Telegram 명령어
 
 봇은 시작 시 `setMyCommands()`로 Telegram 명령어 제안을 등록합니다. Telegram에서 `/`를 입력하면 핵심 메뉴가 보입니다.
