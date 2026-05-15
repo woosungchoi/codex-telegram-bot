@@ -61,7 +61,7 @@ cp .env.minimal.example .env
 - `TELEGRAM_REACTIONS_ENABLED`: inbound 메시지 처리 결과 reaction 사용 여부, 기본값 `true`
 - `TELEGRAM_THINKING_REACTION`, `TELEGRAM_COMPLETE_REACTION`, `TELEGRAM_ERROR_REACTION`, `TELEGRAM_STOPPED_REACTION`: 처리 상태별 reaction emoji
 - `TELEGRAM_FORMAT_CODEX_ANSWERS`: `markdown`은 안전한 Markdown subset을 Telegram HTML로 렌더링하고, `safe`는 code span/block만 렌더링하며, `off`는 plain text로 보냅니다.
-- `TELEGRAM_LANGUAGE`: Telegram 메뉴/panel 언어와 기본 Codex 응답 언어, `en` 또는 `ko`, 기본값 `en`; `/settings` -> `Language`에서도 바꿀 수 있습니다.
+- `TELEGRAM_LANGUAGE`: Telegram 메뉴/panel 언어와 기본 Codex 응답 언어입니다. `src/locales/*.json`에 있는 모든 언어 파일을 사용할 수 있고, 기본값은 `en`입니다. `/settings` -> `Language`에서도 바꿀 수 있습니다.
 - `TELEGRAM_TIME_ZONE`: 알림, 날짜 key, timestamp에 사용할 IANA time zone, 기본값 `UTC`; `/settings` -> `Time Zone`에서도 바꿀 수 있습니다.
 - `TELEGRAM_LOCALE`: 날짜/시간 표시 locale, 기본값 `en-US`; `/settings` -> `Locale`에서도 바꿀 수 있습니다.
 - `TELEGRAM_COMPLETION_NOTICE_SECONDS`: 긴 Codex turn에 짧은 완료 알림을 보낼 기준 시간, 기본값 `90`, `0`이면 비활성화
@@ -128,9 +128,22 @@ Dependabot도 `@openai/codex-sdk`와 `@openai/codex`는 매일, 다른 npm depen
 - [아키텍처](docs/architecture.md)
 - [보안 모델](docs/security-model.md)
 - [스크린샷 가이드](docs/screenshots.md)
+- [번역 가이드](docs/translations.md)
 - [보안 정책](SECURITY.md)
 - [기여 가이드](CONTRIBUTING.md)
 - [변경 내역](CHANGELOG.md)
+
+## 번역
+
+Telegram 메뉴 문구, 버튼 label, 명령어 설명은 `src/locales/*.json`에서
+불러옵니다. 새 언어를 추가하려면 `src/locales/en.json`을 복사하고, 값을
+번역한 뒤 `_meta`를 업데이트하고 아래 검증을 실행하세요.
+
+```bash
+npm run validate:locales
+```
+
+PR 체크리스트와 locale metadata 형식은 `docs/translations.md`에 정리되어 있습니다.
 
 ## Telegram 명령어
 

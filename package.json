@@ -40,7 +40,8 @@
   },
   "scripts": {
     "start": "node src/bot.js",
-    "check": "node --check src/*.js && node --check scripts/*.mjs && node --check test/*.mjs",
+    "check": "node --check src/*.js && node --check scripts/*.mjs && node --check test/*.mjs && npm run validate:locales",
+    "validate:locales": "node scripts/validate-locales.mjs",
     "test": "node --test"
   },
   "dependencies": {

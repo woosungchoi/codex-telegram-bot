@@ -62,7 +62,7 @@ Edit `.env`:
 - `TELEGRAM_REACTIONS_ENABLED`: enable processing result reactions on inbound messages, default `true`
 - `TELEGRAM_THINKING_REACTION`, `TELEGRAM_COMPLETE_REACTION`, `TELEGRAM_ERROR_REACTION`, `TELEGRAM_STOPPED_REACTION`: reaction emoji for processing states
 - `TELEGRAM_FORMAT_CODEX_ANSWERS`: `markdown` renders a safe Markdown subset with Telegram HTML, `safe` renders only code spans/blocks, `off` sends plain text
-- `TELEGRAM_LANGUAGE`: Telegram menu/panel language and default Codex response language, `en` or `ko`, default `en`; it can also be changed from `/settings` → `Language`
+- `TELEGRAM_LANGUAGE`: Telegram menu/panel language and default Codex response language. Any language file in `src/locales/*.json` can be used; default `en`. It can also be changed from `/settings` → `Language`.
 - `TELEGRAM_TIME_ZONE`: IANA time zone for reminders, date keys, and timestamps, default `UTC`; it can also be changed from `/settings` → `Time Zone`
 - `TELEGRAM_LOCALE`: date/time display locale, default `en-US`; it can also be changed from `/settings` → `Locale`
 - `TELEGRAM_COMPLETION_NOTICE_SECONDS`: send a short completion notice for long Codex turns, default `90`, `0` disables it
@@ -132,9 +132,22 @@ daily, and other npm dependencies weekly.
 - [Architecture](docs/architecture.md)
 - [Security model](docs/security-model.md)
 - [Screenshot guide](docs/screenshots.md)
+- [Translation guide](docs/translations.md)
 - [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
+
+## Translations
+
+Telegram menu text, button labels, and command descriptions are loaded from
+`src/locales/*.json`. To add a language, copy `src/locales/en.json`, translate
+the values, update `_meta`, and run:
+
+```bash
+npm run validate:locales
+```
+
+See `docs/translations.md` for the PR checklist and locale metadata format.
 
 ## Telegram Commands
 

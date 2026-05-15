@@ -11,6 +11,7 @@ import { promisify } from "node:util";
 import { Codex } from "@openai/codex-sdk";
 import MarkdownIt from "markdown-it";
 import { Telegraf } from "telegraf";
+import { LANGUAGE_CHOICES, TELEGRAM_LANGUAGE_CODES, VALID_LANGUAGES, textFor } from "./i18n.js";
 import { isRegisteredTelegramCommandText } from "./telegram_commands.js";
 
 const execFileAsync = promisify(execFile);
@@ -23,7 +24,7 @@ const VALID = {
   serviceTier: new Set(["fast", "flex"]),
   webSearch: new Set(["disabled", "cached", "live"]),
   queueMode: new Set(["safe", "interrupt", "side"]),
-  language: new Set(["en", "ko"]),
+  language: VALID_LANGUAGES,
   liveProgressSource: new Set(["agent", "activity", "both"]),
   liveProgressDeletePolicy: new Set(["always", "on_success", "never"])
 };
@@ -49,275 +50,6 @@ const TIME_PRESET_CHOICES = [
   ["09_00", "09:00"],
   ["18_00", "18:00"]
 ];
-
-const UI_TEXT = {
-  en: {
-    mainInstruction: "Open the panel you need with the buttons below.",
-    settingsInstruction: "Choose a setting to change. Values that need free text still use direct commands.",
-    toolsInstruction: "Choose diagnostics, logs, backup, export, cleanup, or maintenance tools.",
-    sandboxDescription: "Choose the Codex CLI sandbox mode.",
-    approvalDescription: "Choose the Codex CLI approval policy.",
-    webDescription: "Choose the web search mode.",
-    networkDescription: "Choose the network access option.",
-    streamDescription: "Choose whether to use Codex SDK runStreamed.",
-    gitDescription: "Choose whether to skip the git repo check.",
-    fastInstruction: "Choose the fast service tier with the buttons.",
-    pathsTitle: "Path Settings",
-    pathsDirect: "Direct input is required for /workdir <absolute-dir> or /adddir <absolute-dir>.",
-    pathsButtons: "Buttons only restore defaults or clear additional directories.",
-    schemaDirect: "Direct input is required for /schema <json-schema>.",
-    schemaButtons: "Buttons only disable schema output.",
-    liveAgent: "Shows only intermediate comments that Codex actually sends.",
-    liveActivity: "Shows command, file-change, and tool activity.",
-    liveBoth: "Shows both kinds of progress.",
-    liveNever: "Keeps every intermediate message.",
-    status: "Status",
-    queue: "Queue",
-    settings: "Settings",
-    tools: "Tools",
-    newThread: "New thread",
-    resumeLast: "Resume latest",
-    stop: "Stop",
-    help: "Help",
-    refresh: "Refresh",
-    main: "Main",
-    model: "Model",
-    language: "Language",
-    timeZone: "Time Zone",
-    locale: "Locale",
-    runtime: "Runtime",
-    output: "Output",
-    cleanup: "Cleanup",
-    snapshots: "Snapshots",
-    on: "On",
-    off: "Off",
-    default: "Default",
-    korean: "Korean",
-    english: "English",
-    enable: "Enable",
-    disable: "Disable",
-    backSettings: "Settings",
-    clearDirs: "Clear dirs",
-    schemaOff: "Schema off",
-    prefsReset: "Prefs reset",
-    codexMaintenance: "🧹 Codex Maintenance",
-    maintenanceIntro: "Provides report-only, backup-first, archive-only actions following keep-codex-fast principles.",
-    maintenanceScope: "Checks and cleans worktree/log/config state separately from thread cleanup.",
-    autoSqliteRepair: "Auto SQLite repair",
-    autoHandoff: "Auto handoff",
-    maintenanceReportDesc: "No file moves, deletion, or DB changes",
-    maintenanceBackupDesc: "Create a Codex metadata backup only",
-    maintenanceConfigDesc: "Back up, then remove missing project blocks",
-    maintenanceWorktreesDesc: "Move stale worktrees to archived_worktrees",
-    maintenanceLogsDesc: "Move oversized logs_2.sqlite files to archived_logs",
-    maintenanceRepairDesc: "Back up, then bound thread-list display metadata",
-    maintenanceHandoffDesc: "Create a repo-local document for the current thread",
-    handoffCreate: "🧾 Create handoff",
-    repairRun: "🧬 Run repair",
-    cancel: "Cancel",
-    processing: "⏳ Processing",
-    busyBackup: "⏳ Creating Codex maintenance backup",
-    busyBackupDetail: "This message will be replaced with the result when it finishes.",
-    busyConfig: "⏳ Running Codex config prune",
-    busyConfigDetail: "Backs up first, then removes only missing project blocks.",
-    busyWorktrees: "⏳ Archiving stale Codex worktrees",
-    busyWorktreesDetail: "Moves them to archived_worktrees without deleting them.",
-    busyLogs: "⏳ Rotating Codex logs",
-    busyLogsDetail: "Moves logs_2.sqlite files above the threshold into archived_logs.",
-    busyRepair: "⏳ Running SQLite metadata repair",
-    busyRepairDetail: "Backs up first, then bounds only title/preview display metadata. Session transcripts stay intact.",
-    busyHandoff: "⏳ Creating active thread handoff",
-    busyHandoffDetail: "Creates a handoff document for the Codex thread connected to this Telegram chat.",
-    sqliteConfirmTitle: "🧬 Confirm SQLite metadata repair",
-    sqliteConfirmBody: "This backs up first, then updates only thread-list display metadata in state_5.sqlite.",
-    sqliteNoTranscript: "It does not change session JSONL transcripts.",
-    sqliteRestore: "It writes a restore script and manifest into the backup folder.",
-    sqliteAutoOff: "Automatic execution is off by default.",
-    sqliteContinue: "Press Run repair to continue.",
-    maintenanceReportTitle: "📊 Codex Maintenance Report",
-    nodeTop: "Top Node processes:",
-    maintenanceDone: "✅ Codex maintenance complete",
-    languageTitle: "Language Settings",
-    languageDescription: "Choose the Telegram menu language.",
-    languageUpdated: "Language updated.",
-    timeZoneTitle: "Time Zone Settings",
-    timeZoneDescription: "Choose the IANA time zone used for reminders and timestamps.",
-    timeZoneUpdated: "Time zone updated.",
-    localeTitle: "Locale Settings",
-    localeDescription: "Choose the date/time display locale.",
-    localeUpdated: "Locale updated.",
-    runtimeTitle: "Runtime Settings",
-    runtimeDescription: "Change safe environment-style settings without editing .env.",
-    runtimeUpdated: "Runtime setting updated.",
-    queuePausedTitle: "Codex queue paused.",
-    queuePausedDetail: "The current turn keeps running, but queued turns will not auto-run.",
-    queueResumedTitle: "Codex queue resumed.",
-    queueUpdatedTitle: "Codex queue mode updated.",
-    queueClearConfirmTitle: "Clear the whole queue?",
-    queueClearConfirmBody: "The current turn stays active; only queued turns are removed.",
-    clearAll: "Clear all",
-    queueNoTurns: "No queued Codex turns.",
-    queueButtonsHelp: "Use the buttons to control queue execution, mode, and item order.",
-    pauseAuto: "Pause auto-run",
-    resumeAuto: "Resume auto-run",
-    cancelItem: "Cancel",
-    clearQueueDone: "Queue cleared.",
-    settingFailure: "Setting update failed",
-    settingUpdated: "Settings updated.",
-    forgetConfirmTitle: "Forget this chat's thread binding and chat-specific settings?",
-    forgetConfirmBody: "This is only available when no turn is running.",
-    forgetRun: "Run forget",
-    commandsCore: "Core menu commands:",
-    buttonPanels: "Button panels:",
-    advancedCommands: "Advanced direct commands still work:",
-    menuHelp: "Open status, queue, settings, and tools in one panel.",
-    settingsHelp: "Change model, thinking, sandbox, approval, web, network, stream, language, time zone, and locale settings with buttons.",
-    toolsHelp: "Run health, doctor, logs, backup, export, cleanup, and forget with buttons.",
-    queueHelp: "Control pause/resume, mode, cancel, up, and next with buttons.",
-    commandMenu: "Open the control panel",
-    commandNew: "Start a new Codex thread",
-    commandResume: "Resume an existing thread",
-    commandStatus: "Show current thread and usage",
-    commandQueue: "Open the queue panel",
-    commandSettings: "Open settings buttons",
-    commandTools: "Open diagnostics and backup tools",
-    commandStop: "Stop the running Codex task",
-    commandHelp: "Show command help"
-  },
-  ko: {
-    mainInstruction: "필요한 패널을 버튼으로 열어 조작하세요.",
-    settingsInstruction: "설정할 항목을 선택하세요. 자유 입력이 필요한 값은 기존 직접 명령어 안내를 유지합니다.",
-    toolsInstruction: "진단, 로그, 백업, 정리 기능을 선택하세요.",
-    sandboxDescription: "Codex CLI sandbox mode를 선택합니다.",
-    approvalDescription: "Codex CLI approval policy를 선택합니다.",
-    webDescription: "웹 검색 모드를 선택합니다.",
-    networkDescription: "네트워크 접근 옵션을 선택합니다.",
-    streamDescription: "Codex SDK runStreamed 사용 여부를 선택합니다.",
-    gitDescription: "Git repo check skip 옵션을 선택합니다.",
-    fastInstruction: "버튼으로 fast service tier를 선택하세요.",
-    pathsTitle: "Path 설정",
-    pathsDirect: "/workdir <absolute-dir> 또는 /adddir <absolute-dir>는 직접 입력이 필요합니다.",
-    pathsButtons: "버튼으로는 기본값 복원과 추가 디렉터리 초기화만 제공합니다.",
-    schemaDirect: "/schema <json-schema>는 직접 입력이 필요합니다.",
-    schemaButtons: "버튼으로는 schema 비활성화만 제공합니다.",
-    liveAgent: "Codex가 실제로 말하는 중간 코멘트만 표시합니다.",
-    liveActivity: "명령 실행, 파일 수정, 도구 실행 중심으로 표시합니다.",
-    liveBoth: "두 종류를 모두 표시합니다.",
-    liveNever: "중간 메시지를 삭제하지 않고 모두 남깁니다.",
-    status: "상태",
-    queue: "대기열",
-    settings: "설정",
-    tools: "도구",
-    newThread: "새 thread",
-    resumeLast: "최근 이어가기",
-    stop: "중단",
-    help: "도움말",
-    refresh: "새로고침",
-    main: "메인",
-    model: "모델",
-    language: "언어",
-    timeZone: "시간대",
-    locale: "표시 형식",
-    runtime: "런타임",
-    output: "출력",
-    cleanup: "정리",
-    snapshots: "스냅샷",
-    on: "켜기",
-    off: "끄기",
-    default: "기본값",
-    korean: "한국어",
-    english: "영어",
-    enable: "켜기",
-    disable: "끄기",
-    backSettings: "설정",
-    clearDirs: "clear dirs",
-    schemaOff: "schema off",
-    prefsReset: "Prefs reset",
-    codexMaintenance: "🧹 Codex 유지보수",
-    maintenanceIntro: "keep-codex-fast 원칙에 맞춰 report-only, backup-first, archive-only 작업만 제공합니다.",
-    maintenanceScope: "thread cleanup과 별개로 worktree/log/config 상태를 점검하고 정리합니다.",
-    autoSqliteRepair: "자동 SQLite repair",
-    autoHandoff: "자동 handoff",
-    maintenanceReportDesc: "파일 이동/삭제/DB 수정 없음",
-    maintenanceBackupDesc: "Codex metadata 백업만 생성",
-    maintenanceConfigDesc: "백업 후 존재하지 않는 project block 제거",
-    maintenanceWorktreesDesc: "오래된 worktree를 archived_worktrees로 이동",
-    maintenanceLogsDesc: "임계값 초과 logs_2.sqlite 파일을 archived_logs로 이동",
-    maintenanceRepairDesc: "백업 후 thread 목록 표시 metadata만 제한",
-    maintenanceHandoffDesc: "현재 thread를 이어갈 수 있는 repo-local 문서 생성",
-    handoffCreate: "🧾 Handoff 생성",
-    repairRun: "🧬 Repair 실행",
-    cancel: "취소",
-    processing: "⏳ 처리 중",
-    busyBackup: "⏳ Codex 유지보수 백업 중",
-    busyBackupDetail: "완료되면 이 메시지가 결과로 바뀝니다.",
-    busyConfig: "⏳ Codex config prune 실행 중",
-    busyConfigDetail: "백업 후 존재하지 않는 project block만 제거합니다.",
-    busyWorktrees: "⏳ Codex stale worktree archive 실행 중",
-    busyWorktreesDetail: "삭제하지 않고 archived_worktrees로 이동합니다.",
-    busyLogs: "⏳ Codex log rotate 실행 중",
-    busyLogsDetail: "임계값을 넘은 logs_2.sqlite 파일을 archived_logs로 이동합니다.",
-    busyRepair: "⏳ SQLite metadata repair 실행 중",
-    busyRepairDetail: "백업 후 title/preview 표시 metadata만 제한 길이로 줄입니다. session transcript는 그대로 둡니다.",
-    busyHandoff: "⏳ Active thread handoff 생성 중",
-    busyHandoffDetail: "현재 Telegram chat에 연결된 Codex thread를 기준으로 handoff 문서를 만듭니다.",
-    sqliteConfirmTitle: "🧬 SQLite metadata repair 확인",
-    sqliteConfirmBody: "이 작업은 백업 후 `state_5.sqlite`의 thread 목록 표시 metadata만 수정합니다.",
-    sqliteNoTranscript: "실제 session JSONL transcript는 변경하지 않습니다.",
-    sqliteRestore: "restore script와 manifest를 백업 폴더에 남깁니다.",
-    sqliteAutoOff: "자동 실행은 기본 off입니다.",
-    sqliteContinue: "계속하려면 Repair 실행 버튼을 눌러주세요.",
-    maintenanceReportTitle: "📊 Codex 유지보수 Report",
-    nodeTop: "Node 상위 프로세스:",
-    maintenanceDone: "✅ Codex 유지보수 완료",
-    languageTitle: "언어 설정",
-    languageDescription: "Telegram 메뉴 언어를 선택합니다.",
-    languageUpdated: "언어 설정을 업데이트했습니다.",
-    timeZoneTitle: "시간대 설정",
-    timeZoneDescription: "알림과 시간 표시 기준 IANA timezone을 선택합니다.",
-    timeZoneUpdated: "시간대 설정을 업데이트했습니다.",
-    localeTitle: "표시 형식 설정",
-    localeDescription: "날짜/시간 표시 locale을 선택합니다.",
-    localeUpdated: "표시 형식 설정을 업데이트했습니다.",
-    runtimeTitle: "런타임 설정",
-    runtimeDescription: ".env를 직접 수정하지 않고 안전한 env 스타일 설정을 바꿉니다.",
-    runtimeUpdated: "런타임 설정을 업데이트했습니다.",
-    queuePausedTitle: "Codex queue paused.",
-    queuePausedDetail: "현재 실행 중인 turn은 계속 진행하고, 대기열은 자동 실행하지 않습니다.",
-    queueResumedTitle: "Codex queue resumed.",
-    queueUpdatedTitle: "Codex queue mode updated.",
-    queueClearConfirmTitle: "대기열을 모두 비울까요?",
-    queueClearConfirmBody: "현재 실행 중인 turn은 유지하고 queued turn만 삭제합니다.",
-    clearAll: "전체 비우기",
-    queueNoTurns: "No queued Codex turns.",
-    queueButtonsHelp: "버튼으로 대기열 실행, mode, 항목 순서를 조작할 수 있습니다.",
-    pauseAuto: "자동 실행 일시정지",
-    resumeAuto: "자동 실행 재개",
-    cancelItem: "취소",
-    clearQueueDone: "대기열을 비웠습니다.",
-    settingFailure: "설정 변경 실패",
-    settingUpdated: "설정을 업데이트했습니다.",
-    forgetConfirmTitle: "현재 채팅의 thread 연결과 채팅별 설정을 지울까요?",
-    forgetConfirmBody: "이 작업은 현재 실행 중인 turn이 없을 때만 가능합니다.",
-    forgetRun: "Forget 실행",
-    commandsCore: "메뉴에 보이는 핵심 명령어:",
-    buttonPanels: "버튼 패널:",
-    advancedCommands: "고급 직접 명령어도 계속 동작합니다:",
-    menuHelp: "상태, 대기열, 설정, 도구를 한 화면에서 엽니다.",
-    settingsHelp: "모델, thinking, sandbox, approval, web, network, stream, 언어, 시간대, 표시 형식을 버튼으로 바꿉니다.",
-    toolsHelp: "health, doctor, logs, backup, export, cleanup, forget을 버튼으로 실행합니다.",
-    queueHelp: "pause/resume, mode, cancel, up, next를 버튼으로 조작합니다.",
-    commandMenu: "전체 조작 패널 열기",
-    commandNew: "새 Codex thread 시작",
-    commandResume: "기존 thread 이어가기",
-    commandStatus: "현재 thread와 사용량 확인",
-    commandQueue: "대기열 패널 열기",
-    commandSettings: "설정 버튼 패널 열기",
-    commandTools: "진단과 백업 도구 열기",
-    commandStop: "실행 중인 Codex 작업 중단",
-    commandHelp: "명령어 도움말"
-  }
-};
 
 const DEFAULT_PERSONA_PROMPTS = {
   en: [
@@ -1017,7 +749,7 @@ bot.action(/^q:(pause|resume|clear|mode)(?::(safe|interrupt|side))?$/, async (ct
   await handleQueueButton(ctx, action, value || "");
 });
 
-bot.action(/^set:([a-z_]+):([a-z0-9_]+)$/, async (ctx) => {
+bot.action(/^set:([a-z_]+):([a-z0-9_-]+)$/, async (ctx) => {
   const [, key, value] = ctx.match;
   await ctx.answerCbQuery();
   await handleSettingButton(ctx, key, value);
@@ -3752,11 +3484,13 @@ function schemaKeyboard() {
 }
 
 function languageKeyboard() {
+  const current = uiLanguage();
   return inlineKeyboard([
-    [
-      { text: `🇺🇸 ${t("english")}`, callback_data: "set:language:en", style: uiLanguage() === "en" ? "success" : "primary" },
-      { text: `🇰🇷 ${t("korean")}`, callback_data: "set:language:ko", style: uiLanguage() === "ko" ? "success" : "primary" }
-    ],
+    ...chunkButtons(LANGUAGE_CHOICES.map(({ code: languageCode, emoji, nativeName }) => ({
+      text: `${current === languageCode ? "✅ " : ""}${emoji} ${nativeName}`,
+      callback_data: `set:language:${languageCode}`,
+      style: current === languageCode ? "success" : "primary"
+    })), 2),
     [{ text: t("settings"), callback_data: "p:settings" }, { text: t("main"), callback_data: "p:main" }]
   ]);
 }
@@ -4901,8 +4635,7 @@ async function registerTelegramCommands() {
       const commands = telegramCommands(uiLanguage());
       await withTimeout(Promise.all([
         bot.telegram.setMyCommands(commands),
-        bot.telegram.setMyCommands(commands, { language_code: "en" }),
-        bot.telegram.setMyCommands(commands, { language_code: "ko" })
+        ...TELEGRAM_LANGUAGE_CODES.map((languageCode) => bot.telegram.setMyCommands(commands, { language_code: languageCode }))
       ]), 5000, "setMyCommands timed out");
       return;
     } catch (error) {
@@ -4914,7 +4647,7 @@ async function registerTelegramCommands() {
 }
 
 function telegramCommands(language = uiLanguage()) {
-  const text = (key) => UI_TEXT[language]?.[key] ?? UI_TEXT.en[key] ?? key;
+  const text = (key) => textFor(language, key);
   return [
     { command: "menu", description: text("commandMenu") },
     { command: "new", description: text("commandNew") },
@@ -5393,7 +5126,7 @@ function uiLocale() {
 }
 
 function t(key) {
-  return UI_TEXT[uiLanguage()]?.[key] ?? UI_TEXT.en[key] ?? key;
+  return textFor(uiLanguage(), key);
 }
 
 function parseRequiredBoolean(value, label) {
