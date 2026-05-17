@@ -769,14 +769,14 @@ bot.action(/^cleanup:(quarantine|delete|both|ignore):([a-zA-Z0-9_-]+)$/, async (
   const plan = state.cleanup?.plans?.[planId];
   if (!plan) {
     await answerCleanupCallback(ctx, "missing");
-    await editCleanupMessage(ctx, `${b(uiLanguage() === "ko" ? "🧹 Cleanup plan을 찾을 수 없습니다." : "🧹 Cleanup plan not found")}\n${uiLanguage() === "ko" ? "이미 처리되었거나 만료되었습니다." : "It was already handled or expired."}\n\n${uiLanguage() === "ko" ? "새 후보가 필요하면" : "To get fresh candidates, run"} ${code("/cleanup")}.`);
+    await editCleanupMessage(ctx, `${b(t("cleanupPlanNotFoundTitle"))}\n${t("cleanupPlanNotFoundBody")}\n\n${t("cleanupFreshCandidatesPrompt")} ${code("/cleanup")}.`);
     return;
   }
   if (Date.now() > Date.parse(plan.expiresAt)) {
     await answerCleanupCallback(ctx, "expired");
     delete state.cleanup.plans[planId];
     await saveState(config.stateFile, state);
-    await editCleanupMessage(ctx, `${b(uiLanguage() === "ko" ? "⌛ Cleanup plan이 만료되었습니다." : "⌛ Cleanup plan expired")}\n${uiLanguage() === "ko" ? "승인 유효시간" : "Approval expired"}: ${code(formatDateTime(plan.expiresAt))}\n\n${uiLanguage() === "ko" ? "새 후보가 필요하면" : "To get fresh candidates, run"} ${code("/cleanup")}.`);
+    await editCleanupMessage(ctx, `${b(t("cleanupPlanExpiredTitle"))}\n${t("cleanupApprovalExpired")}: ${code(formatDateTime(plan.expiresAt))}\n\n${t("cleanupFreshCandidatesPrompt")} ${code("/cleanup")}.`);
     return;
   }
   await answerCleanupCallback(ctx, action);
@@ -797,7 +797,7 @@ bot.action(/^cleanup:(quarantine|delete|both|ignore):([a-zA-Z0-9_-]+)$/, async (
 
 bot.action(/^cleanup:processing:([a-zA-Z0-9_-]+)$/, async (ctx) => {
   try {
-    await ctx.answerCbQuery(uiLanguage() === "ko" ? "이미 처리 중입니다." : "Cleanup is already in progress.");
+    await ctx.answerCbQuery(t("cleanupAlreadyProcessing"));
   } catch (error) {
     console.warn("cleanup processing callback answer failed:", error instanceof Error ? error.message : String(error));
   }
@@ -2095,12 +2095,12 @@ function cleanupKeyboard(planId) {
     reply_markup: {
       inline_keyboard: [
         [
-          cleanupButton(`${uiLanguage() === "ko" ? "📦 격리만" : "📦 Quarantine only"} (${quarantineCount})`, `cleanup:quarantine:${planId}`, "primary"),
-          cleanupButton(`${uiLanguage() === "ko" ? "🗑️ 영구 삭제" : "🗑️ Delete permanently"} (${deleteCount})`, `cleanup:delete:${planId}`, "danger")
+          cleanupButton(`${t("cleanupButtonQuarantineOnly")} (${quarantineCount})`, `cleanup:quarantine:${planId}`, "primary"),
+          cleanupButton(`${t("cleanupButtonDeletePermanently")} (${deleteCount})`, `cleanup:delete:${planId}`, "danger")
         ],
         [
-          cleanupButton(uiLanguage() === "ko" ? "⚠️ 둘 다 실행" : "⚠️ Run both", `cleanup:both:${planId}`, "danger"),
-          cleanupButton(uiLanguage() === "ko" ? "✖️ 무시" : "✖️ Ignore", `cleanup:ignore:${planId}`, "primary")
+          cleanupButton(t("cleanupButtonRunBoth"), `cleanup:both:${planId}`, "danger"),
+          cleanupButton(t("cleanupButtonIgnore"), `cleanup:ignore:${planId}`, "primary")
         ]
       ]
     }
@@ -2115,37 +2115,37 @@ function formatCleanupPlanHtml(plan) {
   const quarantineBytes = sum(plan.quarantineCandidates.map((candidate) => candidate.bytes));
   const deleteBytes = sum(plan.deleteCandidates.map((candidate) => candidate.bytes));
   const lines = [
-    b(uiLanguage() === "ko" ? "Codex thread cleanup 후보입니다." : "Codex thread cleanup candidates"),
+    b(t("cleanupPlanTitle")),
     "",
-    `${uiLanguage() === "ko" ? "격리 예정" : "To quarantine"}: ${code(`${plan.quarantineCandidates.length}${uiLanguage() === "ko" ? "개" : ""}`)} (${code(formatBytes(quarantineBytes))})`,
-    `${uiLanguage() === "ko" ? "영구 삭제 예정" : "To delete permanently"}: ${code(`${plan.deleteCandidates.length}${uiLanguage() === "ko" ? "개" : ""}`)} (${code(formatBytes(deleteBytes))})`,
+    `${t("cleanupToQuarantine")}: ${code(cleanupCount(plan.quarantineCandidates.length))} (${code(formatBytes(quarantineBytes))})`,
+    `${t("cleanupToDeletePermanently")}: ${code(cleanupCount(plan.deleteCandidates.length))} (${code(formatBytes(deleteBytes))})`,
     "",
-    b(uiLanguage() === "ko" ? "보호됨:" : "Protected:"),
-    `- ${uiLanguage() === "ko" ? "현재 연결/실행 중 thread" : "Connected/running threads"}: ${code(`${plan.protectedCount}${uiLanguage() === "ko" ? "개" : ""}`)}`,
-    `- ${uiLanguage() === "ko" ? `최근 ${plan.retentionDays}일 thread/log` : `Threads/logs from the last ${plan.retentionDays} days`}: ${code(`${plan.recentCount}${uiLanguage() === "ko" ? "개" : ""}`)}`,
+    b(t("cleanupProtected")),
+    `- ${t("cleanupConnectedRunningThreads")}: ${code(cleanupCount(plan.protectedCount))}`,
+    `- ${tf("cleanupRecentThreadsLogs", { days: plan.retentionDays })}: ${code(cleanupCount(plan.recentCount))}`,
     "",
-    `${uiLanguage() === "ko" ? "격리 기준" : "Quarantine rule"}: ${code(uiLanguage() === "ko" ? `${plan.retentionDays}일 초과` : `older than ${plan.retentionDays} days`)}`,
-    `${uiLanguage() === "ko" ? "삭제 기준" : "Delete rule"}: ${code(uiLanguage() === "ko" ? `격리 후 ${plan.quarantineDays}일 초과` : `older than ${plan.quarantineDays} days after quarantine`)}`,
-    `${uiLanguage() === "ko" ? "승인 유효시간" : "Approval expires"}: ${code(formatDateTime(plan.expiresAt))}`
+    `${t("cleanupQuarantineRule")}: ${code(tf("cleanupOlderThanDays", { days: plan.retentionDays }))}`,
+    `${t("cleanupDeleteRule")}: ${code(tf("cleanupDeleteAfterQuarantineDays", { days: plan.quarantineDays }))}`,
+    `${t("cleanupApprovalExpires")}: ${code(formatDateTime(plan.expiresAt))}`
   ];
   lines.push(...formatCleanupMaintenanceSummaryLines(plan.maintenance));
 
   if (plan.quarantineCandidates.length > 0) {
-    lines.push("", b(uiLanguage() === "ko" ? "격리 후보 샘플:" : "Quarantine sample:"));
+    lines.push("", b(t("cleanupQuarantineSample")));
     for (const candidate of plan.quarantineCandidates.slice(0, 5)) {
       lines.push(`- ${code(candidate.threadId)} (${code(`${candidate.ageDays}d`)}, ${code(formatBytes(candidate.bytes))})`);
     }
   }
 
   if (plan.deleteCandidates.length > 0) {
-    lines.push("", b(uiLanguage() === "ko" ? "영구 삭제 후보 샘플:" : "Permanent delete sample:"));
+    lines.push("", b(t("cleanupPermanentDeleteSample")));
     for (const candidate of plan.deleteCandidates.slice(0, 5)) {
       lines.push(`- ${code(candidate.threadId)} (${code(`${candidate.quarantineAgeDays}d quarantined`)}, ${code(formatBytes(candidate.bytes))})`);
     }
   }
 
-  lines.push("", uiLanguage() === "ko" ? "중요 thread는 handoff 문서 작성 후 격리하세요." : "Create handoff docs before quarantining important threads.");
-  lines.push(uiLanguage() === "ko" ? "버튼을 누를 때까지 파일은 이동/삭제되지 않습니다." : "No files move or delete until you press a button.");
+  lines.push("", t("cleanupImportantHandoffWarning"));
+  lines.push(t("cleanupNoFilesUntilButton"));
   return lines.join("\n");
 }
 
@@ -2232,7 +2232,7 @@ async function applyCleanupPlan(plan, action) {
 function formatCleanupMaintenanceSummaryLines(report) {
   if (!report) return [];
   if (!report.ok) {
-    return ["", b(uiLanguage() === "ko" ? "Codex 유지보수 점검:" : "Codex maintenance check:"), `- report: ${code(report.error || "unavailable")}`];
+    return ["", b(t("cleanupMaintenanceCheck")), `- report: ${code(report.error || "unavailable")}`];
   }
   const sessions = report.sessions || {};
   const logs = report.logs || {};
@@ -2241,11 +2241,11 @@ function formatCleanupMaintenanceSummaryLines(report) {
   const configPrune = report.configPrune || {};
   return [
     "",
-    b(uiLanguage() === "ko" ? "Codex 유지보수 점검:" : "Codex maintenance check:"),
-    `- sessions: ${code(`${sessions.files ?? 0}${uiLanguage() === "ko" ? "개" : ""}`)} / ${code(formatBytes(sessions.bytes ?? 0))}`,
+    b(t("cleanupMaintenanceCheck")),
+    `- sessions: ${code(cleanupCount(sessions.files ?? 0))} / ${code(formatBytes(sessions.bytes ?? 0))}`,
     `- logs: ${code(formatBytes(logs.bytes ?? 0))} / rotate ${code(`${logs.rotateThresholdMb ?? config.codexMaintenanceLogRotateMb}MB`)}`,
-    `- stale worktrees: ${code(`${staleWorktrees.candidates ?? 0}${uiLanguage() === "ko" ? "개" : ""}`)}`,
-    `- ${uiLanguage() === "ko" ? "config prune 후보" : "config prune candidates"}: ${code(`${configPrune.candidates ?? 0}${uiLanguage() === "ko" ? "개" : ""}`)}`,
+    `- stale worktrees: ${code(cleanupCount(staleWorktrees.candidates ?? 0))}`,
+    `- ${t("cleanupMaintenanceConfigPruneCandidates")}: ${code(cleanupCount(configPrune.candidates ?? 0))}`,
     `- metadata bloat: title ${code(metadata.titlesOverLimit ?? 0)} / preview ${code(metadata.previewsOverLimit ?? 0)}`
   ];
 }
@@ -2303,26 +2303,26 @@ async function editCleanupMessage(ctx, html) {
 async function editCleanupProcessingMessage(ctx, action, plan) {
   return editOrReplyHtml(ctx, formatCleanupProcessingHtml(action, plan), {
     reply_markup: {
-      inline_keyboard: [[{ text: "⏳ 처리 중...", callback_data: `cleanup:processing:${plan.id}` }]]
+      inline_keyboard: [[{ text: t("cleanupProcessingButton"), callback_data: `cleanup:processing:${plan.id}` }]]
     }
   });
 }
 
 function cleanupActionLabel(action) {
-  if (action === "quarantine") return "📦 격리";
-  if (action === "delete") return "🗑️ 영구 삭제";
-  if (action === "both") return "⚠️ 격리 + 영구 삭제";
-  if (action === "ignore") return "✖️ 무시";
+  if (action === "quarantine") return t("cleanupActionQuarantine");
+  if (action === "delete") return t("cleanupActionDelete");
+  if (action === "both") return t("cleanupActionBoth");
+  if (action === "ignore") return t("cleanupActionIgnore");
   return action;
 }
 
 function cleanupCallbackText(action) {
-  if (action === "quarantine") return uiLanguage() === "ko" ? "격리 처리를 시작합니다." : "Starting quarantine.";
-  if (action === "delete") return uiLanguage() === "ko" ? "영구 삭제 처리를 시작합니다." : "Starting permanent deletion.";
-  if (action === "both") return uiLanguage() === "ko" ? "격리와 영구 삭제를 시작합니다." : "Starting cleanup.";
-  if (action === "ignore") return uiLanguage() === "ko" ? "Cleanup 후보를 무시합니다." : "Ignoring cleanup candidates.";
-  if (action === "missing") return uiLanguage() === "ko" ? "Cleanup plan을 찾을 수 없습니다." : "Cleanup plan not found.";
-  if (action === "expired") return uiLanguage() === "ko" ? "Cleanup plan이 만료되었습니다." : "Cleanup plan expired.";
+  if (action === "quarantine") return t("cleanupCallbackQuarantine");
+  if (action === "delete") return t("cleanupCallbackDelete");
+  if (action === "both") return t("cleanupCallbackBoth");
+  if (action === "ignore") return t("cleanupCallbackIgnore");
+  if (action === "missing") return t("cleanupCallbackMissing");
+  if (action === "expired") return t("cleanupCallbackExpired");
   return "";
 }
 
@@ -2336,49 +2336,47 @@ async function answerCleanupCallback(ctx, action) {
 
 function formatCleanupProcessingHtml(action, plan) {
   const lines = [
-    b(`⏳ Cleanup 처리 중: ${cleanupActionLabel(action)}`),
+    b(tf("cleanupProcessingTitle", { action: cleanupActionLabel(action) })),
     "",
-    uiLanguage() === "ko"
-      ? "버튼 입력을 받았습니다. 중복 실행을 막기 위해 버튼을 잠시 비활성화했습니다."
-      : "Button input received. The action button is temporarily disabled to prevent duplicate execution.",
+    t("cleanupProcessingBody"),
     "",
-    b(uiLanguage() === "ko" ? "처리 대상:" : "Targets:"),
-    `- ${uiLanguage() === "ko" ? "격리 후보" : "Quarantine candidates"}: ${code(`${plan.quarantineCandidates.length}${uiLanguage() === "ko" ? "개" : ""}`)}`,
-    `- ${uiLanguage() === "ko" ? "영구 삭제 후보" : "Permanent delete candidates"}: ${code(`${plan.deleteCandidates.length}${uiLanguage() === "ko" ? "개" : ""}`)}`,
+    b(t("cleanupTargets")),
+    `- ${t("cleanupQuarantineCandidates")}: ${code(cleanupCount(plan.quarantineCandidates.length))}`,
+    `- ${t("cleanupPermanentDeleteCandidates")}: ${code(cleanupCount(plan.deleteCandidates.length))}`,
     "",
-    uiLanguage() === "ko" ? "완료되면 이 메시지가 결과로 바뀝니다." : "This message will be replaced with the final result."
+    t("cleanupFinishReplace")
   ];
   return lines.join("\n");
 }
 
 function formatCleanupIgnoredHtml(plan) {
   return [
-    b("✖️ Codex thread cleanup 무시됨"),
+    b(t("cleanupIgnoredTitle")),
     "",
-    `격리 후보: ${code(`${plan.quarantineCandidates.length}개`)}`,
-    `영구 삭제 후보: ${code(`${plan.deleteCandidates.length}개`)}`,
+    `${t("cleanupQuarantineCandidates")}: ${code(cleanupCount(plan.quarantineCandidates.length))}`,
+    `${t("cleanupPermanentDeleteCandidates")}: ${code(cleanupCount(plan.deleteCandidates.length))}`,
     "",
-    "파일은 이동/삭제되지 않았습니다."
+    t("cleanupNoFilesMoved")
   ].join("\n");
 }
 
 function formatCleanupResultHtml(action, result, plan = null) {
   const lines = [
-    b(`✅ Cleanup 처리 완료: ${cleanupActionLabel(action)}`),
+    b(tf("cleanupResultTitle", { action: cleanupActionLabel(action) })),
     "",
-    `격리 완료: ${code(result.quarantined)}`,
-    `영구 삭제 완료: ${code(result.deleted)}`,
-    `보호/스킵: ${code(result.skipped)}`,
-    `오류: ${code(result.errors.length)}`,
+    `${t("cleanupResultQuarantined")}: ${code(result.quarantined)}`,
+    `${t("cleanupResultDeleted")}: ${code(result.deleted)}`,
+    `${t("cleanupResultSkipped")}: ${code(result.skipped)}`,
+    `${t("cleanupResultErrors")}: ${code(result.errors.length)}`,
     `manifest: ${code(result.manifest || "none")}`,
     `restore: ${code(result.restoreScript || "none")}`
   ];
   if (plan) {
     lines.push(
       "",
-      b("처리 대상 요약:"),
-      `- 격리 후보: ${code(`${plan.quarantineCandidates.length}개`)}`,
-      `- 영구 삭제 후보: ${code(`${plan.deleteCandidates.length}개`)}`
+      b(t("cleanupTargetSummary")),
+      `- ${t("cleanupQuarantineCandidates")}: ${code(cleanupCount(plan.quarantineCandidates.length))}`,
+      `- ${t("cleanupPermanentDeleteCandidates")}: ${code(cleanupCount(plan.deleteCandidates.length))}`
     );
   }
   if (result.errors.length > 0) {
@@ -4150,12 +4148,12 @@ function formatCodexMaintenanceReportHtml(report) {
     b(t("maintenanceReportTitle")),
     "",
     `codexHome: ${code(report.codexHome || config.codexHome)}`,
-    `sessions: ${code(`${sessions.files ?? 0}개`)} / ${code(formatBytes(sessions.bytes ?? 0))}`,
-    `archived sessions: ${code(`${archived.files ?? 0}개`)} / ${code(formatBytes(archived.bytes ?? 0))}`,
-    `worktrees: ${code(`${worktrees.count ?? 0}개`)} / ${code(formatBytes(worktrees.bytes ?? 0))}`,
-    `stale worktrees: ${code(`${stale.candidates ?? 0}개`)} / ${code(formatBytes(stale.bytes ?? 0))}`,
+    `sessions: ${code(cleanupCount(sessions.files ?? 0))} / ${code(formatBytes(sessions.bytes ?? 0))}`,
+    `archived sessions: ${code(cleanupCount(archived.files ?? 0))} / ${code(formatBytes(archived.bytes ?? 0))}`,
+    `worktrees: ${code(cleanupCount(worktrees.count ?? 0))} / ${code(formatBytes(worktrees.bytes ?? 0))}`,
+    `stale worktrees: ${code(cleanupCount(stale.candidates ?? 0))} / ${code(formatBytes(stale.bytes ?? 0))}`,
     `logs: ${code(formatBytes(logs.bytes ?? 0))} / rotate ${code(`${logs.rotateThresholdMb ?? config.codexMaintenanceLogRotateMb}MB`)}`,
-    `${uiLanguage() === "ko" ? "config prune 후보" : "config prune candidates"}: ${code(`${configPrune.candidates ?? 0}${uiLanguage() === "ko" ? "개" : ""}`)}`,
+    `${t("cleanupMaintenanceConfigPruneCandidates")}: ${code(cleanupCount(configPrune.candidates ?? 0))}`,
     `metadata bloat: title ${code(metadata.titlesOverLimit ?? 0)} / preview ${code(metadata.previewsOverLimit ?? 0)} / 10k+ ${code(metadata.previewsOver10k ?? 0)}`
   ];
   if (nodeRows.length > 0) {
@@ -5372,6 +5370,16 @@ function uiLocale() {
 
 function t(key) {
   return textFor(uiLanguage(), key);
+}
+
+function tf(key, values = {}) {
+  return t(key).replace(/\{([a-zA-Z0-9_]+)\}/g, (match, name) => (
+    Object.hasOwn(values, name) ? String(values[name]) : match
+  ));
+}
+
+function cleanupCount(value) {
+  return `${value}${t("cleanupCountSuffix")}`;
 }
 
 function parseRequiredBoolean(value, label) {
