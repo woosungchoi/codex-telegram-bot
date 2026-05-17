@@ -248,9 +248,7 @@ async function handleNewCommand(ctx) {
       ctx,
       chatKey,
       thread,
-      applyPersonaPrompt(uiLanguage() === "ko"
-        ? "새 Telegram Codex 세션을 시작합니다. 이 메시지에는 짧게 준비 완료라고만 답하세요."
-        : "Start a new Telegram Codex session. Reply only with a short ready confirmation."),
+      applyPersonaPrompt(t("newThreadPersonaPrompt")),
       abortController.signal
     );
     await rememberThread(chatKey, thread);
@@ -716,7 +714,7 @@ async function handleQueueCommand(ctx, overrideArg = null) {
   if (arg === "resume") {
     await setQueuePaused(chatKey, false);
     const started = await startQueueDrainIfIdle(chatKey, ctx);
-    await replyHtml(ctx, `${b(t("queueResumedTitle"))}${started ? `\n${uiLanguage() === "ko" ? "대기열 실행을 다시 시작했습니다." : "Queue processing restarted."}` : ""}\n\n${formatQueueHtml(chatKey)}`, queueKeyboard(chatKey));
+    await replyHtml(ctx, `${b(t("queueResumedTitle"))}${started ? `\n${t("queueProcessingRestarted")}` : ""}\n\n${formatQueueHtml(chatKey)}`, queueKeyboard(chatKey));
     return;
   }
   if (arg && arg !== "status") {
@@ -1023,7 +1021,7 @@ async function handleInterruptMessage(ctx, chatKey, text, loadImages) {
   active.interruptRequested = true;
   if (active.abortController) active.abortController.abort();
   else active.interruptBeforeStart = true;
-  await replyHtml(ctx, `${b("Interrupt requested.")}\n현재 turn을 중단하고 새 메시지를 다음 turn으로 바로 실행합니다.`);
+  await replyHtml(ctx, `${b(t("interruptRequestedTitle"))}\n${t("interruptRequestedDetail")}`);
 }
 
 async function handleSideMessage(ctx, chatKey, text, loadImages) {
@@ -1038,7 +1036,7 @@ async function handleSideMessage(ctx, chatKey, text, loadImages) {
   processSideTurn(chatKey, preparedTurn).catch(async (error) => {
     await replyHtml(ctx, `<b>Side turn failed</b>\n${code(error instanceof Error ? error.message : String(error))}`).catch(() => {});
   });
-  await replyHtml(ctx, `${b("Side turn started.")}\n현재 작업은 유지하고, 별도 thread에서 답변합니다.`);
+  await replyHtml(ctx, `${b(t("sideTurnStartedTitle"))}\n${t("sideTurnStartedDetail")}`);
 }
 
 async function startPreparedTurnQueue(chatKey, preparedTurn) {
@@ -1155,7 +1153,7 @@ async function processPreparedTurn(chatKey, preparedTurn, active) {
     const message = error instanceof Error ? error.message : String(error);
     finalReaction = active.abortController.signal.aborted ? config.telegramStoppedReaction : config.telegramErrorReaction;
     if (active.interruptRequested && active.abortController.signal.aborted) {
-      await replyHtml(ctx, `${b("Codex turn interrupted.")}\n새 메시지를 다음 turn으로 실행합니다.`);
+      await replyHtml(ctx, `${b(t("codexTurnInterruptedTitle"))}\n${t("codexTurnInterruptedDetail")}`);
       active.interruptRequested = false;
     } else {
       await replyHtml(ctx, `<b>Codex failed</b>\n${code(message)}`);
@@ -1616,7 +1614,7 @@ function isPendingTurnExpired(turn) {
 }
 
 async function notifyExpiredPendingTurns(ctx, count) {
-  await replyHtml(ctx, `만료된 queued turn을 정리했습니다: ${code(count)}개`);
+  await replyHtml(ctx, tf("expiredQueuedTurnsCleaned", { count: code(cleanupCount(count)) }));
 }
 
 function findPendingTurnIndex(queue, selector) {
@@ -2937,66 +2935,65 @@ function buildAgentLiveProgressMessage(event) {
 }
 
 function buildActivityLiveProgressMessage(event, items, language = "en") {
-  const ko = language === "ko";
   if (event.type === "turn.started") {
-    return { key: "turn-started", html: ko ? "작업 시작했어요. 요청을 분석하고 있습니다." : "Work started. Analyzing the request.", important: true };
+    return { key: "turn-started", html: lt(language, "liveTurnStarted"), important: true };
   }
   if (event.type === "turn.completed") {
-    return { key: "turn-completed", html: ko ? "작업을 마무리하고 최종 답변을 준비하고 있습니다." : "Wrapping up and preparing the final answer.", important: true };
+    return { key: "turn-completed", html: lt(language, "liveTurnCompleted"), important: true };
   }
   if (event.type !== "item.started" && event.type !== "item.updated" && event.type !== "item.completed") return null;
 
   const item = event.item;
   if (!item) return null;
   if (item.type === "reasoning") {
-    return { key: "reasoning", html: ko ? "요청을 분석하고 다음 작업을 정리하고 있습니다." : "Analyzing the request and planning the next step.", important: false };
+    return { key: "reasoning", html: lt(language, "liveReasoning"), important: false };
   }
   if (item.type === "todo_list") {
     const remaining = item.items?.filter((todo) => !todo.completed).length ?? 0;
     return {
       key: `todo-${remaining}`,
       html: remaining > 0
-        ? (ko ? `작업 순서를 정리했습니다. 남은 단계: ${code(remaining)}` : `Planned the work order. Remaining steps: ${code(remaining)}`)
-        : (ko ? "작업 목록을 정리하고 있습니다." : "Organizing the task list."),
+        ? ltf(language, "liveTodoRemaining", { remaining: code(remaining) })
+        : lt(language, "liveTodoOrganizing"),
       important: false
     };
   }
   if (item.type === "command_execution") {
     const command = shortCommand(item.command || "");
     if (item.status === "failed") {
-      return { key: `cmd-failed-${item.id}`, html: ko ? `명령 실행이 실패해서 확인하고 있습니다: ${code(command)}` : `Command failed; checking it now: ${code(command)}`, important: true };
+      return { key: `cmd-failed-${item.id}`, html: ltf(language, "liveCommandFailed", { command: code(command) }), important: true };
     }
     if (item.status === "completed") {
-      return { key: `cmd-done-${item.id}`, html: ko ? `명령 실행을 마쳤습니다: ${code(command)}` : `Command finished: ${code(command)}`, important: false };
+      return { key: `cmd-done-${item.id}`, html: ltf(language, "liveCommandFinished", { command: code(command) }), important: false };
     }
-    return { key: `cmd-running-${item.id}`, html: ko ? `명령을 실행하고 있습니다: ${code(command)}` : `Running command: ${code(command)}`, important: false };
+    return { key: `cmd-running-${item.id}`, html: ltf(language, "liveCommandRunning", { command: code(command) }), important: false };
   }
   if (item.type === "file_change") {
     const paths = summarizeFileChangePaths(item);
     if (item.status === "failed") {
-      return { key: `file-failed-${item.id}`, html: ko ? "파일 수정 적용이 실패해서 확인하고 있습니다." : "File change failed; checking it now.", important: true };
+      return { key: `file-failed-${item.id}`, html: lt(language, "liveFileFailed"), important: true };
     }
-    return { key: `file-done-${item.id}`, html: ko ? `파일을 수정했습니다: ${code(paths || "변경 파일")}` : `Updated files: ${code(paths || "changed files")}`, important: true };
+    return { key: `file-done-${item.id}`, html: ltf(language, "liveFileUpdated", { paths: code(paths || lt(language, "liveChangedFiles")) }), important: true };
   }
   if (item.type === "mcp_tool_call") {
     const tool = shortToolName(item);
     if (item.status === "failed") {
-      return { key: `tool-failed-${item.id}`, html: ko ? `도구 실행이 실패해서 확인하고 있습니다: ${code(tool)}` : `Tool call failed; checking it now: ${code(tool)}`, important: true };
+      return { key: `tool-failed-${item.id}`, html: ltf(language, "liveToolFailed", { tool: code(tool) }), important: true };
     }
     if (item.status === "completed") {
-      return { key: `tool-done-${item.id}`, html: ko ? `도구 실행을 마쳤습니다: ${code(tool)}` : `Tool call finished: ${code(tool)}`, important: false };
+      return { key: `tool-done-${item.id}`, html: ltf(language, "liveToolFinished", { tool: code(tool) }), important: false };
     }
-    return { key: `tool-running-${item.id}`, html: ko ? `도구를 실행하고 있습니다: ${code(tool)}` : `Running tool: ${code(tool)}`, important: false };
+    return { key: `tool-running-${item.id}`, html: ltf(language, "liveToolRunning", { tool: code(tool) }), important: false };
   }
   if (item.type === "web_search") {
-    if (event.type === "item.completed") return { key: `web-done-${item.id}`, html: ko ? "웹 확인을 마쳤습니다." : "Web check finished.", important: false };
-    return { key: `web-running-${item.id}`, html: ko ? "웹에서 필요한 정보를 확인하고 있습니다." : "Checking information on the web.", important: false };
+    if (event.type === "item.completed") return { key: `web-done-${item.id}`, html: lt(language, "liveWebFinished"), important: false };
+    return { key: `web-running-${item.id}`, html: lt(language, "liveWebRunning"), important: false };
   }
   if (item.type === "error") {
-    return { key: `item-error-${item.id}`, html: ko ? "작업 중 오류 신호를 확인하고 있습니다." : "Checking an error signal from the task.", important: true };
+    return { key: `item-error-${item.id}`, html: lt(language, "liveItemError"), important: true };
   }
   if (item.type === "agent_message" && event.type !== "item.completed") {
-    return { key: "agent-message-draft", html: ko ? "최종 답변을 작성하고 있습니다." : "Drafting the final answer.", important: false };
+    return { key: "agent-message-draft", html: lt(language, "liveAgentDraft"), important: false };
   }
   return null;
 }
@@ -3041,7 +3038,7 @@ async function sendCompletionNotice(ctx, turn, startedAt) {
   if (counts.command_execution) details.push(`cmd:${counts.command_execution}`);
   if (counts.file_change) details.push(`files:${counts.file_change}`);
   if (counts.web_search) details.push(`web:${counts.web_search}`);
-  await replyHtml(ctx, `완료: ${code(formatDurationSeconds(elapsedSeconds))}${details.length > 0 ? ` (${code(details.join(", "))})` : ""}`);
+  await replyHtml(ctx, `${t("completionNotice")}: ${code(formatDurationSeconds(elapsedSeconds))}${details.length > 0 ? ` (${code(details.join(", "))})` : ""}`);
 }
 
 async function sendModelSelection(ctx, chatKey) {
@@ -3187,7 +3184,7 @@ async function fastPanelHtml(chatKey) {
 
 function settingPanelHtml(title, current, description) {
   return [
-    b(uiLanguage() === "ko" ? `${title} 설정` : `${title} Settings`),
+    b(tf("settingPanelTitle", { title })),
     `Current: ${code(current)}`,
     "",
     description
@@ -3467,18 +3464,18 @@ function liveProgressKeyboard() {
       { text: t("default"), callback_data: "set:liveprogress:default" }
     ],
     [
-      { text: uiLanguage() === "ko" ? "Codex 코멘트" : "Codex comments", callback_data: "set:liveprogresssource:agent" },
-      { text: uiLanguage() === "ko" ? "작업 활동" : "Activity", callback_data: "set:liveprogresssource:activity" },
-      { text: uiLanguage() === "ko" ? "둘 다" : "Both", callback_data: "set:liveprogresssource:both" }
+      { text: t("liveProgressSourceAgent"), callback_data: "set:liveprogresssource:agent" },
+      { text: t("liveProgressSourceActivity"), callback_data: "set:liveprogresssource:activity" },
+      { text: t("liveProgressSourceBoth"), callback_data: "set:liveprogresssource:both" }
     ],
     [
-      { text: uiLanguage() === "ko" ? "항상 삭제" : "Always delete", callback_data: "set:liveprogressdelete:always" },
-      { text: uiLanguage() === "ko" ? "성공 시 삭제" : "Delete on success", callback_data: "set:liveprogressdelete:on_success" },
-      { text: uiLanguage() === "ko" ? "모두 남김" : "Keep all", callback_data: "set:liveprogressdelete:never" }
+      { text: t("liveProgressDeleteAlways"), callback_data: "set:liveprogressdelete:always" },
+      { text: t("liveProgressDeleteOnSuccess"), callback_data: "set:liveprogressdelete:on_success" },
+      { text: t("liveProgressDeleteNever"), callback_data: "set:liveprogressdelete:never" }
     ],
     [
-      { text: uiLanguage() === "ko" ? "출력 기본값" : "Source default", callback_data: "set:liveprogresssource:default" },
-      { text: uiLanguage() === "ko" ? "삭제 기본값" : "Delete default", callback_data: "set:liveprogressdelete:default" }
+      { text: t("liveProgressSourceDefault"), callback_data: "set:liveprogresssource:default" },
+      { text: t("liveProgressDeleteDefault"), callback_data: "set:liveprogressdelete:default" }
     ],
     [
       { text: "brief", callback_data: "set:runtime_liveprogressmode:brief" },
@@ -4170,13 +4167,13 @@ function formatCodexMaintenanceResultHtml(result) {
     b(`${t("maintenanceDone")}: ${result.action || "unknown"}`),
     "",
     `backupRoot: ${code(result.backupRoot || "none")}`,
-    `backedUp: ${code(`${Array.isArray(result.backedUp) ? result.backedUp.length : 0}개`)}`
+    `backedUp: ${code(cleanupCount(Array.isArray(result.backedUp) ? result.backedUp.length : 0))}`
   ];
   if (result.configPrune) {
-    lines.push(`config prune: 후보 ${code(result.configPrune.candidates)} / applied ${code(result.configPrune.applied)}`);
+    lines.push(`config prune: ${t("maintenanceCandidates")}: ${code(result.configPrune.candidates)} / applied ${code(result.configPrune.applied)}`);
   }
   if (result.worktreeArchive) {
-    lines.push(`worktrees: 후보 ${code(result.worktreeArchive.candidates)} / moved ${code(result.worktreeArchive.moved)} / ${code(formatBytes(result.worktreeArchive.bytes || 0))}`);
+    lines.push(`worktrees: ${t("maintenanceCandidates")}: ${code(result.worktreeArchive.candidates)} / moved ${code(result.worktreeArchive.moved)} / ${code(formatBytes(result.worktreeArchive.bytes || 0))}`);
     lines.push(`manifest: ${code(result.worktreeArchive.manifest || "none")}`);
   }
   if (result.logRotate) {
@@ -4186,7 +4183,7 @@ function formatCodexMaintenanceResultHtml(result) {
   }
   if (result.sqliteMetadataRepair) {
     const repair = result.sqliteMetadataRepair;
-    lines.push(`sqlite repair: 후보 ${code(repair.candidates ?? 0)} / repaired ${code(repair.repaired ?? 0)}`);
+    lines.push(`sqlite repair: ${t("maintenanceCandidates")}: ${code(repair.candidates ?? 0)} / repaired ${code(repair.repaired ?? 0)}`);
     lines.push(`limits: title ${code(repair.titleLimit ?? config.codexMaintenanceThreadTitleLimit)} / preview ${code(repair.previewLimit ?? config.codexMaintenanceThreadPreviewLimit)}`);
     if (repair.manifest) lines.push(`manifest: ${code(repair.manifest)}`);
     if (repair.restoreScript) lines.push(`restore: ${code(repair.restoreScript)}`);
@@ -4201,7 +4198,7 @@ async function createCurrentThreadHandoff(chatKey) {
   const fallbackSession = chat.threadId || cached?.id ? null : (await listRecentCodexSessions(1))[0] ?? null;
   const threadId = chat.threadId || cached?.id || fallbackSession?.id || "";
   if (!threadId) {
-    throw new Error("handoff를 만들 Codex thread가 없습니다. 먼저 /resume 또는 /new로 thread를 연결하세요.");
+    throw new Error(t("handoffNoThreadError"));
   }
   return createThreadHandoff(threadId);
 }
@@ -4209,7 +4206,7 @@ async function createCurrentThreadHandoff(chatKey) {
 async function createThreadHandoff(threadId) {
   const sessionFile = await findCodexSessionFile(threadId);
   if (!sessionFile) {
-    throw new Error(`session 파일을 찾을 수 없습니다: ${threadId}`);
+    throw new Error(tf("handoffSessionFileNotFound", { threadId }));
   }
   const meta = await readSessionMeta(sessionFile);
   const highlights = await readSessionHighlights(sessionFile, config.codexHandoffRecentEvents);
@@ -4339,11 +4336,11 @@ function renderHandoffMarkdown({ threadId, sessionFile, meta, highlights, genera
 }
 
 function formatHandoffResultHtml(result) {
-  return formatKeyValueHtml("🧾 Active thread handoff 생성 완료", [
+  return formatKeyValueHtml(t("handoffResultTitle"), [
     ["thread", result.threadId],
     ["file", result.file],
     ["cwd", result.cwd || "unknown"],
-    ["highlights", `${result.highlights}개`]
+    ["highlights", cleanupCount(result.highlights)]
   ]);
 }
 
@@ -4384,7 +4381,7 @@ async function handleConfirmButton(ctx, action) {
     delete state.queues[chatKey];
     pendingTurns.delete(chatKey);
     await saveState(config.stateFile, state);
-    await editOrReplyHtml(ctx, uiLanguage() === "ko" ? "Codex thread와 채팅별 설정을 지웠습니다." : "Forgot the Codex thread and chat-specific options.", backToMainKeyboard());
+    await editOrReplyHtml(ctx, t("forgetDone"), backToMainKeyboard());
     return;
   }
   if (action === "prefs_reset") {
@@ -4394,7 +4391,7 @@ async function handleConfirmButton(ctx, action) {
     delete chat.outputSchema;
     invalidateThreadCache(chatKey);
     await saveState(config.stateFile, state);
-    await editOrReplyHtml(ctx, `${b(uiLanguage() === "ko" ? "Preferences 초기화 완료" : "Preferences reset.")}\n\n${settingsPanelHtml(chatKey)}`, settingsKeyboard());
+    await editOrReplyHtml(ctx, `${b(t("prefsResetDone"))}\n\n${settingsPanelHtml(chatKey)}`, settingsKeyboard());
   }
 }
 
@@ -4475,24 +4472,24 @@ function formatModelSelectionHtml(chatKey, models) {
   const options = getEffectiveOptions(chatKey);
   const fastModels = models.filter((model) => model.fastSupported).map((model) => model.slug);
   return [
-    b(uiLanguage() === "ko" ? "Model 선택" : "Model Selection"),
+    b(t("modelSelectionTitle")),
     `Current model: ${code(options.model || "default")}`,
     `Current thinking: ${code(options.modelReasoningEffort)}`,
     `Fast service tier: ${code(options.serviceTier || "default")}`,
     "",
-    uiLanguage() === "ko" ? "모델을 선택하면 thinking 설정 버튼이 이어서 표시됩니다." : "Choose a model; thinking buttons will be shown next.",
-    `⚡ Fast 지원: ${code(fastModels.length > 0 ? fastModels.join(", ") : "unknown")}`
+    t("modelSelectionDescription"),
+    `${t("fastSupportedLabel")}: ${code(fastModels.length > 0 ? fastModels.join(", ") : "unknown")}`
   ].join("\n");
 }
 
 function formatReasoningPromptHtml(chatKey) {
   const options = getEffectiveOptions(chatKey);
   return [
-    b(uiLanguage() === "ko" ? "Thinking 설정" : "Thinking Settings"),
+    b(t("thinkingSettingsTitle")),
     `Model: ${code(options.model || "default")}`,
     `Current thinking: ${code(options.modelReasoningEffort)}`,
     "",
-    uiLanguage() === "ko" ? "사용할 thinking level을 선택하세요." : "Choose the thinking level to use."
+    t("thinkingSettingsDescription")
   ].join("\n");
 }
 
@@ -4617,9 +4614,9 @@ function formatQueueModeHtml(chatKey) {
     b("Codex queue mode"),
     `Current: ${code(getQueueMode(chatKey))}`,
     "",
-    `${code("safe")}: ${uiLanguage() === "ko" ? "실행 중 새 메시지를 queue에 저장하고 순차 실행합니다." : "Queue new messages while a turn is running and process them in order."}`,
-    `${code("interrupt")}: ${uiLanguage() === "ko" ? "실행 중 새 메시지가 오면 현재 turn을 중단하고 새 메시지를 다음 turn으로 바로 실행합니다." : "Interrupt the current turn and run the new message next."}`,
-    `${code("side")}: ${uiLanguage() === "ko" ? "현재 turn은 유지하고 새 메시지는 별도 side thread에서 답합니다." : "Keep the current turn running and answer the new message in a side thread."}`,
+    `${code("safe")}: ${t("queueModeSafeDescription")}`,
+    `${code("interrupt")}: ${t("queueModeInterruptDescription")}`,
+    `${code("side")}: ${t("queueModeSideDescription")}`,
     "",
     `Change with ${code("/queue_mode_safe")}, ${code("/queue_mode_interrupt")}, or ${code("/queue_mode_side")}.`
   ].join("\n");
@@ -5374,6 +5371,16 @@ function t(key) {
 
 function tf(key, values = {}) {
   return t(key).replace(/\{([a-zA-Z0-9_]+)\}/g, (match, name) => (
+    Object.hasOwn(values, name) ? String(values[name]) : match
+  ));
+}
+
+function lt(language, key) {
+  return textFor(parseLanguage(language), key);
+}
+
+function ltf(language, key, values = {}) {
+  return lt(language, key).replace(/\{([a-zA-Z0-9_]+)\}/g, (match, name) => (
     Object.hasOwn(values, name) ? String(values[name]) : match
   ));
 }
