@@ -2,6 +2,11 @@
 
 All notable public changes are documented here.
 
+## 1.0.5 - 2026-05-21
+
+- Updated `@openai/codex-sdk` and the public development `@openai/codex` CLI
+  package to `0.132.0`.
+
 ## 1.0.4 - 2026-05-17
 
 - Moved cleanup action messages, status text, and result summaries into locale
