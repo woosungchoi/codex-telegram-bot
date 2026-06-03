@@ -9,11 +9,13 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Codex } from "@openai/codex-sdk";
-import MarkdownIt from "markdown-it";
 import { Telegraf } from "telegraf";
 import { readConfig as readRuntimeConfig } from "./config.js";
 import { LANGUAGE_CHOICES, TELEGRAM_LANGUAGE_CODES, VALID_LANGUAGES, textFor } from "./i18n.js";
 import { authorizeTelegramUpdate } from "./security.js";
+import { b, code, escapeHtml, pre, stripHtml } from "./telegram/html.js";
+import { formatCodexAnswerMarkdownHtml, formatCodexAnswerSafeHtml } from "./telegram/markdown.js";
+import { splitMarkdownAware, splitText } from "./telegram/split.js";
 import { isRegisteredTelegramCommandText } from "./telegram_commands.js";
 
 const execFileAsync = promisify(execFile);
@@ -181,12 +183,6 @@ const FALLBACK_CODEX_MODELS = [
 
 const config = readRuntimeConfig();
 const bot = new Telegraf(config.telegramBotToken, { handlerTimeout: Infinity });
-const markdown = new MarkdownIt({
-  html: false,
-  linkify: false,
-  typographer: false
-});
-
 const state = await loadState(config.stateFile);
 const threadCache = new Map();
 const activeTurns = new Map();
@@ -4986,242 +4982,6 @@ async function sendHtmlMessage(chatId, html, extra = {}) {
   }
 }
 
-function formatCodexAnswerSafeHtml(text) {
-  let html = "";
-  let index = 0;
-  const fencePattern = /```([^\n`]*)\n?([\s\S]*?)```/g;
-
-  for (const match of text.matchAll(fencePattern)) {
-    html += formatInlineCodeSafeHtml(text.slice(index, match.index));
-    const language = match[1]?.trim();
-    const body = match[2] ?? "";
-    const label = language ? `${language}\n` : "";
-    html += pre(`${label}${body}`);
-    index = match.index + match[0].length;
-  }
-
-  html += formatInlineCodeSafeHtml(text.slice(index));
-  return html;
-}
-
-function formatInlineCodeSafeHtml(text) {
-  let html = "";
-  let index = 0;
-  const inlinePattern = /`([^`\n]{1,200})`/g;
-
-  for (const match of text.matchAll(inlinePattern)) {
-    html += escapeHtml(text.slice(index, match.index));
-    html += code(match[1]);
-    index = match.index + match[0].length;
-  }
-
-  html += escapeHtml(text.slice(index));
-  return html;
-}
-
-function formatCodexAnswerMarkdownHtml(text) {
-  const tokens = markdown.parse(text, {});
-  return renderMarkdownTokens(tokens).trimEnd() || escapeHtml(text);
-}
-
-function renderMarkdownTokens(tokens) {
-  let html = "";
-  const listStack = [];
-
-  for (const token of tokens) {
-    if (token.type === "inline") {
-      html += renderInlineTokens(token.children ?? []);
-    } else if (token.type === "paragraph_open") {
-      if (html && !html.endsWith("\n") && !isAtListMarker(html)) html += "\n";
-    } else if (token.type === "paragraph_close") {
-      html = trimTrailingSpaces(html);
-      html += "\n";
-    } else if (token.type === "heading_open") {
-      if (html && !html.endsWith("\n")) html += "\n";
-      html += "<b>";
-    } else if (token.type === "heading_close") {
-      html = trimTrailingSpaces(html);
-      html += "</b>\n";
-    } else if (token.type === "bullet_list_open") {
-      listStack.push({ type: "bullet", index: 0 });
-      if (html && !html.endsWith("\n")) html += "\n";
-    } else if (token.type === "ordered_list_open") {
-      listStack.push({ type: "ordered", index: Number(token.attrGet("start") ?? 1) - 1 });
-      if (html && !html.endsWith("\n")) html += "\n";
-    } else if (token.type === "bullet_list_close" || token.type === "ordered_list_close") {
-      listStack.pop();
-      html = trimTrailingSpaces(html);
-      if (!html.endsWith("\n")) html += "\n";
-    } else if (token.type === "list_item_open") {
-      const list = listStack.at(-1);
-      if (html && !html.endsWith("\n")) html += "\n";
-      if (!list || list.type === "bullet") {
-        html += "- ";
-      } else {
-        list.index += 1;
-        html += `${list.index}. `;
-      }
-    } else if (token.type === "list_item_close") {
-      html = trimTrailingSpaces(html);
-      if (!html.endsWith("\n")) html += "\n";
-    } else if (token.type === "fence") {
-      if (html && !html.endsWith("\n")) html += "\n";
-      const language = token.info?.trim().split(/\s+/, 1)[0] ?? "";
-      html += pre(language ? `${language}\n${token.content}` : token.content);
-      html += "\n";
-    } else if (token.type === "code_block") {
-      if (html && !html.endsWith("\n")) html += "\n";
-      html += pre(token.content);
-      html += "\n";
-    } else if (token.type === "blockquote_open") {
-      if (html && !html.endsWith("\n")) html += "\n";
-      html += "<blockquote>";
-    } else if (token.type === "blockquote_close") {
-      html = trimTrailingSpaces(html);
-      html += "</blockquote>\n";
-    } else if (token.type === "hr") {
-      if (html && !html.endsWith("\n")) html += "\n";
-      html += "-----\n";
-    } else if (token.type === "softbreak" || token.type === "hardbreak") {
-      html += "\n";
-    } else if (token.type === "html_block") {
-      html += escapeHtml(token.content);
-    }
-  }
-
-  return collapseExcessBlankLines(html);
-}
-
-function renderInlineTokens(tokens) {
-  let html = "";
-  const linkStack = [];
-
-  for (const token of tokens) {
-    if (token.type === "text") {
-      html += escapeHtml(token.content);
-    } else if (token.type === "code_inline") {
-      html += code(token.content);
-    } else if (token.type === "strong_open") {
-      html += "<b>";
-    } else if (token.type === "strong_close") {
-      html += "</b>";
-    } else if (token.type === "em_open") {
-      html += "<i>";
-    } else if (token.type === "em_close") {
-      html += "</i>";
-    } else if (token.type === "s_open") {
-      html += "<s>";
-    } else if (token.type === "s_close") {
-      html += "</s>";
-    } else if (token.type === "link_open") {
-      const href = token.attrGet("href") ?? "";
-      const safe = isSafeTelegramHref(href);
-      linkStack.push(safe);
-      if (safe) html += `<a href="${escapeHtmlAttribute(href)}">`;
-    } else if (token.type === "link_close") {
-      if (linkStack.pop()) html += "</a>";
-    } else if (token.type === "image") {
-      html += escapeHtml(token.content || token.attrGet("alt") || "");
-    } else if (token.type === "html_inline") {
-      html += escapeHtml(token.content);
-    } else if (token.type === "softbreak" || token.type === "hardbreak") {
-      html += "\n";
-    } else if (token.children?.length) {
-      html += renderInlineTokens(token.children);
-    }
-  }
-
-  return html;
-}
-
-function isSafeTelegramHref(value) {
-  try {
-    const url = new URL(value);
-    return ["http:", "https:", "mailto:"].includes(url.protocol);
-  } catch {
-    return false;
-  }
-}
-
-function escapeHtmlAttribute(value) {
-  return escapeHtml(value).replaceAll('"', "&quot;");
-}
-
-function trimTrailingSpaces(value) {
-  return value.replace(/[ \t]+$/g, "");
-}
-
-function collapseExcessBlankLines(value) {
-  return value.replace(/\n{3,}/g, "\n\n");
-}
-
-function isAtListMarker(value) {
-  return /(?:^|\n)(?:- |\d+\. )$/.test(value);
-}
-
-function splitText(text, max) {
-  if (text.length <= max) return [text];
-  const chunks = [];
-  let remaining = text;
-  while (remaining.length > max) {
-    let index = remaining.lastIndexOf("\n", max);
-    if (index < max * 0.5) index = remaining.lastIndexOf(" ", max);
-    if (index < max * 0.5) index = max;
-    chunks.push(remaining.slice(0, index).trimEnd());
-    remaining = remaining.slice(index).trimStart();
-  }
-  if (remaining) chunks.push(remaining);
-  return chunks;
-}
-
-function splitMarkdownAware(text, max) {
-  if (text.length <= max) return [text];
-
-  const chunks = [];
-  let current = "";
-  let inFence = false;
-  const lines = text.split(/(\n)/);
-
-  for (let index = 0; index < lines.length; index += 2) {
-    const line = `${lines[index] ?? ""}${lines[index + 1] ?? ""}`;
-    const fenceMatchCount = (line.match(/```/g) ?? []).length;
-
-    if (!inFence && current && current.length + line.length > max) {
-      chunks.push(current.trimEnd());
-      current = "";
-    }
-
-    if (line.length > max) {
-      if (current) {
-        chunks.push(current.trimEnd());
-        current = "";
-      }
-      chunks.push(...splitText(line.trimEnd(), max));
-      if (fenceMatchCount % 2 === 1) inFence = !inFence;
-      continue;
-    }
-
-    current += line;
-    if (fenceMatchCount % 2 === 1) inFence = !inFence;
-
-    if (!inFence && current.length >= max) {
-      chunks.push(current.trimEnd());
-      current = "";
-    } else if (inFence && current.length >= max) {
-      chunks.push(`${current.trimEnd()}\n\`\`\``);
-      current = "```\n";
-    }
-  }
-
-  if (current.trim()) chunks.push(current.trimEnd());
-  return chunks.flatMap((chunk) => splitOversizedChunk(chunk, max));
-}
-
-function splitOversizedChunk(text, max) {
-  if (text.length <= max) return [text];
-  return splitText(text, max);
-}
-
 function helpTextHtml() {
   return [
     b("Codex Telegram Bot"),
@@ -5252,35 +5012,6 @@ function helpTextHtml() {
     "",
     "Inputs: text, Telegram photo, or image document."
   ].join("\n");
-}
-
-function b(value) {
-  return `<b>${escapeHtml(value)}</b>`;
-}
-
-function code(value) {
-  return `<code>${escapeHtml(String(value))}</code>`;
-}
-
-function pre(value) {
-  return `<pre>${escapeHtml(String(value))}</pre>`;
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
-
-function stripHtml(value) {
-  return String(value)
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|pre)>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&amp;", "&");
 }
 
 async function deleteMessageQuietly(ctx, messageId) {
