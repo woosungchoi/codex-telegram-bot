@@ -2,6 +2,21 @@
 
 All notable public changes are documented here.
 
+## 1.0.8 - 2026-06-03
+
+- Tightened local and CI verification with `npm run verify`, zero ESLint
+  warnings, package dry-run checks, and a Node 18/20/22 CI matrix.
+- Extracted runtime bootstrap, Codex input/stream helpers, UI builders, handoff
+  rendering, maintenance parsing, and cleanup artifact handling into focused
+  modules with tests.
+- Added strict numeric Telegram id validation for user, chat, thread, and
+  cleanup notification allowlists.
+- Changed upload cleanup to a preview-plan-confirm flow. `/cleanup_uploads`
+  creates a stored plan and files are deleted only from the inline confirm
+  button; the legacy typed confirm command now gives guidance without deleting.
+- Documented the current format-check scope and rechecked GitHub MIT license
+  metadata.
+
 ## 1.0.7 - 2026-06-03
 
 - Added strict runtime config parsing with user, chat, and thread allowlists.
