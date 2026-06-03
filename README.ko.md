@@ -123,11 +123,17 @@ cp .env.minimal.example .env
 npm start
 ```
 
+로컬에서 release 수준 검증을 실행하려면:
+
+```bash
+npm run verify
+```
+
 ## GitHub 자동화
 
 이 저장소에는 CI, Codex PR review, 실패한 CI 진단용 GitHub Actions가 포함되어 있습니다.
 
-- `CI`: `npm ci`, `npm run check`, `npm test`, `npm run build --if-present`를 실행합니다.
+- `CI`: `npm ci`, `npm run verify`, `npm pack --dry-run --json`, `npm run build --if-present`를 실행합니다.
 - `Codex PR Review`: pull request에서 `codex review`를 실행하고 PR comment 하나를 생성/수정합니다.
 - `Codex CI Diagnosis`: `CI`가 실패하면 CI log tail에 대해 `codex exec`를 실행하고, 연결된 PR이 있으면 comment를 남깁니다.
 - `Codex Dependency Update`: 최신 `@openai/codex-sdk`와 `@openai/codex`를

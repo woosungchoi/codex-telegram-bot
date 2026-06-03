@@ -133,6 +133,12 @@ Then run:
 npm start
 ```
 
+For local release-style verification, run:
+
+```bash
+npm run verify
+```
+
 Use `/whoami` in the target chat or forum topic to confirm your Telegram user
 id, chat id, and thread id before tightening `ALLOWED_CHAT_IDS` or
 `ALLOWED_THREAD_IDS`. Callback buttons use the same user/chat/thread guard as
@@ -143,7 +149,7 @@ normal messages.
 This repository includes GitHub Actions for CI, Codex PR review, and failed CI
 diagnosis.
 
-- `CI`: runs `npm ci`, `npm run check`, `npm test`, and `npm run build --if-present`.
+- `CI`: runs `npm ci`, `npm run verify`, `npm pack --dry-run --json`, and `npm run build --if-present`.
 - `Codex PR Review`: runs `codex review` on pull requests and updates one PR comment.
 - `Codex CI Diagnosis`: when `CI` fails, runs `codex exec` on the CI log tail and comments on the PR when one exists.
 - `Codex Dependency Update`: checks the latest `@openai/codex-sdk` and

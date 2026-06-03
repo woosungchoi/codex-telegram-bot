@@ -9,6 +9,7 @@ Run from a clean checkout:
 
 ```bash
 npm ci
+npm run verify
 npm run check
 npm run lint
 npm run format:check
@@ -56,7 +57,7 @@ turn, and side turn statuses behave as expected.
 ## Release Steps
 
 1. Update `package.json` version and `CHANGELOG.md`.
-2. Run all automated gates.
+2. Run `npm run verify` and `npm pack --dry-run --json`.
 3. Commit the release changes.
 4. Create and push an annotated tag:
 

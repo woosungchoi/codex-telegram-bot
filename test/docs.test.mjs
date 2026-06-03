@@ -23,6 +23,7 @@ test("release and rollback runbooks cover required gates and smoke checks", asyn
   ]) {
     assert.match(release, new RegExp(escapeRegExp(text)));
   }
+  assert.match(release, /npm run verify/);
 
   const rollback = await read("docs/rollback.md");
   for (const text of ["previous release tag", ".env", "state/", "systemctl --user restart", "journalctl", "npm ci --omit=dev"]) {
@@ -35,6 +36,11 @@ test("README files link release and rollback docs", async () => {
   assert.match(await read("README.md"), /docs\/rollback\.md/);
   assert.match(await read("README.ko.md"), /docs\/release-checklist\.md/);
   assert.match(await read("README.ko.md"), /docs\/rollback\.md/);
+});
+
+test("README files document local verification", async () => {
+  assert.match(await read("README.md"), /npm run verify/);
+  assert.match(await read("README.ko.md"), /npm run verify/);
 });
 
 function escapeRegExp(value) {

@@ -41,11 +41,8 @@ test("public package metadata and assets stay intact", async () => {
 test("public CI keeps baseline verification commands", async () => {
   const workflow = await fs.readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
   assert.match(workflow, /npm ci/);
-  assert.match(workflow, /npm run check/);
-  assert.match(workflow, /npm run lint/);
-  assert.match(workflow, /npm run format:check/);
-  assert.match(workflow, /npm test/);
-  assert.match(workflow, /npm audit --audit-level=moderate/);
+  assert.match(workflow, /npm run verify/);
+  assert.match(workflow, /npm pack --dry-run --json/);
   assert.match(workflow, /npm run build --if-present/);
 });
 

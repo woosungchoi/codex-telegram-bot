@@ -18,7 +18,6 @@ import {
   dequeueNextTurn,
   enqueueTurn,
   hydratePendingQueues,
-  isPendingTurnExpired as isQueueTurnExpired,
   moveTurn,
   planIncomingTurn,
   pruneExpiredTurns,
@@ -1232,98 +1231,6 @@ async function runCodexTurn(ctx, chatKey, thread, input, signal, workingMessageI
   return { items: [...items.values()], finalResponse, usage };
 }
 
-function readConfig() {
-  const homeDir = process.env.HOME || process.cwd();
-  const defaultCodexHome = path.join(homeDir, ".codex");
-  const defaultCodexSessionsDir = path.join(defaultCodexHome, "sessions");
-  const codexHome = process.env.CODEX_HOME?.trim()
-    || path.dirname(process.env.CODEX_SESSIONS_DIR?.trim() || defaultCodexSessionsDir);
-  const codexSessionsDir = process.env.CODEX_SESSIONS_DIR?.trim() || path.join(codexHome, "sessions");
-  const stateRoot = path.join(appRoot, "state");
-
-  const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN?.trim();
-  if (!telegramBotToken || telegramBotToken.includes("replace_me")) {
-    throw new Error("TELEGRAM_BOT_TOKEN is required. Copy .env.example to .env and set it.");
-  }
-
-  const allowedUserIds = new Set(
-    (process.env.ALLOWED_USER_IDS ?? "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean)
-  );
-  if (allowedUserIds.size === 0) throw new Error("ALLOWED_USER_IDS is required.");
-
-  return {
-    telegramBotToken,
-    allowedUserIds,
-    codexWorkdir: process.env.CODEX_WORKDIR?.trim() || homeDir,
-    codexPath: process.env.CODEX_PATH?.trim() || "codex",
-    codexModel: process.env.CODEX_MODEL?.trim() || "",
-    codexApprovalPolicy: process.env.CODEX_APPROVAL_POLICY?.trim() || "never",
-    codexSandboxMode: process.env.CODEX_SANDBOX_MODE?.trim() || "workspace-write",
-    codexReasoningEffort: process.env.CODEX_REASONING_EFFORT?.trim() || "medium",
-    codexWebSearch: process.env.CODEX_WEB_SEARCH?.trim() || "disabled",
-    codexPersonaPrompt: normalizeMultilineEnv(process.env.CODEX_PERSONA_PROMPT),
-    codexNetworkAccess: parseOptionalBoolean(process.env.CODEX_NETWORK_ACCESS),
-    codexWebSearchEnabled: parseOptionalBoolean(process.env.CODEX_WEB_SEARCH_ENABLED),
-    codexSkipGitRepoCheck: parseOptionalBoolean(process.env.CODEX_SKIP_GIT_REPO_CHECK) ?? true,
-    codexAdditionalDirectories: parseCsv(process.env.CODEX_ADDITIONAL_DIRECTORIES),
-    codexBaseUrl: process.env.CODEX_BASE_URL?.trim() || "",
-    codexApiKey: process.env.CODEX_API_KEY?.trim() || "",
-    codexConfig: parseOptionalJson("CODEX_CONFIG_JSON"),
-    codexEnv: parseOptionalJson("CODEX_ENV_JSON"),
-    codexModelsCacheFile: process.env.CODEX_MODELS_CACHE_FILE?.trim() || path.join(codexHome, "models_cache.json"),
-    telegramLanguage: parseLanguage(process.env.TELEGRAM_LANGUAGE),
-    telegramTimeZone: parseTimeZone(process.env.TELEGRAM_TIME_ZONE),
-    telegramLocale: parseLocale(process.env.TELEGRAM_LOCALE),
-    stateFile: process.env.STATE_FILE?.trim() || path.join(stateRoot, "threads.json"),
-    codexHome,
-    codexSessionsDir,
-    codexMaintenanceScript: process.env.CODEX_MAINTENANCE_SCRIPT?.trim() || path.join(appRoot, "scripts", "codex_maintenance.py"),
-    codexMaintenanceBackupDir: process.env.CODEX_MAINTENANCE_BACKUP_DIR?.trim() || path.join(stateRoot, "codex-maintenance"),
-    codexMaintenanceWorktreeDays: Number(process.env.CODEX_MAINTENANCE_WORKTREE_DAYS || 7),
-    codexMaintenanceLogRotateMb: Number(process.env.CODEX_MAINTENANCE_LOG_ROTATE_MB || 64),
-    codexMaintenanceThreadTitleLimit: Number(process.env.CODEX_MAINTENANCE_THREAD_TITLE_LIMIT || 120),
-    codexMaintenanceThreadPreviewLimit: Number(process.env.CODEX_MAINTENANCE_THREAD_PREVIEW_LIMIT || 240),
-    codexMaintenanceAutoSqliteRepairEnabled: parseOptionalBoolean(process.env.CODEX_MAINTENANCE_AUTO_SQLITE_REPAIR_ENABLED) ?? false,
-    codexMaintenanceAutoHandoffEnabled: parseOptionalBoolean(process.env.CODEX_MAINTENANCE_AUTO_HANDOFF_ENABLED) ?? false,
-    codexHandoffDir: process.env.CODEX_HANDOFF_DIR?.trim() || path.join(codexHome, "handoffs"),
-    codexHandoffRecentEvents: parseNonnegativeInteger(process.env.CODEX_HANDOFF_RECENT_EVENTS, 40),
-    uploadDir: process.env.UPLOAD_DIR?.trim() || path.join(stateRoot, "uploads"),
-    maxTelegramChars: Number(process.env.MAX_TELEGRAM_CHARS || 3500),
-    progressEditIntervalMs: Number(process.env.PROGRESS_EDIT_INTERVAL_MS || 8000),
-    telegramReactionsEnabled: parseOptionalBoolean(process.env.TELEGRAM_REACTIONS_ENABLED) ?? true,
-    telegramThinkingReaction: process.env.TELEGRAM_THINKING_REACTION?.trim() || "🤔",
-    telegramCompleteReaction: process.env.TELEGRAM_COMPLETE_REACTION?.trim() || "👌",
-    telegramErrorReaction: process.env.TELEGRAM_ERROR_REACTION?.trim() || "😢",
-    telegramStoppedReaction: process.env.TELEGRAM_STOPPED_REACTION?.trim() || "😴",
-    telegramFormatCodexAnswers: parseCodexAnswerFormat(process.env.TELEGRAM_FORMAT_CODEX_ANSWERS),
-    telegramCompletionNoticeSeconds: Number(process.env.TELEGRAM_COMPLETION_NOTICE_SECONDS || 90),
-    telegramPendingTurnsMax: parseNonnegativeInteger(process.env.TELEGRAM_PENDING_TURNS_MAX, 10),
-    telegramPendingTurnMaxAgeSeconds: parseNonnegativeInteger(process.env.TELEGRAM_PENDING_TURN_MAX_AGE_SECONDS, 7200),
-    telegramLiveProgressEnabled: parseOptionalBoolean(process.env.TELEGRAM_LIVE_PROGRESS_ENABLED) ?? true,
-    telegramLiveProgressIntervalMs: parseNonnegativeInteger(process.env.TELEGRAM_LIVE_PROGRESS_INTERVAL_SECONDS, 30) * 1000,
-    telegramLiveProgressMode: process.env.TELEGRAM_LIVE_PROGRESS_MODE?.trim() || "brief",
-    telegramLiveProgressSource: parseLiveProgressSource(process.env.TELEGRAM_LIVE_PROGRESS_SOURCE),
-    telegramLiveProgressDeletePolicy: parseLiveProgressDeletePolicy(process.env.TELEGRAM_LIVE_PROGRESS_DELETE_POLICY),
-    cleanupEnabled: parseOptionalBoolean(process.env.CLEANUP_ENABLED) ?? true,
-    cleanupNotifyTime: process.env.CLEANUP_NOTIFY_TIME?.trim() || "09:00",
-    cleanupNotifyChatIds: parseCsv(process.env.CLEANUP_NOTIFY_CHAT_IDS).length > 0 ? parseCsv(process.env.CLEANUP_NOTIFY_CHAT_IDS) : [...allowedUserIds],
-    cleanupRetentionDays: Number(process.env.CLEANUP_RETENTION_DAYS || 14),
-    cleanupQuarantineDays: Number(process.env.CLEANUP_QUARANTINE_DAYS || 7),
-    cleanupQuarantineDir: process.env.CLEANUP_QUARANTINE_DIR?.trim() || path.join(codexHome, "session-quarantine"),
-    cleanupLogFile: process.env.CLEANUP_LOG_FILE?.trim() || path.join(stateRoot, "cleanup-log.jsonl"),
-    cleanupArtifactDir: process.env.CLEANUP_ARTIFACT_DIR?.trim() || path.join(stateRoot, "cleanup-artifacts"),
-    cleanupPlanTtlHours: Number(process.env.CLEANUP_PLAN_TTL_HOURS || 24),
-    backupDir: process.env.BACKUP_DIR?.trim() || path.join(stateRoot, "backups"),
-    snapshotEnabled: parseOptionalBoolean(process.env.SNAPSHOT_ENABLED) ?? true,
-    snapshotNotifyTime: process.env.SNAPSHOT_NOTIFY_TIME?.trim() || "03:30",
-    snapshotRetentionDays: Number(process.env.SNAPSHOT_RETENTION_DAYS || 14),
-    logsMaxLines: Number(process.env.LOGS_MAX_LINES || 80)
-  };
-}
-
 function buildCodexOptions(serviceTier = "") {
   const options = { codexPathOverride: config.codexPath };
   if (config.codexBaseUrl) options.baseUrl = config.codexBaseUrl;
@@ -1365,7 +1272,10 @@ function defaultChatOptions() {
 }
 
 function buildThreadOptions(chatKey) {
-  const { streamEvents, serviceTier, liveProgressEnabled, liveProgressSource, liveProgressDeletePolicy, ...threadOptions } = getEffectiveOptions(chatKey);
+  const threadOptions = { ...getEffectiveOptions(chatKey) };
+  for (const key of ["streamEvents", "serviceTier", "liveProgressEnabled", "liveProgressSource", "liveProgressDeletePolicy"]) {
+    delete threadOptions[key];
+  }
   return threadOptions;
 }
 
@@ -1572,10 +1482,6 @@ async function pruneExpiredPendingTurns(chatKey, ctx = null) {
   await persistPendingTurns(chatKey);
   if (ctx) await notifyExpiredPendingTurns(ctx, result.expired);
   return result.expired;
-}
-
-function isPendingTurnExpired(turn) {
-  return isQueueTurnExpired(turn, queueExpiryOptions());
 }
 
 function queueExpiryOptions() {
@@ -3014,18 +2920,6 @@ function summarizeFileChangePaths(item) {
   if (paths.length === 0) return "";
   const summary = paths.slice(0, 3).join(", ");
   return paths.length > 3 ? `${summary}, +${paths.length - 3}` : summary;
-}
-
-async function sendCompletionNotice(ctx, turn, startedAt) {
-  if (runtimeValue("telegramCompletionNoticeSeconds") <= 0) return;
-  const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
-  if (elapsedSeconds < runtimeValue("telegramCompletionNoticeSeconds")) return;
-  const counts = countBy(turn.items ?? [], (item) => item.type);
-  const details = [];
-  if (counts.command_execution) details.push(`cmd:${counts.command_execution}`);
-  if (counts.file_change) details.push(`files:${counts.file_change}`);
-  if (counts.web_search) details.push(`web:${counts.web_search}`);
-  await replyHtml(ctx, `${t("completionNotice")}: ${code(formatDurationSeconds(elapsedSeconds))}${details.length > 0 ? ` (${code(details.join(", "))})` : ""}`);
 }
 
 async function sendModelSelection(ctx, chatKey) {
@@ -5032,14 +4926,6 @@ function helpTextHtml() {
   ].join("\n");
 }
 
-async function deleteMessageQuietly(ctx, messageId) {
-  try {
-    await ctx.deleteMessage(messageId);
-  } catch {
-    // Telegram may reject deletion for old messages or insufficient chat permissions.
-  }
-}
-
 async function reactQuietly(ctx, emoji, isBig = false) {
   if (!runtimeValue("telegramReactionsEnabled") || !emoji || !ctx.message) return;
   try {
@@ -5055,29 +4941,6 @@ async function editMessageQuietly(ctx, messageId, text) {
   } catch {
     // Progress edits are best-effort.
   }
-}
-
-function parseOptionalJson(envName) {
-  const value = process.env[envName]?.trim();
-  if (!value) return null;
-  try {
-    return JSON.parse(value);
-  } catch (error) {
-    throw new Error(`${envName} must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-function normalizeMultilineEnv(value) {
-  return value?.trim().replaceAll("\\n", "\n") || "";
-}
-
-function parseCsv(value) {
-  return (value ?? "").split(",").map((entry) => entry.trim()).filter(Boolean);
-}
-
-function parseOptionalBoolean(value) {
-  if (value == null || value.trim() === "") return undefined;
-  return parseRequiredBoolean(value, "boolean");
 }
 
 function parseLanguage(value) {
@@ -5147,29 +5010,10 @@ function parseRequiredBoolean(value, label) {
   throw new Error(`${label} must be on or off.`);
 }
 
-function parseNonnegativeInteger(value, fallback) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return fallback;
-  const parsed = Number(raw);
-  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
-}
-
 function parseCodexAnswerFormat(value) {
   const normalized = value?.trim().toLowerCase() || "markdown";
   if (["off", "safe", "markdown"].includes(normalized)) return normalized;
   throw new Error("TELEGRAM_FORMAT_CODEX_ANSWERS must be off, safe, or markdown.");
-}
-
-function parseLiveProgressSource(value) {
-  const normalized = value?.trim().toLowerCase() || "agent";
-  if (VALID.liveProgressSource.has(normalized)) return normalized;
-  throw new Error("TELEGRAM_LIVE_PROGRESS_SOURCE must be agent, activity, or both.");
-}
-
-function parseLiveProgressDeletePolicy(value) {
-  const normalized = value?.trim().toLowerCase().replaceAll("-", "_") || "on_success";
-  if (VALID.liveProgressDeletePolicy.has(normalized)) return normalized;
-  throw new Error("TELEGRAM_LIVE_PROGRESS_DELETE_POLICY must be always, on_success, or never.");
 }
 
 function assertEnum(value, validValues, label) {
