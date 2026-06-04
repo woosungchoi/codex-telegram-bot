@@ -147,15 +147,43 @@ normal messages.
 
 ## GitHub Automation
 
-This repository includes GitHub Actions for CI, Codex PR review, and failed CI
-diagnosis.
+This repository includes GitHub Actions for CI, optional Codex review,
+authless failed-CI diagnosis, dependency update PRs, and guarded dependency PR
+auto-merge.
 
-- `CI`: runs `npm ci`, `npm run verify`, `actionlint`, `npm pack --dry-run --json`, and `npm run build --if-present`.
-- `Codex PR Review`: runs `codex review` on pull requests and updates one PR comment when Codex OAuth login is available.
-- `Codex CI Diagnosis`: when `CI` fails, always posts deterministic diagnostics from GitHub Actions metadata, failed jobs, failed steps, and failed log excerpts. When Codex OAuth login is available, it appends an optional AI diagnosis.
+- `CI`: runs `npm ci`, `npm run verify`, `actionlint`, `npm pack --dry-run --json`, and `npm run build --if-present` on pull requests and pushes to `main`.
+- `Codex PR Review`: runs `codex review` on pull requests and updates one PR comment when Codex OAuth login is available. It is intentionally optional and should not be a required merge check.
+- `Codex CI Diagnosis`: when `CI` fails, always posts deterministic diagnostics from GitHub Actions metadata, failed jobs, failed steps, and failed log excerpts. When Codex OAuth login is available, it appends an optional AI diagnosis. If the failed run is not attached to a PR, the diagnosis is written to the workflow step summary instead.
 - `Codex Dependency Update`: checks the latest `@openai/codex-sdk` and
   `@openai/codex`, installs them, runs `npm run check`, `npm test`, and
   `codex --version`, then opens or updates a PR only when the update passes.
+- `Dependency PR Auto Merge`: listens for successful verification runs and only
+  squash-merges dependency PRs from `dependabot/*` or
+  `automation/update-codex-packages` when the merge state is clean, all checks are
+  successful/neutral/skipped, and the changed files stay within the dependency
+  allowlist.
+
+Recommended `main` branch protection keeps the deterministic CI matrix as the
+required gate and leaves helper workflows report-only:
+
+- Required status checks: `Check Node 18`, `Check Node 20`, `Check Node 22`
+- Not required: `Codex PR Review`, `Codex CI Diagnosis`, `Dependency PR Auto Merge`
+
+The normal pull-request flow is:
+
+1. A PR opens or updates.
+2. `CI` runs the Node 18/20/22 verification matrix.
+3. If CI succeeds, the PR can merge after branch-protection checks pass.
+4. If CI fails, `Codex CI Diagnosis` posts an authless diagnosis comment on the PR.
+5. Optional Codex AI review/diagnosis runs only when `CODEX_ACCESS_TOKEN` is available.
+
+The automated dependency flow is:
+
+1. `Codex Dependency Update` or Dependabot opens a dependency-only PR.
+2. `CI` validates the PR.
+3. `Dependency PR Auto Merge` re-checks the PR head, file allowlist, merge state,
+   and check rollup before squash-merging and deleting the branch.
+4. A `main` push then runs `CI` again as the final verification.
 
 The Codex workflows do not use `OPENAI_API_KEY`. `CODEX_ACCESS_TOKEN` is optional:
 `Codex PR Review` and the AI add-on in `Codex CI Diagnosis` only run when the
