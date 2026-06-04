@@ -27,7 +27,9 @@ test("public package metadata and assets stay intact", async () => {
   assert.equal(pkg.license, "MIT");
   assert.equal(pkg.private, undefined);
   assert.equal(pkg.repository?.url, "git+https://github.com/woosungchoi/codex-telegram-bot.git");
-  assert.equal(pkg.dependencies["@openai/codex-sdk"], "0.136.0");
+  assert.match(pkg.dependencies["@openai/codex-sdk"], /^\d+\.\d+\.\d+$/);
+  assert.match(pkg.devDependencies["@openai/codex"], /^\d+\.\d+\.\d+$/);
+  assert.equal(pkg.devDependencies["@openai/codex"], pkg.dependencies["@openai/codex-sdk"]);
   assert.ok(pkg.files.includes("assets"));
   assert.ok(pkg.files.includes("LICENSE"));
   assert.ok(pkg.files.includes("SECURITY.md"));
