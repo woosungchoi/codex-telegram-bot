@@ -50,6 +50,25 @@ test("public CI keeps baseline verification commands", async () => {
   assert.match(workflow, /node-version: \$\{\{ matrix\.node-version \}\}/);
 });
 
+test("optional Codex workflows degrade gracefully", async () => {
+  const prReview = await fs.readFile(new URL("../.github/workflows/codex-pr-review.yml", import.meta.url), "utf8");
+  const ciDiagnosis = await fs.readFile(new URL("../.github/workflows/codex-ci-diagnosis.yml", import.meta.url), "utf8");
+  const dependencyUpdate = await fs.readFile(new URL("../.github/workflows/codex-sdk-update.yml", import.meta.url), "utf8");
+
+  for (const workflow of [prReview, ciDiagnosis]) {
+    assert.match(workflow, /id: codex-cli/);
+    assert.match(workflow, /available=false/);
+    assert.match(workflow, /id: codex-login/);
+    assert.match(workflow, /authenticated=false/);
+    assert.match(workflow, /Codex OAuth login failed/);
+  }
+
+  assert.match(dependencyUpdate, /npm view @openai\/codex version 2>\/dev\/null \|\| true/);
+  assert.match(dependencyUpdate, /sdk_available/);
+  assert.match(dependencyUpdate, /cli_available/);
+  assert.match(dependencyUpdate, /one or more Codex npm packages are currently unavailable/);
+});
+
 test("bot entrypoint stays thin and runtime stays packaged", async () => {
   const bot = await fs.readFile(new URL("../src/bot.js", import.meta.url), "utf8");
   const pkg = await readJson("package.json");

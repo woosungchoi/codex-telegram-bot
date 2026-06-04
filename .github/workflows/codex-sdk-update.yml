@@ -33,14 +33,38 @@ jobs:
         id: version
         run: |
           current_sdk="$(node -p "require('./package.json').dependencies['@openai/codex-sdk']")"
-          latest_sdk="$(npm view @openai/codex-sdk version)"
           current_cli="$(node -p "require('./package.json').devDependencies['@openai/codex']")"
-          latest_cli="$(npm view @openai/codex version)"
+          latest_sdk="$(npm view @openai/codex-sdk version 2>/dev/null || true)"
+          latest_cli="$(npm view @openai/codex version 2>/dev/null || true)"
+          if [ -z "$latest_sdk" ]; then
+            latest_sdk="$current_sdk"
+            sdk_available=false
+          else
+            sdk_available=true
+          fi
+          if [ -z "$latest_cli" ]; then
+            latest_cli="$current_cli"
+            cli_available=false
+          else
+            cli_available=true
+          fi
           echo "current_sdk=$current_sdk" >> "$GITHUB_OUTPUT"
           echo "latest_sdk=$latest_sdk" >> "$GITHUB_OUTPUT"
           echo "current_cli=$current_cli" >> "$GITHUB_OUTPUT"
           echo "latest_cli=$latest_cli" >> "$GITHUB_OUTPUT"
-          if [ "$current_sdk" = "$latest_sdk" ] && [ "$current_cli" = "$latest_cli" ]; then
+          echo "sdk_available=$sdk_available" >> "$GITHUB_OUTPUT"
+          echo "cli_available=$cli_available" >> "$GITHUB_OUTPUT"
+          if [ "$sdk_available" != true ] || [ "$cli_available" != true ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Codex Dependency Update"
+              echo
+              echo "Skipped because one or more Codex npm packages are currently unavailable from the registry."
+              echo
+              echo "- \`@openai/codex-sdk\` available: \`$sdk_available\`"
+              echo "- \`@openai/codex\` available: \`$cli_available\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$current_sdk" = "$latest_sdk" ] && [ "$current_cli" = "$latest_cli" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -53,16 +77,24 @@ jobs:
       - name: Update packages
         if: ${{ steps.version.outputs.changed == 'true' }}
         run: |
-          npm install "@openai/codex-sdk@${{ steps.version.outputs.latest_sdk }}" --save-exact
-          npm install "@openai/codex@${{ steps.version.outputs.latest_cli }}" --save-dev --save-exact
+          if [ "${{ steps.version.outputs.sdk_available }}" = true ]; then
+            npm install "@openai/codex-sdk@${{ steps.version.outputs.latest_sdk }}" --save-exact
+          fi
+          if [ "${{ steps.version.outputs.cli_available }}" = true ]; then
+            npm install "@openai/codex@${{ steps.version.outputs.latest_cli }}" --save-dev --save-exact
+          fi
 
       - name: Verify updated packages
         if: ${{ steps.version.outputs.changed == 'true' }}
         run: |
           npm run check
           npm test
-          npm install -g "@openai/codex@${{ steps.version.outputs.latest_cli }}"
-          codex --version
+          if [ "${{ steps.version.outputs.cli_available }}" = true ]; then
+            npm install -g "@openai/codex@${{ steps.version.outputs.latest_cli }}"
+            codex --version
+          else
+            echo "Skipping Codex CLI smoke test because @openai/codex is unavailable."
+          fi
 
       - name: Create or update pull request
         if: ${{ steps.version.outputs.changed == 'true' }}
@@ -90,11 +122,16 @@ jobs:
           - \`@openai/codex-sdk\`: \`$CURRENT_SDK\` -> \`$LATEST_SDK\`
           - \`@openai/codex\`: \`$CURRENT_CLI\` -> \`$LATEST_CLI\`
 
+          Availability:
+
+          - \`@openai/codex-sdk\`: \`${{ steps.version.outputs.sdk_available }}\`
+          - \`@openai/codex\`: \`${{ steps.version.outputs.cli_available }}\`
+
           Verification run in this workflow:
 
           - \`npm run check\`
           - \`npm test\`
-          - \`codex --version\`
+          - \`codex --version\` when \`@openai/codex\` is available
           BODY
           pr_number="$(gh pr list \
             --repo "$GITHUB_REPOSITORY" \

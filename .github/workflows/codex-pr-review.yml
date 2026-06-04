@@ -51,21 +51,48 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install Codex CLI
+        id: codex-cli
         if: ${{ steps.codex-token.outputs.configured == 'true' }}
-        run: npm install -g "@openai/codex@$(node -p "require('./package.json').devDependencies['@openai/codex']")"
+        run: |
+          set +e
+          version="$(node -p "require('./package.json').devDependencies['@openai/codex']")"
+          npm install -g "@openai/codex@$version"
+          status=$?
+          if [ "$status" -eq 0 ] && command -v codex >/dev/null 2>&1; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Codex PR Review"
+              echo
+              echo "Skipped because the Codex CLI package could not be installed."
+              echo
+              echo "Package: \`@openai/codex@$version\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
 
       - name: Login with Codex OAuth token
-        if: ${{ steps.codex-token.outputs.configured == 'true' }}
+        id: codex-login
+        if: ${{ steps.codex-cli.outputs.available == 'true' }}
         env:
           CODEX_ACCESS_TOKEN: ${{ secrets.CODEX_ACCESS_TOKEN }}
           CODEX_HOME: ${{ runner.temp }}/codex-home
         run: |
           mkdir -p "$CODEX_HOME"
-          printf '%s' "$CODEX_ACCESS_TOKEN" | codex login --with-access-token
-          codex login status
+          if printf '%s' "$CODEX_ACCESS_TOKEN" | codex login --with-access-token && codex login status; then
+            echo "authenticated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "authenticated=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Codex PR Review"
+              echo
+              echo "Skipped because Codex OAuth login failed. Refresh or remove \`CODEX_ACCESS_TOKEN\` to keep this optional reviewer healthy."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Review PR
-        if: ${{ steps.codex-token.outputs.configured == 'true' }}
+        if: ${{ steps.codex-login.outputs.authenticated == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CODEX_HOME: ${{ runner.temp }}/codex-home
