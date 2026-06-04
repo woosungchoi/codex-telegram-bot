@@ -1,0 +1,1 @@
+{"databaseId":26935231746,"displayTitle":"CI","event":"workflow_run","headBranch":"automation/update-codex-packages","headSha":"abc123def456","name":"Dependency PR Auto Merge","workflowName":"Dependency PR Auto Merge","conclusion":"failure","status":"completed","url":"https://github.com/woosungchoi/codex-telegram-bot/actions/runs/26935231746"}

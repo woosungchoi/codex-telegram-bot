@@ -2,6 +2,12 @@
 
 All notable public changes are documented here.
 
+## Unreleased
+
+- Added authless deterministic CI diagnosis for failed GitHub Actions runs, including failed job/step summaries, log-tail pattern classification, safe redaction, PR comments, and diagnosis artifacts.
+- Kept Codex AI CI diagnosis optional: `CODEX_ACCESS_TOKEN` only gates the AI add-on, while basic CI diagnosis continues without Codex auth.
+- Added an `actionlint` CI step for GitHub Actions workflow syntax/script checks.
+
 ## 1.0.8 - 2026-06-03
 
 - Tightened local and CI verification with `npm run verify`, zero ESLint

@@ -134,21 +134,23 @@ npm run verify
 
 이 저장소에는 CI, Codex PR review, 실패한 CI 진단용 GitHub Actions가 포함되어 있습니다.
 
-- `CI`: `npm ci`, `npm run verify`, `npm pack --dry-run --json`, `npm run build --if-present`를 실행합니다.
-- `Codex PR Review`: pull request에서 `codex review`를 실행하고 PR comment 하나를 생성/수정합니다.
-- `Codex CI Diagnosis`: `CI`가 실패하면 CI log tail에 대해 `codex exec`를 실행하고, 연결된 PR이 있으면 comment를 남깁니다.
+- `CI`: `npm ci`, `npm run verify`, `actionlint`, `npm pack --dry-run --json`, `npm run build --if-present`를 실행합니다.
+- `Codex PR Review`: Codex OAuth login이 가능할 때 pull request에서 `codex review`를 실행하고 PR comment 하나를 생성/수정합니다.
+- `Codex CI Diagnosis`: `CI`가 실패하면 GitHub Actions metadata, 실패 job/step, 실패 log excerpt 기반의 deterministic 기본 진단을 항상 남깁니다. Codex OAuth login이 가능할 때만 optional AI 추가 진단을 append합니다.
 - `Codex Dependency Update`: 최신 `@openai/codex-sdk`와 `@openai/codex`를
   확인하고 설치한 뒤 `npm run check`, `npm test`, `codex --version`을 통과할
   때만 PR을 생성하거나 갱신합니다.
 
-Codex workflow는 `OPENAI_API_KEY`를 사용하지 않습니다. Codex OAuth login용
-repository secret `CODEX_ACCESS_TOKEN`이 설정된 경우에만 실행됩니다.
+Codex workflow는 `OPENAI_API_KEY`를 사용하지 않습니다. `CODEX_ACCESS_TOKEN`은 선택 사항입니다.
+`Codex PR Review`와 `Codex CI Diagnosis`의 AI 추가 진단만 Codex OAuth login용
+repository secret이 설정된 경우에 실행됩니다.
 
 ```bash
 gh secret set CODEX_ACCESS_TOKEN --body "$CODEX_ACCESS_TOKEN"
 ```
 
-secret이 설정되어 있지 않으면 Codex job은 정상적으로 skip되고 기본 CI는 계속 실행됩니다.
+secret이 설정되어 있지 않거나 만료되어도 Codex AI 단계만 정상적으로 skip됩니다. 기본 CI,
+deterministic CI 진단, dependency update, auto-merge safety check는 계속 실행됩니다.
 
 Dependabot도 `@openai/codex-sdk`와 `@openai/codex`는 매일, 다른 npm dependency는 매주 확인하도록 설정되어 있습니다.
 
