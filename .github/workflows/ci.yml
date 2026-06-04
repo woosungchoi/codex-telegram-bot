@@ -34,6 +34,9 @@ jobs:
       - name: Verify
         run: npm run verify
 
+      - name: Check GitHub Actions workflows
+        uses: raven-actions/actionlint@v2
+
       - name: Pack dry-run
         run: npm pack --dry-run --json
 

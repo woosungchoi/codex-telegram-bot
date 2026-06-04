@@ -44,6 +44,7 @@ test("public CI keeps baseline verification commands", async () => {
   const workflow = await fs.readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
   assert.match(workflow, /npm ci/);
   assert.match(workflow, /npm run verify/);
+  assert.match(workflow, /raven-actions\/actionlint@v2/);
   assert.match(workflow, /npm pack --dry-run --json/);
   assert.match(workflow, /npm run build --if-present/);
   assert.match(workflow, /node-version: \[18, 20, 22\]/);
@@ -54,6 +55,19 @@ test("optional Codex workflows degrade gracefully", async () => {
   const prReview = await fs.readFile(new URL("../.github/workflows/codex-pr-review.yml", import.meta.url), "utf8");
   const ciDiagnosis = await fs.readFile(new URL("../.github/workflows/codex-ci-diagnosis.yml", import.meta.url), "utf8");
   const dependencyUpdate = await fs.readFile(new URL("../.github/workflows/codex-sdk-update.yml", import.meta.url), "utf8");
+
+  assert.match(ciDiagnosis, /Generate authless CI diagnosis/);
+  assert.match(ciDiagnosis, /Collect CI metadata and failed logs/);
+  assert.match(ciDiagnosis, /Publish CI diagnosis/);
+  assert.match(ciDiagnosis, /Upload diagnosis artifacts/);
+  assert.match(ciDiagnosis, /failed-tail\.redacted\.log/);
+  assert.match(ciDiagnosis, /codex-ai-diagnosis\.redacted\.md/);
+  assert.doesNotMatch(ciDiagnosis, /cp ci-logs\/failed-tail\.log ci-logs\/failed-tail\.redacted\.log/);
+  assert.doesNotMatch(ciDiagnosis, /cp codex-ai-diagnosis\.md codex-ai-diagnosis\.redacted\.md/);
+  assert.match(ciDiagnosis, /PR comment upsert failed; writing diagnosis to step summary instead/);
+  assert.match(ciDiagnosis, /Authless CI diagnosis above is still available/);
+  assert.ok(ciDiagnosis.indexOf("Generate authless CI diagnosis") < ciDiagnosis.indexOf("Check Codex OAuth token"));
+  assert.ok(ciDiagnosis.indexOf("Append Codex AI diagnosis") > ciDiagnosis.indexOf("Login with Codex OAuth token"));
 
   for (const workflow of [prReview, ciDiagnosis]) {
     assert.match(workflow, /id: codex-cli/);

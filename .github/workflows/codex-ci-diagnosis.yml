@@ -28,6 +28,61 @@ jobs:
         with:
           node-version: 20
 
+      - name: Collect CI metadata and failed logs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set +e
+          mkdir -p ci-logs
+          gh run view "$RUN_ID" \
+            --repo "$REPO" \
+            --json databaseId,displayTitle,event,headBranch,headSha,name,conclusion,status,url,workflowName \
+            > run.json
+          if [ ! -s run.json ]; then
+            echo '{}' > run.json
+          fi
+          gh run view "$RUN_ID" --repo "$REPO" --json jobs > jobs.json
+          if [ ! -s jobs.json ]; then
+            echo '{"jobs":[]}' > jobs.json
+          fi
+          gh run view "$RUN_ID" --repo "$REPO" --log-failed > ci-logs/failed.log || true
+          tail -c 80000 ci-logs/failed.log > ci-logs/failed-tail.log || true
+          exit 0
+
+      - name: Generate authless CI diagnosis
+        env:
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set +e
+          node scripts/ci_diagnosis.mjs \
+            --run-json run.json \
+            --jobs-json jobs.json \
+            --log-dir ci-logs \
+            --summary-out ci-diagnosis-summary.md \
+            --json-out ci-diagnosis.json \
+            --run-url "$RUN_URL" \
+            --pr-number "$PR_NUMBER"
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "## CI 기본 진단"
+              echo
+              echo "진단 스크립트 실행 중 오류가 발생했지만 원래 CI 실패를 더 악화시키지 않기 위해 workflow는 계속 진행합니다."
+              echo
+              echo "Run: $RUN_URL"
+            } > ci-diagnosis-summary.md
+            echo '{"classifications":[],"failedJobs":[]}' > ci-diagnosis.json
+          fi
+          node scripts/ci_diagnosis.mjs \
+            --redact-file ci-logs/failed-tail.log \
+            --redacted-out ci-logs/failed-tail.redacted.log || {
+              echo "Redaction failed; raw failed log omitted."
+            } > ci-logs/failed-tail.redacted.log
+          exit 0
+
       - name: Check Codex OAuth token
         id: codex-token
         env:
@@ -37,18 +92,13 @@ jobs:
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
+            {
+              echo
+              echo "## Codex AI 추가 진단"
+              echo
+              echo "Skipped because the repository secret \`CODEX_ACCESS_TOKEN\` is not configured. Authless CI diagnosis above is still available."
+            } >> ci-diagnosis-summary.md
           fi
-
-      - name: Skip when Codex OAuth token is unavailable
-        if: ${{ steps.codex-token.outputs.configured != 'true' }}
-        run: |
-          {
-            echo "### Codex CI Diagnosis"
-            echo
-            echo "Skipped because the repository secret \`CODEX_ACCESS_TOKEN\` is not configured."
-            echo
-            echo "Run: ${{ github.event.workflow_run.html_url }}"
-          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install Codex CLI
         id: codex-cli
@@ -63,12 +113,13 @@ jobs:
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
             {
-              echo "### Codex CI Diagnosis"
               echo
-              echo "Skipped because the Codex CLI package could not be installed."
+              echo "## Codex AI 추가 진단"
+              echo
+              echo "Skipped because the Codex CLI package could not be installed. Authless CI diagnosis above is still available."
               echo
               echo "Package: \`@openai/codex@$version\`"
-            } >> "$GITHUB_STEP_SUMMARY"
+            } >> ci-diagnosis-summary.md
           fi
           exit 0
 
@@ -85,66 +136,92 @@ jobs:
           else
             echo "authenticated=false" >> "$GITHUB_OUTPUT"
             {
-              echo "### Codex CI Diagnosis"
               echo
-              echo "Skipped because Codex OAuth login failed. Refresh or remove \`CODEX_ACCESS_TOKEN\` to keep this optional diagnosis healthy."
+              echo "## Codex AI 추가 진단"
               echo
-              echo "Run: ${{ github.event.workflow_run.html_url }}"
-            } >> "$GITHUB_STEP_SUMMARY"
+              echo "Skipped because Codex OAuth login failed. Refresh or remove \`CODEX_ACCESS_TOKEN\` if AI diagnosis is needed. Authless CI diagnosis above is still available."
+            } >> ci-diagnosis-summary.md
           fi
 
-      - name: Download CI logs
+      - name: Append Codex AI diagnosis
         if: ${{ steps.codex-login.outputs.authenticated == 'true' }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
-          REPO: ${{ github.repository }}
-        run: gh run view "$RUN_ID" --repo "$REPO" --log > ci-run.log || true
-
-      - name: Diagnose failure
-        if: ${{ steps.codex-login.outputs.authenticated == 'true' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CODEX_HOME: ${{ runner.temp }}/codex-home
           RUN_URL: ${{ github.event.workflow_run.html_url }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
-          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
         run: |
-          set -o pipefail
-          tail -c 60000 ci-run.log > ci-run-tail.log || true
+          set +e
           cat > codex-ci-prompt.txt <<'PROMPT'
           Diagnose this failed GitHub Actions CI run.
 
-          Use the log evidence to identify the likely cause and the smallest useful fix.
+          Use the structured deterministic diagnosis and log evidence below.
+          Do not invent files, commands, or secrets. Keep the answer concise.
           Structure the answer as:
           - Likely cause
           - Evidence
           - Suggested fix
           - Re-run command
-
-          Keep it concise. Do not invent files or commands that are not supported by the log.
           PROMPT
           {
+            echo
             echo "Failed run: $RUN_URL"
             echo
-            echo "CI log tail:"
+            echo "Deterministic diagnosis:"
+            cat ci-diagnosis-summary.md
             echo
-            cat ci-run-tail.log
+            echo "Failed log tail:"
+            cat ci-logs/failed-tail.redacted.log
           } >> codex-ci-prompt.txt
           codex exec \
             --sandbox read-only \
             --ask-for-approval never \
             --ephemeral \
-            --output-last-message codex-ci-diagnosis.md \
+            --output-last-message codex-ai-diagnosis.md \
             - < codex-ci-prompt.txt
-          {
-            echo "## Codex CI Diagnosis"
-            echo
-            cat codex-ci-diagnosis.md
-          } > codex-ci-diagnosis.full.md
-          mv codex-ci-diagnosis.full.md codex-ci-diagnosis.md
-          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
-            node scripts/github_comment_upsert.mjs "$PR_NUMBER" "ci-diagnosis-$RUN_ID" codex-ci-diagnosis.md
+          if [ -s codex-ai-diagnosis.md ]; then
+            node scripts/ci_diagnosis.mjs \
+              --redact-file codex-ai-diagnosis.md \
+              --redacted-out codex-ai-diagnosis.redacted.md || {
+                echo "Redaction failed; raw Codex AI output omitted."
+              } > codex-ai-diagnosis.redacted.md
+            {
+              echo
+              echo "## Codex AI 추가 진단"
+              echo
+              cat codex-ai-diagnosis.redacted.md
+            } >> ci-diagnosis-summary.md
           else
-            cat codex-ci-diagnosis.md >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo
+              echo "## Codex AI 추가 진단"
+              echo
+              echo "Codex AI diagnosis did not produce output. Authless CI diagnosis above is still available."
+            } >> ci-diagnosis-summary.md
           fi
+          exit 0
+
+      - name: Publish CI diagnosis
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+            node scripts/github_comment_upsert.mjs "$PR_NUMBER" "ci-diagnosis-$RUN_ID" ci-diagnosis-summary.md || {
+              echo "PR comment upsert failed; writing diagnosis to step summary instead."
+              cat ci-diagnosis-summary.md >> "$GITHUB_STEP_SUMMARY"
+            }
+          else
+            cat ci-diagnosis-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload diagnosis artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-diagnosis-${{ github.event.workflow_run.id }}
+          path: |
+            run.json
+            jobs.json
+            ci-logs/failed-tail.redacted.log
+            ci-diagnosis.json
+            ci-diagnosis-summary.md

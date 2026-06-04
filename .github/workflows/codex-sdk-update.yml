@@ -48,12 +48,14 @@ jobs:
           else
             cli_available=true
           fi
-          echo "current_sdk=$current_sdk" >> "$GITHUB_OUTPUT"
-          echo "latest_sdk=$latest_sdk" >> "$GITHUB_OUTPUT"
-          echo "current_cli=$current_cli" >> "$GITHUB_OUTPUT"
-          echo "latest_cli=$latest_cli" >> "$GITHUB_OUTPUT"
-          echo "sdk_available=$sdk_available" >> "$GITHUB_OUTPUT"
-          echo "cli_available=$cli_available" >> "$GITHUB_OUTPUT"
+          {
+            echo "current_sdk=$current_sdk"
+            echo "latest_sdk=$latest_sdk"
+            echo "current_cli=$current_cli"
+            echo "latest_cli=$latest_cli"
+            echo "sdk_available=$sdk_available"
+            echo "cli_available=$cli_available"
+          } >> "$GITHUB_OUTPUT"
           if [ "$sdk_available" != true ] || [ "$cli_available" != true ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             {

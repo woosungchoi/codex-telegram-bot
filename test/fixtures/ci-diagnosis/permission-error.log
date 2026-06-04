@@ -1,0 +1,1 @@
+Run gh pr merge 4 --squash --delete-branch\nGraphQL: Resource not accessible by integration\nHTTP 403: Bad credentials\nProcess completed with exit code 1.\n

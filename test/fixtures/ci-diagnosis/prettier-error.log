@@ -1,0 +1,1 @@
+Run npm run format:check\nChecking formatting...\n[warn] .github/workflows/ci.yml\n[warn] Code style issues found in the above file. Run Prettier with --write to fix.\nProcess completed with exit code 1.\n

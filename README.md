@@ -150,22 +150,23 @@ normal messages.
 This repository includes GitHub Actions for CI, Codex PR review, and failed CI
 diagnosis.
 
-- `CI`: runs `npm ci`, `npm run verify`, `npm pack --dry-run --json`, and `npm run build --if-present`.
-- `Codex PR Review`: runs `codex review` on pull requests and updates one PR comment.
-- `Codex CI Diagnosis`: when `CI` fails, runs `codex exec` on the CI log tail and comments on the PR when one exists.
+- `CI`: runs `npm ci`, `npm run verify`, `actionlint`, `npm pack --dry-run --json`, and `npm run build --if-present`.
+- `Codex PR Review`: runs `codex review` on pull requests and updates one PR comment when Codex OAuth login is available.
+- `Codex CI Diagnosis`: when `CI` fails, always posts deterministic diagnostics from GitHub Actions metadata, failed jobs, failed steps, and failed log excerpts. When Codex OAuth login is available, it appends an optional AI diagnosis.
 - `Codex Dependency Update`: checks the latest `@openai/codex-sdk` and
   `@openai/codex`, installs them, runs `npm run check`, `npm test`, and
   `codex --version`, then opens or updates a PR only when the update passes.
 
-The Codex workflows do not use `OPENAI_API_KEY`. They only run when the
-repository secret `CODEX_ACCESS_TOKEN` is configured for Codex OAuth login:
+The Codex workflows do not use `OPENAI_API_KEY`. `CODEX_ACCESS_TOKEN` is optional:
+`Codex PR Review` and the AI add-on in `Codex CI Diagnosis` only run when the
+repository secret is configured for Codex OAuth login:
 
 ```bash
 gh secret set CODEX_ACCESS_TOKEN --body "$CODEX_ACCESS_TOKEN"
 ```
 
-If that secret is not configured, the Codex jobs skip cleanly and the normal CI
-still runs.
+If that secret is not configured or expires, the Codex AI steps skip cleanly. Normal CI,
+deterministic CI diagnosis, dependency updates, and auto-merge safety checks still run.
 
 Dependabot is also configured to check `@openai/codex-sdk` and `@openai/codex`
 daily, and other npm dependencies weekly.
