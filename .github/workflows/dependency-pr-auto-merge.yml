@@ -69,9 +69,10 @@ jobs:
             check_count="$(printf '%s' "$pr_json" | jq '.statusCheckRollup | length')"
             bad_check_count="$(printf '%s' "$pr_json" | jq --argjson allowed "$allowed_statuses" '
               [.statusCheckRollup[] |
+                . as $check |
                 select(
-                  .status != "COMPLETED" or
-                  (($allowed | index(.conclusion // "")) | not)
+                  $check.status != "COMPLETED" or
+                  (($allowed | index($check.conclusion // "")) | not)
                 )
               ] | length
             ')"
