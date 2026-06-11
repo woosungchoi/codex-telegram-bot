@@ -187,7 +187,7 @@ PR 체크리스트와 locale metadata 형식은 `docs/translations.md`에 정리
 - `/new`: 실제 새 Codex thread를 즉시 시작하고 이전/새 thread id를 표시
 - `/resume [thread-id|last]`: 기존 Codex thread 이어가기. 인자가 없으면 `CODEX_SESSIONS_DIR` 아래에서 찾은 최신 session을 이어갑니다.
 - `/status`: 연결된 thread와 설정 표시
-- `/status`는 현재 thread log에 token count data가 있을 때 짧은 Codex usage summary, sample age를 표시하고, reset이 지난 limit은 오래된 percent를 현재값처럼 표시하지 않고 stale로 표시합니다.
+- `/status`는 현재 thread log에 token count data가 있을 때 짧은 Codex usage summary, sample age를 표시하고, reset이 지난 limit은 오래된 percent를 현재값처럼 표시하지 않고 stale로 표시합니다. `사용량 새로 조회` 버튼은 별도 Codex probe turn을 작게 실행해 더 최신 usage sample을 가져올 수 있으며, 소량의 quota를 사용할 수 있습니다.
 - `/queue`: pause/resume, mode, clear, cancel, up, next 버튼이 있는 queue panel 표시
 - `/settings`: model, thinking, fast, sandbox, approval, web search, network, stream, live progress, runtime env-style override, language, time zone, locale, path, schema 버튼 열기
 - `/tools`: health, doctor, logs, config, backup, export, cleanup, forget 버튼 열기

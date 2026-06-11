@@ -23,11 +23,13 @@ test("usage summary shows sample age and remaining limits before reset", () => {
   const summary = formatCodexUsageSummary({
     tokenCount,
     sampledAt: "2026-06-11T00:00:00.000Z",
+    sourceLabel: "usage probe",
     now: new Date("2026-06-11T03:00:00.000Z"),
     locale: "en-US",
     timeZone: "UTC"
   });
 
+  assert.match(summary, /Source: usage probe/);
   assert.match(summary, /Sample: .*3h 0m 0s ago/);
   assert.match(summary, /Context: 50% left \(5K used \/ 10K\)/);
   assert.match(summary, /5h limit: 75% left, resets/);

@@ -235,7 +235,7 @@ entry points.
 - `/new`: start a real new Codex thread immediately and show the previous/new thread ids
 - `/resume [thread-id|last]`: resume an existing Codex thread. Without an argument, it resumes the latest session found under `CODEX_SESSIONS_DIR`.
 - `/status`: show the bound thread and config
-- `/status` also includes a short Codex usage summary when the current thread log has token count data, shows the sample age, and marks reset-passed limits as stale instead of showing old percentages as current.
+- `/status` also includes a short Codex usage summary when the current thread log has token count data, shows the sample age, and marks reset-passed limits as stale instead of showing old percentages as current. The `Refresh usage` button can run a tiny separate Codex probe turn to fetch a fresher usage sample; it may consume a small amount of quota.
 - `/queue`: show the queue panel with pause/resume, mode, clear, cancel, up, and next buttons
 - `/settings`: open model, thinking, fast, sandbox, approval, web search, network, stream, live progress, runtime env-style overrides, language, time zone, locale, path, and schema buttons
 - `/tools`: open health, doctor, logs, config, backup, export, cleanup, and forget buttons

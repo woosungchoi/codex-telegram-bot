@@ -219,6 +219,7 @@ const activeTurns = new Map();
 const pendingTurns = new Map();
 const codexClients = new Map();
 const sideTurns = new Map();
+const usageRefreshes = new Map();
 
 hydratePendingTurnsFromState();
 
@@ -940,6 +941,12 @@ bot.action(/^tool:([a-z_]+)$/, async (ctx) => {
   await handleToolButton(ctx, action);
 });
 
+bot.action(/^usage:(refresh|refresh_confirm)$/, async (ctx) => {
+  const [, action] = ctx.match;
+  await ctx.answerCbQuery();
+  await handleUsageRefreshButton(ctx, action);
+});
+
 bot.action(/^act:(new|resume_last|stop)$/, async (ctx) => {
   const [, action] = ctx.match;
   await ctx.answerCbQuery();
@@ -1261,6 +1268,31 @@ async function runCodexTurn(ctx, chatKey, thread, input, signal, workingMessageI
   }
 
   return codexStreamResult(streamState);
+}
+
+async function refreshUsageSample(chatKey, signal) {
+  const thread = getCodexClient(chatKey).startThread(buildThreadOptions(chatKey));
+  await thread.run("Reply exactly: OK.", { signal });
+  if (!thread.id) throw new Error("Usage refresh did not create a Codex thread id.");
+
+  const sample = await waitForLatestTokenCount(thread.id);
+  if (!sample) throw new Error("Codex usage sample was not written for the refresh turn.");
+
+  const chat = getChatState(chatKey);
+  chat.usageProbeThreadId = thread.id;
+  chat.updatedAt = new Date().toISOString();
+  await saveState(config.stateFile, state);
+  return sample;
+}
+
+async function waitForLatestTokenCount(threadId) {
+  const deadline = Date.now() + 8000;
+  while (Date.now() < deadline) {
+    const sample = await readLatestTokenCount(threadId);
+    if (sample) return sample;
+    await sleep(250);
+  }
+  return null;
 }
 
 function buildCodexOptions(serviceTier = "") {
@@ -2649,15 +2681,37 @@ async function readLatestTokenCount(threadId) {
   return latest;
 }
 
-async function buildCodexUsageSummary(threadId) {
-  const latest = await readLatestTokenCount(threadId);
+async function buildBestCodexUsageSummary(chatKey, threadId) {
+  const chat = getChatState(chatKey);
+  const latest = await selectLatestUsageSample([
+    { threadId, sourceLabel: "current thread" },
+    { threadId: chat.usageProbeThreadId || "", sourceLabel: "usage probe" }
+  ]);
   return formatCodexUsageSummary({
     tokenCount: latest?.tokenCount,
     sampledAt: latest?.sampledAt,
+    sourceLabel: latest?.sourceLabel,
     now: new Date(),
     locale: uiLocale(),
     timeZone: uiTimeZone()
   });
+}
+
+async function selectLatestUsageSample(candidates) {
+  let latest = null;
+  const seen = new Set();
+  for (const candidate of candidates) {
+    if (!candidate.threadId || seen.has(candidate.threadId)) continue;
+    seen.add(candidate.threadId);
+    const sample = await readLatestTokenCount(candidate.threadId);
+    if (!sample) continue;
+    const sampledAt = Date.parse(sample.sampledAt);
+    const latestSampledAt = latest ? Date.parse(latest.sampledAt) : Number.NEGATIVE_INFINITY;
+    if (!latest || sampledAt >= latestSampledAt) {
+      latest = { ...sample, sourceLabel: candidate.sourceLabel };
+    }
+  }
+  return latest;
 }
 
 function readFirstLine(file) {
@@ -3157,6 +3211,9 @@ function statusKeyboard(chatKey) {
     [
       { text: t("refresh"), callback_data: "p:status" },
       { text: t("queue"), callback_data: "p:queue" }
+    ],
+    [
+      { text: t("usageRefresh"), callback_data: "usage:refresh" }
     ],
     [
       { text: t("settings"), callback_data: "p:settings" },
@@ -4126,6 +4183,52 @@ async function handleConfirmButton(ctx, action) {
   }
 }
 
+async function handleUsageRefreshButton(ctx, action) {
+  const chatKey = getChatKey(ctx);
+  if (action === "refresh") {
+    if (await rejectCallbackIfActive(ctx, chatKey)) return;
+    if (getSideTurnCount(chatKey) > 0) {
+      await editOrReplyHtml(ctx, `Codex side turn is already running. Use ${code("/stop")} first.`, statusKeyboard(chatKey));
+      return;
+    }
+    if (usageRefreshes.has(chatKey)) {
+      await editOrReplyHtml(ctx, `${b(t("usageRefreshRunningTitle"))}\n${t("usageRefreshRunningBody")}`, statusKeyboard(chatKey));
+      return;
+    }
+    await editOrReplyHtml(ctx, `${b(t("usageRefreshConfirmTitle"))}\n${t("usageRefreshConfirmBody")}`, inlineKeyboard([
+      [
+        { text: t("usageRefreshRun"), callback_data: "usage:refresh_confirm" },
+        { text: t("cancel"), callback_data: "p:status" }
+      ],
+      [{ text: `← ${t("back")}`, callback_data: "p:status" }]
+    ]));
+    return;
+  }
+
+  if (await rejectCallbackIfActive(ctx, chatKey)) return;
+  if (getSideTurnCount(chatKey) > 0) {
+    await editOrReplyHtml(ctx, `Codex side turn is already running. Use ${code("/stop")} first.`, statusKeyboard(chatKey));
+    return;
+  }
+  if (usageRefreshes.has(chatKey)) {
+    await editOrReplyHtml(ctx, `${b(t("usageRefreshRunningTitle"))}\n${t("usageRefreshRunningBody")}`, statusKeyboard(chatKey));
+    return;
+  }
+
+  const abortController = new AbortController();
+  usageRefreshes.set(chatKey, abortController);
+  await editOrReplyHtml(ctx, `${b(t("usageRefreshRunningTitle"))}\n${t("usageRefreshRunningBody")}`, statusKeyboard(chatKey));
+  try {
+    await withTimeout(refreshUsageSample(chatKey, abortController.signal), 60000, "Usage refresh timed out.");
+    await editOrReplyHtml(ctx, `${b(t("usageRefreshDoneTitle"))}\n\n${formatStatusHtml(chatKey, await buildStatusDetails(chatKey))}`, statusKeyboard(chatKey));
+  } catch (error) {
+    abortController.abort();
+    await editOrReplyHtml(ctx, `${b(t("usageRefreshFailedTitle"))}\n${code(error instanceof Error ? error.message : String(error))}`, statusKeyboard(chatKey));
+  } finally {
+    usageRefreshes.delete(chatKey);
+  }
+}
+
 async function rejectCallbackIfActive(ctx, chatKey) {
   if (!activeTurns.has(chatKey)) return false;
   await editOrReplyHtml(ctx, `Codex turn is already running. Use ${code("/stop")} first. Plain messages can still be queued.`, statusKeyboard(chatKey));
@@ -4265,7 +4368,7 @@ async function buildStatusDetails(chatKey) {
   const activeInfo = activeTurns.get(chatKey) ?? null;
   const threadId = chat.threadId || cached?.id || "";
   const fallbackSession = threadId ? null : (await listRecentCodexSessions(1))[0] ?? null;
-  const usageSummary = await buildCodexUsageSummary(threadId || fallbackSession?.id || "");
+  const usageSummary = await buildBestCodexUsageSummary(chatKey, threadId || fallbackSession?.id || "");
   return {
     threadId,
     active: Boolean(activeInfo),

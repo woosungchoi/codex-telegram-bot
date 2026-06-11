@@ -1,7 +1,8 @@
-export function formatCodexUsageSummary({ tokenCount, sampledAt, now = new Date(), locale = "en-US", timeZone = "UTC" }) {
+export function formatCodexUsageSummary({ tokenCount, sampledAt, sourceLabel = "", now = new Date(), locale = "en-US", timeZone = "UTC" }) {
   if (!tokenCount) return "";
 
   const lines = ["Codex usage:"];
+  if (sourceLabel) lines.push(`Source: ${sourceLabel}`);
   const sampleDate = toValidDate(sampledAt);
   if (sampleDate) {
     lines.push(`Sample: ${formatDateTime(sampleDate, locale, timeZone)} (${formatSampleAge(sampleDate, now)} ago)`);
