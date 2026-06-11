@@ -4759,6 +4759,7 @@ async function registerTelegramCommands() {
         bot.telegram.setMyCommands(commands),
         ...TELEGRAM_LANGUAGE_CODES.map((languageCode) => bot.telegram.setMyCommands(commands, { language_code: languageCode }))
       ]), 5000, "setMyCommands timed out");
+      if (attempt > 1) console.log(`Telegram command menu registered after retry (${attempt}/3).`);
       return;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
