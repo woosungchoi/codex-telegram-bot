@@ -85,7 +85,7 @@ Edit `.env`:
 - `CODEX_MODELS_CACHE_FILE`: Codex model cache used by Telegram model buttons, default `$CODEX_HOME/models_cache.json`
 - `CODEX_BASE_URL`, `CODEX_API_KEY`, `CODEX_CONFIG_JSON`, `CODEX_ENV_JSON`: optional `Codex` SDK constructor settings
 - `CODEX_SKIP_GIT_REPO_CHECK`: allow Codex turns outside a Git repository, default `false`; set `true` only when you intentionally want Codex to run outside Git worktrees
-- `CODEX_PERSONA_PROMPT`: optional override style instruction prepended to every Codex turn. Leave it empty to use the built-in prompt matching `TELEGRAM_LANGUAGE`.
+- `CODEX_PERSONA_PROMPT`: optional override style instruction prepended to every Codex turn. Leave it empty to use the built-in prompt matching `TELEGRAM_LANGUAGE`. The bot always appends built-in Telegram rich Markdown formatting guidance for the selected language.
 - `TELEGRAM_REACTIONS_ENABLED`: enable processing result reactions on inbound messages, default `true`
 - `TELEGRAM_THINKING_REACTION`, `TELEGRAM_COMPLETE_REACTION`, `TELEGRAM_ERROR_REACTION`, `TELEGRAM_STOPPED_REACTION`: reaction emoji for processing states
 - `TELEGRAM_FORMAT_CODEX_ANSWERS`: `markdown` sends Codex answers through Telegram rich Markdown first and falls back to safe Telegram HTML, `safe` renders only code spans/blocks, `off` sends plain text
@@ -316,6 +316,12 @@ Bot-owned messages such as `/help`, `/status`, `/options`, `/config`,
 `/threads`, and cleanup prompts are sent with Telegram HTML formatting. Dynamic
 values are escaped centrally before being wrapped in `<code>` or `<pre>`.
 Free-form Codex answers use `TELEGRAM_FORMAT_CODEX_ANSWERS=markdown` by default.
+Every Codex turn also receives built-in language-specific instructions to make
+good use of Telegram rich Markdown: headings, tables, lists, preformatted code
+blocks, dividers, bold text, inline code, and fenced code blocks when they make
+the answer easier to scan. This formatting guidance is still appended when
+`CODEX_PERSONA_PROMPT` overrides the default persona prompt, and the user's
+explicitly requested format takes priority.
 Markdown mode sends raw answer Markdown through Telegram rich messages first,
 so tables, dividers, headings, lists, bold/italic text, inline code, and fenced
 code blocks can render with native Telegram rich formatting. A short inline

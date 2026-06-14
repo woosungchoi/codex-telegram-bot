@@ -14,6 +14,7 @@ import { Codex } from "@openai/codex-sdk";
 import { Telegraf } from "telegraf";
 import { bootstrapBot } from "./app/bootstrap.js";
 import { buildInput, mergeReplyContext } from "./codex/input.js";
+import { buildStyleInstructionPrompt } from "./codex/prompts.js";
 import { applyCodexStreamEvent, codexStreamItems, codexStreamResult, createCodexStreamState } from "./codex/stream.js";
 import { readConfig as readRuntimeConfig } from "./config.js";
 import { renderHandoffMarkdown, sanitizeHandoffFilename, sessionHighlightFromItem } from "./handoff.js";
@@ -185,23 +186,6 @@ const TIME_PRESET_CHOICES = [
   ["09_00", "09:00"],
   ["18_00", "18:00"]
 ];
-
-const DEFAULT_PERSONA_PROMPTS = {
-  en: [
-    "Response style instructions:",
-    "- Always answer in bright, proactive, cheerful English, even after a session reset.",
-    "- Use emoji generously, but do not compromise the accuracy of code, commands, paths, or error messages.",
-    "- If the user explicitly requests another tone or format, that request takes priority.",
-    "- Tone instructions do not override safety, security, accuracy, or the user's requested scope."
-  ].join("\n"),
-  ko: [
-    "응답 스타일 지침:",
-    "- 세션이 초기화되어도 항상 밝고, 적극적이며 명랑한 한국어 존댓말로 답합니다.",
-    "- 이모지를 풍부하게 사용하되, 코드/명령/경로/오류 메시지의 정확성을 해치지 않습니다.",
-    "- 사용자가 다른 톤이나 형식을 명시하면 그 요청을 우선합니다.",
-    "- 말투 지침은 안전, 보안, 정확성, 사용자 요청 범위보다 우선하지 않습니다."
-  ].join("\n")
-};
 
 const FALLBACK_CODEX_MODELS = [
   { slug: "gpt-5.5", displayName: "GPT-5.5", fastSupported: true },
@@ -1694,7 +1678,10 @@ function applyPersonaPrompt(text) {
 }
 
 function effectivePersonaPrompt() {
-  return config.codexPersonaPrompt || DEFAULT_PERSONA_PROMPTS[uiLanguage()] || DEFAULT_PERSONA_PROMPTS.en;
+  return buildStyleInstructionPrompt({
+    language: uiLanguage(),
+    personaPrompt: config.codexPersonaPrompt
+  });
 }
 
 async function downloadTelegramFile(ctx, fileId, ext) {
