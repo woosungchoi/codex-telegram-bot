@@ -4,6 +4,19 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+## 1.1.1 - 2026-06-14
+
+- Added persistent language-specific Telegram rich Markdown style instructions
+  to every Codex turn, so answers are encouraged to use headings, tables,
+  lists, preformatted code blocks, dividers, bold text, inline code, and fenced
+  code blocks when useful.
+- Kept custom `CODEX_PERSONA_PROMPT` overrides compatible by appending the rich
+  Markdown formatting guidance after the custom persona prompt.
+- Added focused prompt tests for English, Korean, custom persona overrides, and
+  language fallback behavior.
+- Documented the persistent formatting guidance in the English and Korean
+  READMEs.
+
 ## 1.1.0 - 2026-06-14
 
 - Added Telegram rich Markdown delivery for Codex answers via
