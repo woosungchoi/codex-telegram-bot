@@ -5,6 +5,7 @@ import {
   RICH_MESSAGE_MAX_CHARS,
   buildRichMarkdownPayload,
   cleanUndefinedPayloadFields,
+  promoteStandaloneInlineCode,
   shouldFallbackFromRichError,
   telegramThreadIdFromContext,
   tryReplyRichMarkdown
@@ -77,6 +78,42 @@ test("buildRichMarkdownPayload preserves raw Markdown and optional reply anchor"
   });
 });
 
+test("promoteStandaloneInlineCode turns standalone inline code into short code blocks", () => {
+  assert.equal(
+    promoteStandaloneInlineCode([
+      "추천 URL:",
+      "",
+      "`/ayc/content-ops`",
+      "",
+      "- list item",
+      "  `npm run verify`"
+    ].join("\n")),
+    [
+      "추천 URL:",
+      "",
+      "```",
+      "/ayc/content-ops",
+      "```",
+      "",
+      "- list item",
+      "  ```",
+      "  npm run verify",
+      "  ```"
+    ].join("\n")
+  );
+});
+
+test("promoteStandaloneInlineCode preserves inline sentence code and fenced blocks", () => {
+  const markdown = [
+    "문장 안 `inline` 코드는 그대로 둔다.",
+    "",
+    "```sh",
+    "`already fenced`",
+    "```"
+  ].join("\n");
+  assert.equal(promoteStandaloneInlineCode(markdown), markdown);
+});
+
 test("tryReplyRichMarkdown sends raw Markdown through sendRichMessage", async () => {
   const ctx = createCtx();
   const result = await tryReplyRichMarkdown(ctx, RICH_MARKDOWN_FIXTURE);
@@ -92,6 +129,26 @@ test("tryReplyRichMarkdown sends raw Markdown through sendRichMessage", async ()
   assert.match(ctx.calls[0].payload.rich_message.markdown, /\*기울임\*/);
   assert.match(ctx.calls[0].payload.rich_message.markdown, /`\/ayc\/content-ops`/);
   assert.match(ctx.calls[0].payload.rich_message.markdown, /```sh\necho "wide block"\n```/);
+});
+
+test("tryReplyRichMarkdown sends standalone inline code as rich pre blocks", async () => {
+  const ctx = createCtx();
+  await tryReplyRichMarkdown(ctx, [
+    "추천 URL:",
+    "",
+    "`/ayc/content-ops`",
+    "",
+    "문장 안 `inline` 코드는 그대로"
+  ].join("\n"));
+  assert.equal(ctx.calls[0].payload.rich_message.markdown, [
+    "추천 URL:",
+    "",
+    "```",
+    "/ayc/content-ops",
+    "```",
+    "",
+    "문장 안 `inline` 코드는 그대로"
+  ].join("\n"));
 });
 
 test("tryReplyRichMarkdown uses fallback signal for rich length limit", async () => {

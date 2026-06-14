@@ -318,10 +318,12 @@ values are escaped centrally before being wrapped in `<code>` or `<pre>`.
 Free-form Codex answers use `TELEGRAM_FORMAT_CODEX_ANSWERS=markdown` by default.
 Markdown mode sends raw answer Markdown through Telegram rich messages first,
 so tables, dividers, headings, lists, bold/italic text, inline code, and fenced
-code blocks can render with native Telegram rich formatting. If rich messages
-are unavailable or rejected, the bot falls back to the existing Telegram HTML
-renderer. Raw HTML is escaped in the fallback path, and HTML parse failures fall
-back to plain text so malformed output cannot prevent delivery.
+code blocks can render with native Telegram rich formatting. A short inline
+code span that appears alone on its own line is promoted to a one-line rich code
+block so Telegram can render it with a compact background block. If rich
+messages are unavailable or rejected, the bot falls back to the existing
+Telegram HTML renderer. Raw HTML is escaped in the fallback path, and HTML parse
+failures fall back to plain text so malformed output cannot prevent delivery.
 
 ## Runtime Overrides
 

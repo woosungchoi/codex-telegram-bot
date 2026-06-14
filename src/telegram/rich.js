@@ -16,12 +16,13 @@ export function telegramThreadIdFromContext(ctx) {
 }
 
 export function buildRichMarkdownPayload(ctx, markdown, extra = {}) {
+  const preparedMarkdown = prepareRichMarkdown(markdown);
   const replyParameters = extra.reply_parameters
     ?? (extra.replyToMessageId ? { message_id: extra.replyToMessageId } : undefined);
   return cleanUndefinedPayloadFields({
     chat_id: extra.chat_id ?? ctx?.chat?.id,
     message_thread_id: extra.message_thread_id ?? telegramThreadIdFromContext(ctx),
-    rich_message: { markdown },
+    rich_message: { markdown: preparedMarkdown },
     reply_parameters: replyParameters
   });
 }
@@ -42,6 +43,40 @@ export async function tryReplyRichMarkdown(ctx, markdown, extra = {}) {
     }
     throw error;
   }
+}
+
+export function prepareRichMarkdown(markdown) {
+  return promoteStandaloneInlineCode(markdown);
+}
+
+export function promoteStandaloneInlineCode(markdown) {
+  const lines = String(markdown ?? "").split("\n");
+  let inFence = false;
+  let fenceMarker = "";
+
+  return lines.map((line) => {
+    const fenceMatch = line.match(/^(\s*)(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const marker = fenceMatch[2];
+      if (!inFence) {
+        inFence = true;
+        fenceMarker = marker[0];
+      } else if (marker[0] === fenceMarker) {
+        inFence = false;
+        fenceMarker = "";
+      }
+      return line;
+    }
+
+    if (inFence) return line;
+
+    const codeMatch = line.match(/^(\s*)`([^`\n]{1,200})`\s*$/);
+    if (!codeMatch) return line;
+
+    const [, indent, code] = codeMatch;
+    if (!code.trim()) return line;
+    return `${indent}\`\`\`\n${indent}${code}\n${indent}\`\`\``;
+  }).join("\n");
 }
 
 export function shouldFallbackFromRichError(error) {
