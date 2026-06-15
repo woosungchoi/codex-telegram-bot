@@ -74,6 +74,14 @@ cp .env.minimal.example .env
 - `CODEX_SESSIONS_DIR`: 기본값은 `$CODEX_HOME/sessions`
 - `CODEX_MODELS_CACHE_FILE`: Telegram 모델 버튼에 쓰는 Codex 모델 cache, 기본값은 `$CODEX_HOME/models_cache.json`
 - `CODEX_BASE_URL`, `CODEX_API_KEY`, `CODEX_CONFIG_JSON`, `CODEX_ENV_JSON`: 선택적 `Codex` SDK 생성자 설정
+- `CODEX_MODEL_CONTEXT_WINDOW`: 선택적 Codex `model_context_window` override입니다. `CODEX_CONTEXT_COMPACT_THRESHOLD_PERCENT`와 함께 설정하면 bot이 `model_auto_compact_token_limit`을 계산합니다.
+- `CODEX_AUTO_COMPACT_TOKEN_LIMIT`: 선택적 Codex `model_auto_compact_token_limit` override입니다. 정확한 토큰 기준을 알고 있을 때 이 값을 우선 사용하세요.
+- `CODEX_TOOL_OUTPUT_TOKEN_LIMIT`: 저장되는 tool output 압박을 줄이기 위한 선택적 Codex `tool_output_token_limit` override입니다.
+- `CODEX_COMPACT_STRENGTH`: compact prompt 강도입니다. `default`, `light`, `balanced`, `aggressive` 중 하나이며, `default`는 Codex 기본 compact prompt를 유지합니다.
+- `CODEX_COMPACT_PROMPT_FILE`: 선택적 Codex `experimental_compact_prompt_file` 경로입니다. 설정하면 `CODEX_COMPACT_STRENGTH`보다 우선합니다.
+- `CODEX_CONTEXT_GUARD_ENABLED`: 연결된 thread가 context 임계치에 가까우면 Telegram에 짧은 안내를 보냅니다. 기본값은 `true`
+- `CODEX_CONTEXT_COMPACT_THRESHOLD_PERCENT`: guard 안내 기준이자 `CODEX_MODEL_CONTEXT_WINDOW`가 있을 때 `CODEX_AUTO_COMPACT_TOKEN_LIMIT` 계산에 쓰는 context 사용률입니다. 기본값은 `75`
+- `CODEX_CONTEXT_MIN_REMAINING_TOKENS`: 현재 thread의 남은 토큰이 이 값 이하일 때도 안내합니다. 기본값은 `40000`
 - `CODEX_SKIP_GIT_REPO_CHECK`: Git 저장소 밖 Codex turn 허용 여부. 기본값은 `false`이며 명시적으로 필요할 때만 `true`로 설정하세요.
 - `CODEX_PERSONA_PROMPT`: 모든 Codex turn 앞에 붙일 선택적 style instruction. 비워두면 `TELEGRAM_LANGUAGE`에 맞는 내장 prompt를 사용합니다. 선택한 언어의 Telegram rich Markdown 서식 지침은 항상 함께 추가됩니다.
 - `TELEGRAM_REACTIONS_ENABLED`: inbound 메시지 처리 결과 reaction 사용 여부, 기본값 `true`

@@ -10,6 +10,7 @@ const CONFIG_VALID = {
   sandbox: new Set(["read-only", "workspace-write", "danger-full-access"]),
   reasoning: new Set(["minimal", "low", "medium", "high", "xhigh"]),
   webSearch: new Set(["disabled", "cached", "live"]),
+  compactStrength: new Set(["default", "light", "balanced", "aggressive"]),
   liveProgressSource: new Set(["agent", "activity", "both"]),
   liveProgressDeletePolicy: new Set(["always", "on_success", "never"])
 };
@@ -67,6 +68,14 @@ export function readConfig(env = process.env, options = {}) {
     codexApiKey: env.CODEX_API_KEY?.trim() || "",
     codexConfig: parseOptionalJson(env, "CODEX_CONFIG_JSON"),
     codexEnv: parseOptionalJson(env, "CODEX_ENV_JSON"),
+    codexModelContextWindow: parseNonnegativeInteger(env.CODEX_MODEL_CONTEXT_WINDOW, 0, "CODEX_MODEL_CONTEXT_WINDOW"),
+    codexAutoCompactTokenLimit: parseNonnegativeInteger(env.CODEX_AUTO_COMPACT_TOKEN_LIMIT, 0, "CODEX_AUTO_COMPACT_TOKEN_LIMIT"),
+    codexToolOutputTokenLimit: parseNonnegativeInteger(env.CODEX_TOOL_OUTPUT_TOKEN_LIMIT, 0, "CODEX_TOOL_OUTPUT_TOKEN_LIMIT"),
+    codexCompactStrength: parseCompactStrength(env.CODEX_COMPACT_STRENGTH),
+    codexCompactPromptFile: env.CODEX_COMPACT_PROMPT_FILE?.trim() || "",
+    codexContextGuardEnabled: parseOptionalBoolean(env.CODEX_CONTEXT_GUARD_ENABLED) ?? true,
+    codexContextCompactThresholdPercent: parsePercentInteger(env.CODEX_CONTEXT_COMPACT_THRESHOLD_PERCENT, 75, "CODEX_CONTEXT_COMPACT_THRESHOLD_PERCENT"),
+    codexContextMinRemainingTokens: parseNonnegativeInteger(env.CODEX_CONTEXT_MIN_REMAINING_TOKENS, 40000, "CODEX_CONTEXT_MIN_REMAINING_TOKENS"),
     codexModelsCacheFile: env.CODEX_MODELS_CACHE_FILE?.trim() || path.join(codexHome, "models_cache.json"),
     telegramLanguage: parseLanguage(env.TELEGRAM_LANGUAGE),
     telegramTimeZone: parseTimeZone(env.TELEGRAM_TIME_ZONE),
@@ -158,6 +167,12 @@ export function parseCodexAnswerFormat(value) {
   throw new Error("TELEGRAM_FORMAT_CODEX_ANSWERS must be off, safe, or markdown.");
 }
 
+function parseCompactStrength(value) {
+  const normalized = value?.trim().toLowerCase() || "default";
+  if (CONFIG_VALID.compactStrength.has(normalized)) return normalized;
+  throw new Error("CODEX_COMPACT_STRENGTH must be default, light, balanced, or aggressive.");
+}
+
 function parseOptionalJson(env, envName) {
   const value = env[envName]?.trim();
   if (!value) return null;
@@ -195,6 +210,12 @@ function parseNonnegativeInteger(value, fallback, label) {
   if (!raw) return fallback;
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${label} must be a non-negative integer.`);
+  return parsed;
+}
+
+function parsePercentInteger(value, fallback, label) {
+  const parsed = parseNonnegativeInteger(value, fallback, label);
+  if (parsed > 100) throw new Error(`${label} must be between 0 and 100.`);
   return parsed;
 }
 

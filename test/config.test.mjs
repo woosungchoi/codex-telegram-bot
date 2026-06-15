@@ -86,4 +86,36 @@ test("readConfig rejects invalid enum env values", () => {
     () => readTestConfig({ TELEGRAM_FORMAT_CODEX_ANSWERS: "rich" }),
     /TELEGRAM_FORMAT_CODEX_ANSWERS must be off, safe, or markdown/
   );
+  assert.throws(
+    () => readTestConfig({ CODEX_COMPACT_STRENGTH: "maximum" }),
+    /CODEX_COMPACT_STRENGTH must be default, light, balanced, or aggressive/
+  );
+});
+
+test("readConfig parses Codex compact and context guard env values", () => {
+  const config = readTestConfig({
+    CODEX_MODEL_CONTEXT_WINDOW: "258400",
+    CODEX_AUTO_COMPACT_TOKEN_LIMIT: "190000",
+    CODEX_TOOL_OUTPUT_TOKEN_LIMIT: "12000",
+    CODEX_COMPACT_STRENGTH: "aggressive",
+    CODEX_COMPACT_PROMPT_FILE: "/tmp/compact.txt",
+    CODEX_CONTEXT_GUARD_ENABLED: "false",
+    CODEX_CONTEXT_COMPACT_THRESHOLD_PERCENT: "80",
+    CODEX_CONTEXT_MIN_REMAINING_TOKENS: "50000"
+  });
+  assert.equal(config.codexModelContextWindow, 258400);
+  assert.equal(config.codexAutoCompactTokenLimit, 190000);
+  assert.equal(config.codexToolOutputTokenLimit, 12000);
+  assert.equal(config.codexCompactStrength, "aggressive");
+  assert.equal(config.codexCompactPromptFile, "/tmp/compact.txt");
+  assert.equal(config.codexContextGuardEnabled, false);
+  assert.equal(config.codexContextCompactThresholdPercent, 80);
+  assert.equal(config.codexContextMinRemainingTokens, 50000);
+});
+
+test("readConfig rejects context compact percentages above 100", () => {
+  assert.throws(
+    () => readTestConfig({ CODEX_CONTEXT_COMPACT_THRESHOLD_PERCENT: "101" }),
+    /CODEX_CONTEXT_COMPACT_THRESHOLD_PERCENT must be between 0 and 100/
+  );
 });

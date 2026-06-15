@@ -84,6 +84,14 @@ Edit `.env`:
 - `CODEX_SESSIONS_DIR`: defaults to `$CODEX_HOME/sessions`
 - `CODEX_MODELS_CACHE_FILE`: Codex model cache used by Telegram model buttons, default `$CODEX_HOME/models_cache.json`
 - `CODEX_BASE_URL`, `CODEX_API_KEY`, `CODEX_CONFIG_JSON`, `CODEX_ENV_JSON`: optional `Codex` SDK constructor settings
+- `CODEX_MODEL_CONTEXT_WINDOW`: optional Codex `model_context_window` override. When set with `CODEX_CONTEXT_COMPACT_THRESHOLD_PERCENT`, the bot derives `model_auto_compact_token_limit`.
+- `CODEX_AUTO_COMPACT_TOKEN_LIMIT`: optional Codex `model_auto_compact_token_limit` override. Prefer this when you know the exact token threshold.
+- `CODEX_TOOL_OUTPUT_TOKEN_LIMIT`: optional Codex `tool_output_token_limit` override for reducing stored tool output pressure.
+- `CODEX_COMPACT_STRENGTH`: compact prompt style, `default`, `light`, `balanced`, or `aggressive`; `default` leaves Codex's built-in compact prompt unchanged.
+- `CODEX_COMPACT_PROMPT_FILE`: optional Codex `experimental_compact_prompt_file` path. When set, it takes precedence over `CODEX_COMPACT_STRENGTH`.
+- `CODEX_CONTEXT_GUARD_ENABLED`: send a short Telegram notice when the connected thread is near the configured context threshold, default `true`
+- `CODEX_CONTEXT_COMPACT_THRESHOLD_PERCENT`: context usage percentage used for guard notices and for deriving `CODEX_AUTO_COMPACT_TOKEN_LIMIT` when `CODEX_MODEL_CONTEXT_WINDOW` is set, default `75`
+- `CODEX_CONTEXT_MIN_REMAINING_TOKENS`: also notify when the current thread has this many or fewer tokens remaining, default `40000`
 - `CODEX_SKIP_GIT_REPO_CHECK`: allow Codex turns outside a Git repository, default `false`; set `true` only when you intentionally want Codex to run outside Git worktrees
 - `CODEX_PERSONA_PROMPT`: optional override style instruction prepended to every Codex turn. Leave it empty to use the built-in prompt matching `TELEGRAM_LANGUAGE`. The bot always appends built-in Telegram rich Markdown formatting guidance for the selected language.
 - `TELEGRAM_REACTIONS_ENABLED`: enable processing result reactions on inbound messages, default `true`

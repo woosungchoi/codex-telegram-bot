@@ -16,6 +16,7 @@ import { bootstrapBot } from "./app/bootstrap.js";
 import { buildInput, mergeReplyContext } from "./codex/input.js";
 import { buildStyleInstructionPrompt } from "./codex/prompts.js";
 import { applyCodexStreamEvent, codexStreamItems, codexStreamResult, createCodexStreamState } from "./codex/stream.js";
+import { analyzeContextPressure, buildCodexCompactConfig, resolveAutoCompactTokenLimit } from "./codex/compact.js";
 import { readConfig as readRuntimeConfig } from "./config.js";
 import { renderHandoffMarkdown, sanitizeHandoffFilename, sessionHighlightFromItem } from "./handoff.js";
 import { LANGUAGE_CHOICES, TELEGRAM_LANGUAGE_CODES, VALID_LANGUAGES, textFor } from "./i18n.js";
@@ -1199,6 +1200,7 @@ async function processPreparedTurn(chatKey, preparedTurn, active) {
   try {
     const input = buildInput(preparedTurn.inputText, preparedTurn.imagePaths);
     const thread = getOrCreateThread(chatKey);
+    await maybeNotifyContextPressure(ctx, chatKey, thread);
     const turn = await runCodexTurn(ctx, chatKey, thread, input, active.abortController.signal, undefined, liveProgress);
     await rememberThread(chatKey, thread);
     const response = formatTurn(turn);
@@ -1284,11 +1286,34 @@ function buildCodexOptions(serviceTier = "") {
   const options = { codexPathOverride: config.codexPath };
   if (config.codexBaseUrl) options.baseUrl = config.codexBaseUrl;
   if (config.codexApiKey) options.apiKey = config.codexApiKey;
-  const codexConfig = { ...(config.codexConfig ?? {}) };
+  const codexConfig = { ...(config.codexConfig ?? {}), ...buildCodexCompactConfig(config) };
   if (serviceTier) codexConfig.service_tier = serviceTier;
   if (Object.keys(codexConfig).length > 0) options.config = codexConfig;
   if (config.codexEnv) options.env = config.codexEnv;
   return options;
+}
+
+async function maybeNotifyContextPressure(ctx, chatKey, thread) {
+  if (!config.codexContextGuardEnabled) return;
+  const threadId = thread?.id || getChatState(chatKey).threadId;
+  if (!threadId) return;
+  const sample = await readLatestTokenCount(threadId);
+  const pressure = analyzeContextPressure(sample?.tokenCount);
+  if (!pressure) return;
+
+  const threshold = config.codexContextCompactThresholdPercent;
+  const overPercent = threshold > 0 && pressure.percent >= threshold;
+  const lowRemaining = config.codexContextMinRemainingTokens > 0
+    && pressure.remainingTokens <= config.codexContextMinRemainingTokens;
+  if (!overPercent && !lowRemaining) return;
+
+  const autoLimit = resolveAutoCompactTokenLimit(config);
+  await replyHtml(ctx, formatKeyValueHtml(t("contextCompactContinueTitle"), [
+    [t("contextUsage"), `${Math.round(pressure.percent)}% (${pressure.inputTokens}/${pressure.modelContextWindow})`],
+    [t("contextRemaining"), pressure.remainingTokens],
+    [t("contextAutoCompact"), autoLimit > 0 ? autoLimit : t("contextAutoCompactDefault")],
+    [t("contextAction"), t("contextCompactContinueAction")]
+  ]));
 }
 
 function getCodexClient(chatKey) {
@@ -2581,6 +2606,12 @@ function buildConfigSummary() {
     codexApiKey: config.codexApiKey ? "set" : "",
     codexConfig: config.codexConfig ? "set" : "",
     codexEnv: config.codexEnv ? "set" : "",
+    codexAutoCompactTokenLimit: resolveAutoCompactTokenLimit(config) || "default",
+    codexToolOutputTokenLimit: config.codexToolOutputTokenLimit || "default",
+    codexCompactStrength: config.codexCompactStrength,
+    codexContextGuardEnabled: config.codexContextGuardEnabled,
+    codexContextCompactThresholdPercent: config.codexContextCompactThresholdPercent,
+    codexContextMinRemainingTokens: config.codexContextMinRemainingTokens,
     stateFile: config.stateFile,
     codexSessionsDir: config.codexSessionsDir,
     uploadDir: config.uploadDir,
@@ -4138,6 +4169,9 @@ function formatConfigHtml() {
     ["baseUrl", config.codexBaseUrl || "default"],
     ["apiKey", config.codexApiKey ? "set" : "default auth"],
     ["config", config.codexConfig ? "set" : "none"],
+    ["auto compact token limit", resolveAutoCompactTokenLimit(config) || "default"],
+    ["compact strength", config.codexCompactStrength],
+    ["context guard", config.codexContextGuardEnabled ? `${config.codexContextCompactThresholdPercent}% / min ${config.codexContextMinRemainingTokens} tokens` : "off"],
     ["env", config.codexEnv ? "set" : "inherit process.env"],
     ["modelsCacheFile", config.codexModelsCacheFile]
   ]);
