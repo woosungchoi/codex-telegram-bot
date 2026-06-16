@@ -4,17 +4,42 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+## 1.1.4 - 2026-06-16
+
 ### Added
 
-- Added local image artifact delivery for Codex answers. Standalone
-  `[[telegram_photo:/absolute/path|caption=...]]` directives and standalone
-  Markdown local image lines are stripped from the text answer, validated
-  against allowed roots and image extensions, and sent to Telegram with
-  `replyWithPhoto` in the current chat or forum topic.
-- Added Telegram photo artifact tests covering directive parsing, Markdown
-  image parsing, allowed-root validation, fenced-code exclusion, topic-aware
-  `replyWithPhoto` payloads, photo-only answers, and upload failure fallback
-  text.
+- Added local image artifact delivery for Codex answers. When an answer
+  contains a standalone `[[telegram_photo:/absolute/path|caption=...]]`
+  directive, the bot removes that directive from the text reply and sends the
+  referenced image as a native Telegram photo message.
+- Added standalone Markdown image artifact support for local files such as
+  `![caption](/absolute/path.png)`. This lets Codex responses use familiar
+  Markdown while the Telegram runtime converts the image line into
+  `replyWithPhoto` instead of displaying a raw local filesystem path.
+- Added image artifact validation before upload. The runtime now requires an
+  absolute path, an allowed image extension, an allowed artifact root, and an
+  existing regular file before attempting to send the photo.
+- Added topic-aware photo replies. Image artifacts are sent with the current
+  Telegram chat and forum topic context, preserving `message_thread_id` for
+  topic conversations.
+- Added fallback reporting for rejected or failed image uploads. Unsupported,
+  missing, or out-of-root artifacts are reported in the text reply, and upload
+  failures keep the file path visible without exposing secrets.
+
+### Changed
+
+- Updated the Codex package baseline to `@openai/codex-sdk` `0.140.0` through
+  the automated dependency update flow.
+
+### Tests
+
+- Added Telegram photo artifact tests covering directive parsing, standalone
+  Markdown image parsing, allowed-root validation, unsupported contexts inside
+  fenced code blocks, topic-aware `replyWithPhoto` payloads, photo-only
+  answers, and upload failure fallback text.
+- Verified the release with `npm run verify`, including syntax checks, locale
+  validation, ESLint, Prettier package/workflow checks, the full Node test
+  suite, and `npm audit --audit-level=moderate`.
 
 ## 1.1.3 - 2026-06-15
 
