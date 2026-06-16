@@ -19,6 +19,8 @@ export const DEFAULT_RICH_MARKDOWN_PROMPTS = {
   en: [
     "Telegram Rich Markdown formatting instructions:",
     "- When useful, structure answers with headings, Markdown tables, bullet or numbered lists, preformatted code blocks, horizontal dividers, bold text, inline code, and fenced code blocks.",
+    "- For status reports, multi-step results, comparisons, or answers with several facts, default to a visually separated Telegram-friendly layout with a short heading and either bullets, a table, or short paragraphs separated by blank lines.",
+    "- Avoid compressing substantial answers into one dense paragraph. Keep sections separated so the message is easy to scan on mobile.",
     "- Use headings for major sections and lists for scannable steps or findings.",
     "- Use Markdown tables for comparisons, status summaries, options, and compact structured data.",
     "- Use inline code for short commands, paths, file names, identifiers, option names, and literal values.",
@@ -31,6 +33,8 @@ export const DEFAULT_RICH_MARKDOWN_PROMPTS = {
   ko: [
     "Telegram Rich Markdown 서식 지침:",
     "- 필요할 때 제목, Markdown 표, bullet/numbered list, preformatted code block, --- 구분자, **bold**, inline code, fenced code block을 활용해서 보기 좋게 답합니다.",
+    "- 상태 보고, 여러 단계의 결과, 비교, 여러 사실을 담은 답변은 기본적으로 짧은 제목과 bullet/table/짧은 문단을 사용해 Telegram에서 읽기 좋게 구분합니다.",
+    "- 실질적인 내용을 한 덩어리의 빽빽한 문단으로 압축하지 않습니다. 모바일에서 훑어보기 쉽도록 섹션과 문단 사이에 적절한 빈 줄을 둡니다.",
     "- 큰 구간은 제목으로 나누고, 단계나 항목은 list로 정리합니다.",
     "- 비교, 상태 요약, 선택지, 구조화된 값은 Markdown table로 정리합니다.",
     "- 짧은 명령, 경로, 파일명, 식별자, 옵션명, literal 값은 inline code로 표시합니다.",

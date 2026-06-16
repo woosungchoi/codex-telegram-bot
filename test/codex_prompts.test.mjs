@@ -14,6 +14,8 @@ test("default style instructions include English rich Markdown guidance", () => 
   assert.match(prompt, /inline code/);
   assert.match(prompt, /fenced code blocks/);
   assert.match(prompt, /\*\*bold\*\*/);
+  assert.match(prompt, /Avoid compressing substantial answers into one dense paragraph/);
+  assert.match(prompt, /Telegram-friendly layout/);
 });
 
 test("default style instructions include Korean rich Markdown guidance", () => {
@@ -24,6 +26,8 @@ test("default style instructions include Korean rich Markdown guidance", () => {
   assert.match(prompt, /inline code/);
   assert.match(prompt, /fenced code block/);
   assert.match(prompt, /\*\*bold\*\*/);
+  assert.match(prompt, /빽빽한 문단으로 압축하지 않습니다/);
+  assert.match(prompt, /Telegram에서 읽기 좋게 구분합니다/);
 });
 
 test("custom persona prompt is combined with persistent rich Markdown guidance", () => {
