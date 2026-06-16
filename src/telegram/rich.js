@@ -39,7 +39,12 @@ export async function tryReplyRichMarkdown(ctx, markdown, extra = {}) {
     return { sent: true, fallback: false, message };
   } catch (error) {
     if (shouldFallbackFromRichError(error)) {
-      return { sent: false, fallback: true, reason: "rich_rejected", error };
+      const errorSummary = summarizeRichError(error);
+      extra.logger?.warn?.(
+        "Telegram rich message rejected; falling back to HTML renderer.",
+        { ...errorSummary, bytes: Buffer.byteLength(text, "utf8") }
+      );
+      return { sent: false, fallback: true, reason: "rich_rejected", error, errorSummary };
     }
     throw error;
   }
@@ -99,4 +104,10 @@ export function shouldFallbackFromRichError(error) {
     || message.includes("failed to parse")
     || message.includes("message is too long")
   );
+}
+
+export function summarizeRichError(error) {
+  const code = error?.code ?? error?.statusCode ?? error?.response?.statusCode;
+  const description = String(error?.description ?? error?.response?.description ?? error?.message ?? error ?? "");
+  return cleanUndefinedPayloadFields({ code, description });
 }

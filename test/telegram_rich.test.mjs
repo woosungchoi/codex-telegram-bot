@@ -159,11 +159,29 @@ test("tryReplyRichMarkdown uses fallback signal for rich length limit", async ()
 });
 
 test("tryReplyRichMarkdown falls back for capability and parsing failures", async () => {
-  const ctx = createCtx({ error: Object.assign(new Error("Bad Request: method not found"), { code: 400 }) });
-  const result = await tryReplyRichMarkdown(ctx, RICH_MARKDOWN_FIXTURE);
+  const ctx = createCtx({
+    error: Object.assign(new Error("Bad Request: method not found"), {
+      code: 400,
+      description: "Bad Request: method not found"
+    })
+  });
+  const warnings = [];
+  const result = await tryReplyRichMarkdown(ctx, RICH_MARKDOWN_FIXTURE, {
+    logger: { warn: (message, details) => warnings.push({ message, details }) }
+  });
   assert.equal(result.sent, false);
   assert.equal(result.fallback, true);
   assert.equal(result.reason, "rich_rejected");
+  assert.deepEqual(result.errorSummary, {
+    code: 400,
+    description: "Bad Request: method not found"
+  });
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].message, "Telegram rich message rejected; falling back to HTML renderer.");
+  assert.equal(warnings[0].details.code, 400);
+  assert.equal(warnings[0].details.bytes, Buffer.byteLength(RICH_MARKDOWN_FIXTURE, "utf8"));
+  assert.equal(warnings[0].details.description, "Bad Request: method not found");
+  assert.equal(Object.hasOwn(warnings[0].details, "markdown"), false);
 });
 
 test("tryReplyRichMarkdown does not fallback on transient network failures", async () => {
@@ -205,6 +223,9 @@ test("markdown answer format falls back to existing HTML renderer on rich reject
   assert.equal(htmlReplies.length, 1);
   assert.match(htmlReplies[0], /<b>생성한 문서<\/b>/);
   assert.match(htmlReplies[0], /<code>\/ayc\/content-ops<\/code>/);
+  assert.doesNotMatch(htmlReplies[0], /항목값/);
+  assert.match(htmlReplies[0], /- <b>항목:<\/b> <b>굵게<\/b>/);
+  assert.match(htmlReplies[0], /  <b>값:<\/b> <i>기울임<\/i>/);
   assert.match(htmlReplies[0], /<pre>sh\necho &quot;wide block&quot;\n<\/pre>/);
 });
 

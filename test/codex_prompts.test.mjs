@@ -16,6 +16,8 @@ test("default style instructions include English rich Markdown guidance", () => 
   assert.match(prompt, /\*\*bold\*\*/);
   assert.match(prompt, /Avoid compressing substantial answers into one dense paragraph/);
   assert.match(prompt, /Telegram-friendly layout/);
+  assert.match(prompt, /Use Markdown tables only when they are compact and likely to fit on mobile/);
+  assert.match(prompt, /For long explanatory comparisons, prefer bullets or short key\/value sections/);
 });
 
 test("default style instructions include Korean rich Markdown guidance", () => {
@@ -28,6 +30,8 @@ test("default style instructions include Korean rich Markdown guidance", () => {
   assert.match(prompt, /\*\*bold\*\*/);
   assert.match(prompt, /빽빽한 문단으로 압축하지 않습니다/);
   assert.match(prompt, /Telegram에서 읽기 좋게 구분합니다/);
+  assert.match(prompt, /표는 짧고 모바일에서 한눈에 들어갈 때만 사용합니다/);
+  assert.match(prompt, /긴 설명형 비교는 bullet 또는 짧은 key\/value 섹션을 우선합니다/);
 });
 
 test("custom persona prompt is combined with persistent rich Markdown guidance", () => {

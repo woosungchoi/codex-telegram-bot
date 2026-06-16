@@ -12,6 +12,7 @@ export async function replyFormattedCodexAnswer(ctx, text, options = {}) {
     replyHtml,
     replyLong,
     replyPhotos = replyTelegramPhotos,
+    richLogger = console,
     tryRichMarkdown = tryReplyRichMarkdown
   } = options;
 
@@ -30,7 +31,7 @@ export async function replyFormattedCodexAnswer(ctx, text, options = {}) {
 
   if (format === "markdown") {
     const richResult = answerText
-      ? await tryRichMarkdown(ctx, answerText)
+      ? await tryRichMarkdown(ctx, answerText, { logger: richLogger })
       : { sent: false };
     if (richResult.sent) {
       await replyPhotosWithFallback(ctx, artifactResult.photos, replyPhotos, replyHtml);
