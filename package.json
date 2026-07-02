@@ -53,7 +53,7 @@
   "dependencies": {
     "@openai/codex-sdk": "0.142.5",
     "dotenv": "^17.2.3",
-    "markdown-it": "^14.2.0",
+    "markdown-it": "^14.3.0",
     "telegraf": "^4.16.3"
   },
   "devDependencies": {
