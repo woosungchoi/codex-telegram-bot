@@ -2,6 +2,42 @@
 
 All notable public changes are documented here.
 
+## 1.1.6 - 2026-07-06
+
+### Added
+
+- Added Telegram PDF document uploads. PDF-only messages are saved under the
+  configured upload directory and respond with the original filename, byte size,
+  and local filesystem path without starting a Codex turn.
+- Added PDF + caption support. When a PDF has a caption, the bot saves the PDF
+  and runs the caption as the Codex request with the local PDF path embedded as
+  text context rather than sending the PDF as an image input.
+- Added replied-to PDF context. Text replies to Telegram PDF messages download
+  the referenced PDF and include its local path in the Codex request while
+  preserving existing replied-to image handling.
+- Added recent PDF state for each chat. PDF-only uploads update the recent PDF
+  record, and follow-up text that explicitly references the uploaded PDF can
+  reuse that local path before the record expires.
+
+### Changed
+
+- Added the upload directory to Codex `additionalDirectories` automatically so
+  saved PDFs remain readable even when `UPLOAD_DIR` is outside the working
+  directory.
+- Clarified unsupported document and message responses now that both image
+  attachments and PDF documents are supported.
+
+### Tests
+
+- Added PDF helper tests for MIME/filename detection, PDF-only planning,
+  PDF-caption planning, HTML escaping, text-only PDF references, recent PDF
+  opt-in behavior, and expiry.
+- Added option tests for upload directory merging and cleanup coverage for old
+  PDF upload files.
+- Verified the release with `npm run verify`, including syntax checks, locale
+  validation, ESLint, Prettier package/workflow checks, the full Node test
+  suite, and `npm audit --audit-level=moderate`.
+
 ## 1.1.5 - 2026-06-16
 
 ### Changed
