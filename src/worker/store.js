@@ -61,9 +61,12 @@ export async function readJobEvents(paths, jobId, { afterSeq = 0, limit = 500 } 
 
 export async function writeJobState(paths, job) {
   await ensureWorkerStateDir(paths);
+  const existing = await readJobState(paths, job.id);
   await writeJsonFileAtomic(jobPath(paths, job.id), {
     version: STATE_VERSION,
+    ...(existing ?? {}),
     ...job,
+    lastSeq: job.lastSeq ?? existing?.lastSeq,
     updatedAt: job.updatedAt || new Date().toISOString()
   });
 }
