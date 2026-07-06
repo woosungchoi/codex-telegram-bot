@@ -8,7 +8,8 @@ export function createWorkerServer({
   config,
   store = createWorkerStore(config),
   executeJob = runWorkerJob,
-  logger = console
+  logger = console,
+  heartbeatMs = 30_000
 } = {}) {
   if (!config) throw new Error("config is required.");
   const controllers = new Map();
@@ -22,7 +23,7 @@ export function createWorkerServer({
     if (method === "job/events") return jobEvents(store, params.jobId, params);
     if (method === "job/cancel") return cancelJob(store, controllers, params.jobId);
     if (method === "job/start") {
-      return startJob({ config, store, controllers, codexClients, executeJob, logger, job: params.job });
+      return startJob({ config, store, controllers, codexClients, executeJob, logger, heartbeatMs, job: params.job });
     }
     throw new Error(`Unknown worker method: ${method}`);
   }
@@ -72,7 +73,7 @@ export function createWorkerServer({
   };
 }
 
-async function startJob({ config, store, controllers, codexClients, executeJob, logger, job }) {
+async function startJob({ config, store, controllers, codexClients, executeJob, logger, heartbeatMs, job }) {
   if (!job?.id) throw new Error("job/start requires job.id.");
   if (!job.chatKey) throw new Error("job/start requires job.chatKey.");
   const active = await store.readActiveJobs();
@@ -99,11 +100,31 @@ async function startJob({ config, store, controllers, codexClients, executeJob, 
 
   const controller = new AbortController();
   controllers.set(job.id, controller);
+  const heartbeat = heartbeatMs > 0
+    ? setInterval(() => {
+      store.appendJobEvent(job.id, {
+        type: "worker.heartbeat",
+        status: "running",
+        chatKey: job.chatKey,
+        threadId: job.threadId || "",
+        transport: accepted.transport
+      }).catch((error) => {
+        logger.warn?.("worker heartbeat failed:", error instanceof Error ? error.message : String(error));
+      });
+    }, heartbeatMs)
+    : null;
+  heartbeat?.unref?.();
+  const stopHeartbeat = () => {
+    if (heartbeat) clearInterval(heartbeat);
+  };
+  controller.signal.addEventListener("abort", stopHeartbeat, { once: true });
   executeJob({ job: accepted, config, store, signal: controller.signal, codexClients })
     .catch((error) => {
       logger.warn?.("worker job failed:", error instanceof Error ? error.message : String(error));
     })
     .finally(async () => {
+      controller.signal.removeEventListener("abort", stopHeartbeat);
+      stopHeartbeat();
       controllers.delete(job.id);
       await store.removeActiveJob(job.id).catch(() => {});
     });
