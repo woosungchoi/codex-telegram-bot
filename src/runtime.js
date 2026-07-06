@@ -15,6 +15,7 @@ import { Codex } from "@openai/codex-sdk";
 import { Telegraf } from "telegraf";
 import { bootstrapBot } from "./app/bootstrap.js";
 import { buildInput, mergeReplyContext } from "./codex/input.js";
+import { mergeAdditionalDirectories } from "./codex/options.js";
 import { buildStyleInstructionPrompt } from "./codex/prompts.js";
 import { applyCodexStreamEvent, codexStreamItems, codexStreamResult, createCodexStreamState } from "./codex/stream.js";
 import { analyzeContextPressure, buildCodexCompactConfig, resolveAutoCompactTokenLimit } from "./codex/compact.js";
@@ -42,6 +43,16 @@ import {
   telegramSyntheticMessageFromMeta
 } from "./telegram/context.js";
 import { b, code, escapeHtml, pre, stripHtml } from "./telegram/html.js";
+import {
+  createUploadedPdfRecord,
+  formatPdfReferenceText,
+  formatUploadedPdfHtml,
+  isFreshPdfUpload,
+  isPdfDocument,
+  mergePdfReferences,
+  planTelegramDocumentInput,
+  shouldUseRecentPdfUpload
+} from "./telegram/pdf.js";
 import { replyFormattedCodexAnswer } from "./telegram/codex_answer.js";
 import { formatCodexAnswerMarkdownHtml, formatCodexAnswerSafeHtml } from "./telegram/markdown.js";
 import { splitText } from "./telegram/split.js";
@@ -1029,12 +1040,29 @@ bot.on("photo", async (ctx) => {
 
 bot.on("document", async (ctx) => {
   const document = ctx.message.document;
-  if (!document?.mime_type?.startsWith("image/")) {
-    await ctx.reply("Only image documents are supported by the Codex SDK input bridge.");
+  const documentPlan = planTelegramDocumentInput(document, ctx.message.caption, { imageFallbackText: "Analyze this image." });
+  if (documentPlan.kind === "pdf_upload_only" || documentPlan.kind === "pdf_caption") {
+    let record;
+    try {
+      record = await downloadTelegramPdf(ctx, document, ctx.message);
+      await rememberLastPdfUpload(ctx, record);
+    } catch (error) {
+      await replyHtml(ctx, `<b>Failed to prepare Codex input</b>\n${code(error instanceof Error ? error.message : String(error))}`);
+      return;
+    }
+    if (documentPlan.kind === "pdf_upload_only") {
+      await replyHtml(ctx, formatUploadedPdfUploadHtml(record));
+      return;
+    }
+    await handleCodexMessage(ctx, mergePdfReferences(documentPlan.text, [record]), async () => []);
+    return;
+  }
+  if (documentPlan.kind !== "image") {
+    await replyHtml(ctx, t("unsupportedDocument"));
     return;
   }
   const ext = path.extname(document.file_name ?? "") || extensionFromMime(document.mime_type);
-  await handleCodexMessage(ctx, ctx.message.caption?.trim() || "Analyze this image.", async () => {
+  await handleCodexMessage(ctx, documentPlan.text, async () => {
     return [await downloadTelegramFile(ctx, document.file_id, ext)];
   });
 });
@@ -1042,11 +1070,12 @@ bot.on("document", async (ctx) => {
 bot.on("text", async (ctx) => {
   const text = ctx.message.text.trim();
   if (!text || isRegisteredTelegramCommandText(ctx.message)) return;
-  await handleCodexMessage(ctx, text, async () => []);
+  const recentPdf = shouldUseRecentPdfUpload(text) ? getFreshLastPdfUpload(getChatKey(ctx)) : null;
+  await handleCodexMessage(ctx, recentPdf ? mergePdfReferences(text, [recentPdf]) : text, async () => []);
 });
 
 bot.on("message", async (ctx) => {
-  await ctx.reply("Only text messages and image attachments are supported.");
+  await replyHtml(ctx, t("unsupportedMessage"));
 });
 
 await bootstrapBot({
@@ -1560,7 +1589,8 @@ function defaultChatOptions() {
   if (config.codexModel) options.model = config.codexModel;
   if (typeof config.codexNetworkAccess === "boolean") options.networkAccessEnabled = config.codexNetworkAccess;
   if (typeof config.codexWebSearchEnabled === "boolean") options.webSearchEnabled = config.codexWebSearchEnabled;
-  if (config.codexAdditionalDirectories.length > 0) options.additionalDirectories = config.codexAdditionalDirectories;
+  const additionalDirectories = mergeAdditionalDirectories(config.codexAdditionalDirectories, config.uploadDir);
+  if (additionalDirectories.length > 0) options.additionalDirectories = additionalDirectories;
   return options;
 }
 
@@ -2080,7 +2110,11 @@ async function buildReplyContext(ctx) {
   const photo = message.photo?.at(-1);
   if (photo) imagePaths.push(await downloadTelegramFile(ctx, photo.file_id, ".jpg"));
   const document = message.document;
-  if (document?.mime_type?.startsWith("image/")) {
+  if (isPdfDocument(document)) {
+    const record = await downloadTelegramPdf(ctx, document, message);
+    parts.push("[attached replied-to PDF file]");
+    parts.push(formatPdfReferenceText(record));
+  } else if (document?.mime_type?.startsWith("image/")) {
     const ext = path.extname(document.file_name ?? "") || extensionFromMime(document.mime_type);
     imagePaths.push(await downloadTelegramFile(ctx, document.file_id, ext));
   }
@@ -2108,7 +2142,7 @@ function effectivePersonaPrompt() {
   });
 }
 
-async function downloadTelegramFile(ctx, fileId, ext) {
+async function downloadTelegramFileRecord(ctx, fileId, ext) {
   const link = await ctx.telegram.getFileLink(fileId);
   const response = await fetch(link.href);
   if (!response.ok) throw new Error(`Telegram file download failed: ${response.status}`);
@@ -2120,7 +2154,44 @@ async function downloadTelegramFile(ctx, fileId, ext) {
   const filename = `${Date.now()}-${fileId.replace(/[^a-zA-Z0-9_-]/g, "")}${ext}`;
   const filePath = path.join(config.uploadDir, filename);
   await fs.writeFile(filePath, bytes);
-  return filePath;
+  return { path: filePath, bytes: bytes.length };
+}
+
+async function downloadTelegramFile(ctx, fileId, ext) {
+  const record = await downloadTelegramFileRecord(ctx, fileId, ext);
+  return record.path;
+}
+
+async function downloadTelegramPdf(ctx, document, sourceMessage) {
+  const downloaded = await downloadTelegramFileRecord(ctx, document.file_id, ".pdf");
+  return createUploadedPdfRecord(document, downloaded, {
+    messageId: normalizeTelegramId(sourceMessage?.message_id)
+  });
+}
+
+async function rememberLastPdfUpload(ctx, record) {
+  const chat = getChatState(getChatKey(ctx));
+  chat.lastPdfUpload = record;
+  chat.updatedAt = new Date().toISOString();
+  await saveState(config.stateFile, state);
+}
+
+function getFreshLastPdfUpload(chatKey) {
+  const record = getChatState(chatKey).lastPdfUpload;
+  return isFreshPdfUpload(record) ? record : null;
+}
+
+function formatUploadedPdfUploadHtml(record) {
+  return formatUploadedPdfHtml(record, {
+    title: t("pdfUploadedTitle"),
+    detail: t("pdfUploadedDetail"),
+    labels: {
+      file: t("pdfUploadedFile"),
+      size: t("pdfUploadedSize"),
+      path: t("pdfUploadedPath")
+    },
+    formatBytes
+  });
 }
 
 function extensionFromMime(mime) {

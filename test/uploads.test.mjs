@@ -31,6 +31,15 @@ test("old upload files become cleanup candidates", () => {
   assert.deepEqual(result.candidates.map((item) => item.path), ["/uploads/old.jpg"]);
 });
 
+test("old PDF upload files become cleanup candidates", () => {
+  const result = selectUploadCleanupCandidates([upload("old.pdf", 8, 100)], {
+    now,
+    retentionDays: 7,
+    maxBytes: 0
+  });
+  assert.deepEqual(result.candidates.map((item) => item.path), ["/uploads/old.pdf"]);
+});
+
 test("recent upload files are preserved", () => {
   const result = selectUploadCleanupCandidates([upload("recent.jpg", 2, 100)], {
     now,
