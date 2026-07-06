@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { appendRecoveryJournal } from "../src/recovery/journal.js";
+import { appendRecoveryJournal, summarizeStreamEvent } from "../src/recovery/journal.js";
 import {
   applyRecoveryThreadToChatState,
   buildStartupRecoveryActions,
@@ -11,6 +11,8 @@ import {
   clearEmptyRestartMarker,
   clearStaleRestartMarker,
   createRecoveryTurn,
+  hasRecoveryStartNoticeBeenSent,
+  markRecoveryStartNoticeSent,
   markRecoveryAttempt
 } from "../src/recovery/startup.js";
 import { createRestartMarkerFromActiveTurns } from "../src/recovery/restart.js";
@@ -37,6 +39,19 @@ test("recovery journal appends one JSON object per line", async () => {
   const entries = body.trim().split("\n").map((line) => JSON.parse(line));
   assert.deepEqual(entries.map((entry) => entry.type), ["turn_started", "turn_completed"]);
   assert.equal(entries.every((entry) => typeof entry.at === "string"), true);
+});
+
+test("stream event summaries omit message bodies", () => {
+  assert.deepEqual(summarizeStreamEvent({
+    type: "item.completed",
+    item: { id: "item-1", type: "agent_message", text: "secret final answer" }
+  }), {
+    eventType: "item.completed",
+    itemId: "item-1",
+    itemType: "agent_message",
+    status: "",
+    length: 19
+  });
 });
 
 test("active snapshots are written atomically and read back", async () => {
@@ -315,6 +330,16 @@ test("recovery dedupe increments attempts for started attempts only", async () =
   assert.equal(entry.lastStatus, "failed");
   const journal = await fs.readFile(recoveryPaths(dir).journal, "utf8");
   assert.match(journal, /recovery_failure_warning/);
+});
+
+test("recovery start notice dedupe is tracked per recovery key", async () => {
+  const dir = await tmpRecoveryDir();
+  const candidate = { chatKey: "chat-1", threadId: "thread-1", reason: "startup_recovery" };
+  assert.equal(await hasRecoveryStartNoticeBeenSent(dir, candidate), false);
+  await markRecoveryStartNoticeSent(dir, candidate, { now: new Date("2026-06-15T00:00:00.000Z") });
+  assert.equal(await hasRecoveryStartNoticeBeenSent(dir, candidate), true);
+  const entry = Object.values((await readRecoveryDedupe(dir)).recentRecoveryKeys)[0];
+  assert.equal(entry.startNoticeSentAt, "2026-06-15T00:00:00.000Z");
 });
 
 test("restart update dedupe remembers Telegram redeliveries", async () => {

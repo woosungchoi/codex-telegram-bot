@@ -134,6 +134,8 @@ Edit `.env`:
 - `BOT_RECOVERY_STALE_SECONDS`: maximum age for automatic startup recovery candidates, default `21600`
 - `BOT_RECOVERY_TURN_TTL_SECONDS`: recovery queue item TTL, default `86400`
 - `BOT_RECOVERY_SUSPEND_AFTER`: suspend automatic recovery after this many attempts for the same key, default `3`
+- `CODEX_STREAM_IDLE_NOTICE_MS`: stream idle time before a recovery notice is sent, default `120000`
+- `CODEX_STREAM_IDLE_ABORT_MS`: stream idle time before the SDK turn is aborted, default `900000`
 - `UPLOAD_DIR`: directory for Telegram image inputs downloaded before sending them to Codex, default `./state/uploads`
 - `UPLOAD_RETENTION_DAYS`: image uploads older than this become upload cleanup candidates, default `7`
 - `UPLOAD_MAX_BYTES`: upload directory size target and per-file download cap in bytes, default `1073741824`, `0` disables the size target and download cap

@@ -11,20 +11,28 @@ export async function appendRecoveryJournal(recoveryDir, event) {
 }
 
 export function summarizeStreamEvent(event) {
-  const item = event?.item;
-  if (!item) return {
-    type: event?.type || "unknown"
-  };
+  const item = event?.item ?? event?.payload;
+  if (!item) {
+    return compactObject({
+      eventType: event?.type || "unknown",
+      payloadType: event?.payload?.type || ""
+    });
+  }
   return {
-    type: event.type,
+    eventType: event.type,
     itemId: item.id || "",
     itemType: item.type || "",
     status: item.status || "",
-    preview: previewText(item.text || item.command || item.name || item.path || "")
+    length: textLength(item.text || item.command || item.name || item.path || item.message || item.content)
   };
 }
 
-function previewText(text, limit = 240) {
-  const value = String(text || "").replace(/\s+/g, " ").trim();
-  return value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
+function textLength(value) {
+  if (Array.isArray(value)) return value.reduce((total, entry) => total + textLength(entry), 0);
+  if (value && typeof value === "object") return textLength(value.text || value.content || "");
+  return String(value || "").length;
+}
+
+function compactObject(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== "" && entry !== undefined));
 }

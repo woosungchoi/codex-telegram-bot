@@ -76,6 +76,24 @@ export async function markRecoveryAttempt(recoveryDir, candidate, { status = "st
   return next;
 }
 
+export async function hasRecoveryStartNoticeBeenSent(recoveryDir, candidate) {
+  const dedupe = await readRecoveryDedupe(recoveryDir);
+  const key = candidate.recoveryKey || recoveryKey(candidate);
+  return Boolean(dedupe.recentRecoveryKeys[key]?.startNoticeSentAt);
+}
+
+export async function markRecoveryStartNoticeSent(recoveryDir, candidate, { now = new Date() } = {}) {
+  const dedupe = await readRecoveryDedupe(recoveryDir);
+  const key = candidate.recoveryKey || recoveryKey(candidate);
+  const previous = dedupe.recentRecoveryKeys[key] || { attempts: 0 };
+  dedupe.recentRecoveryKeys[key] = {
+    ...previous,
+    startNoticeSentAt: now.toISOString()
+  };
+  await writeRecoveryDedupeAtomic(recoveryDir, dedupe);
+  return dedupe.recentRecoveryKeys[key];
+}
+
 export async function clearCompletedRecovery(recoveryDir) {
   await clearRestartMarker(recoveryDir);
 }

@@ -124,6 +124,8 @@ cp .env.minimal.example .env
 - `BOT_RECOVERY_STALE_SECONDS`: startup 자동 recovery 후보의 최대 age, 기본값 `21600`
 - `BOT_RECOVERY_TURN_TTL_SECONDS`: recovery queue item TTL, 기본값 `86400`
 - `BOT_RECOVERY_SUSPEND_AFTER`: 같은 recovery key 자동 복구를 suspend할 attempt 수, 기본값 `3`
+- `CODEX_STREAM_IDLE_NOTICE_MS`: recovery 안내를 보내기 전 stream idle 시간, 기본값 `120000`
+- `CODEX_STREAM_IDLE_ABORT_MS`: SDK turn을 중단하기 전 stream idle 시간, 기본값 `900000`
 - `UPLOAD_DIR`: Codex로 보내기 전에 다운로드한 Telegram 이미지 입력 저장 위치, 기본값 `./state/uploads`
 - `UPLOAD_RETENTION_DAYS`: 이 일수보다 오래된 이미지 upload를 upload cleanup 후보로 표시, 기본값 `7`
 - `UPLOAD_MAX_BYTES`: upload directory 용량 목표이자 파일별 다운로드 상한 byte, 기본값 `1073741824`, `0`이면 용량 목표와 다운로드 상한 비활성화

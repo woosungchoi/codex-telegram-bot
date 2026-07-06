@@ -101,6 +101,8 @@ export function readConfig(env = process.env, options = {}) {
     botRecoveryStaleSeconds: parseNonnegativeInteger(env.BOT_RECOVERY_STALE_SECONDS, 21600, "BOT_RECOVERY_STALE_SECONDS"),
     botRecoveryTurnTtlSeconds: parseNonnegativeInteger(env.BOT_RECOVERY_TURN_TTL_SECONDS, 86400, "BOT_RECOVERY_TURN_TTL_SECONDS"),
     botRecoverySuspendAfter: parseNonnegativeInteger(env.BOT_RECOVERY_SUSPEND_AFTER, 3, "BOT_RECOVERY_SUSPEND_AFTER"),
+    codexStreamIdleNoticeMs: parseNonnegativeInteger(env.CODEX_STREAM_IDLE_NOTICE_MS, 120_000, "CODEX_STREAM_IDLE_NOTICE_MS"),
+    codexStreamIdleAbortMs: parseNonnegativeInteger(env.CODEX_STREAM_IDLE_ABORT_MS, 900_000, "CODEX_STREAM_IDLE_ABORT_MS"),
     uploadDir: env.UPLOAD_DIR?.trim() || path.join(stateRoot, "uploads"),
     uploadRetentionDays: parseNonnegativeInteger(env.UPLOAD_RETENTION_DAYS, 7, "UPLOAD_RETENTION_DAYS"),
     uploadMaxBytes: parseNonnegativeInteger(env.UPLOAD_MAX_BYTES, 1_073_741_824, "UPLOAD_MAX_BYTES"),

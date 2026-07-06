@@ -18,6 +18,7 @@ import { buildInput, mergeReplyContext } from "./codex/input.js";
 import { mergeAdditionalDirectories } from "./codex/options.js";
 import { buildStyleInstructionPrompt } from "./codex/prompts.js";
 import { applyCodexStreamEvent, codexStreamItems, codexStreamResult, createCodexStreamState } from "./codex/stream.js";
+import { createCodexStreamWatchdog, isStreamIdleTimeout, STREAM_IDLE_TIMEOUT_MESSAGE } from "./codex/watchdog.js";
 import { analyzeContextPressure, buildCodexCompactConfig, resolveAutoCompactTokenLimit } from "./codex/compact.js";
 import { readConfig as readRuntimeConfig } from "./config.js";
 import { renderHandoffMarkdown, sanitizeHandoffFilename, sessionHighlightFromItem } from "./handoff.js";
@@ -79,6 +80,8 @@ import {
   clearCompletedRecovery,
   clearEmptyRestartMarker,
   clearStaleRestartMarker,
+  hasRecoveryStartNoticeBeenSent,
+  markRecoveryStartNoticeSent,
   markRecoveryAttempt
 } from "./recovery/startup.js";
 import {
@@ -1311,10 +1314,20 @@ async function processPreparedTurn(chatKey, preparedTurn, active) {
     const input = buildInput(preparedTurn.inputText, preparedTurn.imagePaths);
     const thread = getOrCreateThread(chatKey);
     await maybeNotifyContextPressure(ctx, chatKey, thread);
-    const turn = await runCodexTurn(ctx, chatKey, thread, input, active.abortController.signal, undefined, liveProgress);
+    const turn = await runCodexTurn(ctx, chatKey, thread, input, active.abortController.signal, undefined, liveProgress, {
+      turnKind: preparedTurn.kind || "user"
+    });
     await rememberThread(chatKey, thread);
     const response = formatTurn(turn);
-    await replyCodexAnswer(ctx, response || "Codex completed without a final message.");
+    const replyText = response || "Codex completed without a final message.";
+    await recordTelegramReplyStarted(chatKey, replyText);
+    try {
+      await replyCodexAnswer(ctx, replyText);
+      await recordTelegramReplyCompleted(chatKey, replyText);
+    } catch (error) {
+      await recordTelegramReplyFailed(chatKey, error);
+      throw error;
+    }
     await recordActiveTurnCompleted(chatKey, thread.id || getChatState(chatKey).threadId || "");
     turnSucceeded = true;
     finalReaction = config.telegramCompleteReaction;
@@ -1324,6 +1337,9 @@ async function processPreparedTurn(chatKey, preparedTurn, active) {
     if (active.interruptRequested && active.abortController.signal.aborted) {
       await replyHtml(ctx, `${b(t("codexTurnInterruptedTitle"))}\n${t("codexTurnInterruptedDetail")}`);
       active.interruptRequested = false;
+    } else if (preparedTurn.kind === "recovery" && isStreamIdleTimeout(error)) {
+      await recordActiveTurnFailed(chatKey, STREAM_IDLE_TIMEOUT_MESSAGE);
+      await replyHtml(ctx, `${b(t("recoveryStreamIdleTimeoutTitle"))}\n${t("recoveryStreamIdleTimeoutDetail")}`);
     } else {
       await recordActiveTurnFailed(chatKey, message);
       await replyHtml(ctx, `<b>Codex failed</b>\n${code(message)}`);
@@ -1336,42 +1352,101 @@ async function processPreparedTurn(chatKey, preparedTurn, active) {
 }
 
 async function runCodexTurn(ctx, chatKey, thread, input, signal, workingMessageId, liveProgress = null, options = {}) {
-  const turnOptions = buildTurnOptions(chatKey, signal);
+  const linkedAbort = createLinkedAbortController(signal);
+  const turnOptions = buildTurnOptions(chatKey, linkedAbort.controller.signal);
   if (!getEffectiveOptions(chatKey).streamEvents) {
-    return thread.run(input, turnOptions);
+    try {
+      return await thread.run(input, turnOptions);
+    } finally {
+      linkedAbort.cleanup();
+    }
   }
 
+  const streamStartedAt = Date.now();
+  await recordCodexStreamStarted(chatKey, options.turnKind || "user");
   const { events } = await thread.runStreamed(input, turnOptions);
   const streamState = createCodexStreamState();
   let lastProgressAt = 0;
+  let firstItemSeen = false;
+  let streamOutcome = "completed";
   const progressState = liveProgress;
+  const isRecoveryTurn = options.turnKind === "recovery";
+  const watchdog = createCodexStreamWatchdog({
+    noticeMs: runtimeValue("codexStreamIdleNoticeMs"),
+    abortMs: runtimeValue("codexStreamIdleAbortMs"),
+    onNotice: ({ idleMs }) => recordStreamIdleNotice(ctx, chatKey, idleMs, isRecoveryTurn),
+    onTimeout: ({ idleMs }) => recordStreamIdleTimeout(chatKey, idleMs),
+    abort: (error) => linkedAbort.controller.abort(error)
+  });
+  watchdog.start();
 
-  for await (const event of events) {
-    const update = applyCodexStreamEvent(streamState, event);
-    if (update.type === "thread_started") {
-      if (options.rememberThreadId !== false) {
-        const chat = getChatState(chatKey);
-        chat.threadId = update.threadId;
-        await saveState(config.stateFile, state);
-        await recordThreadStarted(chatKey, update.threadId);
+  try {
+    for await (const event of events) {
+      watchdog.touch();
+      const update = applyCodexStreamEvent(streamState, event);
+      if (update.type === "thread_started") {
+        if (options.rememberThreadId !== false) {
+          const chat = getChatState(chatKey);
+          chat.threadId = update.threadId;
+          await saveState(config.stateFile, state);
+          await recordThreadStarted(chatKey, update.threadId);
+        }
+      } else if (update.type === "item") {
+        await recordStreamItemEvent(chatKey, event, update);
+        if (!firstItemSeen) {
+          firstItemSeen = true;
+          await recordCodexStreamFirstItem(chatKey, event, update, Date.now() - streamStartedAt);
+        }
+        if (update.finalResponseChanged) {
+          await recordCodexStreamFinalResponseSeen(chatKey, streamState.finalResponse.length, Date.now() - streamStartedAt);
+        }
+        const now = Date.now();
+        if (workingMessageId && now - lastProgressAt > runtimeValue("progressEditIntervalMs")) {
+          lastProgressAt = now;
+          await editMessageQuietly(ctx, workingMessageId, summarizeProgress(codexStreamItems(streamState)));
+        }
+      } else if (update.type === "error") {
+        streamOutcome = "error";
+        await recordActiveTurnFailed(chatKey, update.message);
+        throw new Error(update.message);
+      } else if (update.type === "turn_completed") {
+        await appendRecoveryEvent({ type: "turn_completed", chatKey });
+      } else if (update.type === "unknown") {
+        await recordCodexStreamUnknownEvent(chatKey, event, Date.now() - streamStartedAt);
       }
-    } else if (update.type === "item") {
-      await recordStreamItemEvent(chatKey, event);
-      const now = Date.now();
-      if (workingMessageId && now - lastProgressAt > runtimeValue("progressEditIntervalMs")) {
-        lastProgressAt = now;
-        await editMessageQuietly(ctx, workingMessageId, summarizeProgress(codexStreamItems(streamState)));
-      }
-    } else if (update.type === "error") {
-      await recordActiveTurnFailed(chatKey, update.message);
-      throw new Error(update.message);
-    } else if (update.type === "turn_completed") {
-      await appendRecoveryEvent({ type: "turn_completed", chatKey });
+      await maybeSendLiveProgress(ctx, progressState, event, codexStreamItems(streamState));
     }
-    await maybeSendLiveProgress(ctx, progressState, event, codexStreamItems(streamState));
-  }
 
-  return codexStreamResult(streamState);
+    return codexStreamResult(streamState);
+  } catch (error) {
+    streamOutcome = watchdog.timeoutTriggered ? STREAM_IDLE_TIMEOUT_MESSAGE : "error";
+    if (watchdog.timeoutTriggered) throw new Error(STREAM_IDLE_TIMEOUT_MESSAGE);
+    throw error;
+  } finally {
+    watchdog.stop();
+    linkedAbort.cleanup();
+    await recordCodexStreamIteratorClosed(chatKey, {
+      elapsedMs: Date.now() - streamStartedAt,
+      outcome: streamOutcome,
+      itemCount: codexStreamItems(streamState).length,
+      finalResponseLength: streamState.finalResponse.length
+    });
+  }
+}
+
+function createLinkedAbortController(parentSignal) {
+  const controller = new AbortController();
+  if (!parentSignal) return { controller, cleanup: () => {} };
+  if (parentSignal.aborted) {
+    controller.abort(parentSignal.reason);
+    return { controller, cleanup: () => {} };
+  }
+  const abort = () => controller.abort(parentSignal.reason);
+  parentSignal.addEventListener("abort", abort, { once: true });
+  return {
+    controller,
+    cleanup: () => parentSignal.removeEventListener("abort", abort)
+  };
 }
 
 async function refreshUsageSample(chatKey, signal) {
@@ -1473,17 +1548,130 @@ async function recordThreadStarted(chatKey, threadId) {
   });
 }
 
-async function recordStreamItemEvent(chatKey, event) {
+async function recordStreamItemEvent(chatKey, event, update = {}) {
+  if (!config.botRestartRecoveryEnabled) return;
+  const summary = summarizeStreamEvent(event);
+  const completed = update.eventType === "item.completed" || event.type === "item.completed";
+  await safeRecoveryWrite(async () => {
+    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
+      lastEventAt: new Date().toISOString(),
+      lastCompletedItemType: completed ? summary.itemType : undefined,
+      lastCompletedItemId: completed ? summary.itemId : undefined,
+      lastKnownStatus: summary.eventType || event.type || "unknown"
+    });
+    await appendRecoveryEvent({ type: "stream_item", chatKey, ...summary });
+  });
+}
+
+async function recordCodexStreamStarted(chatKey, turnKind) {
+  if (!config.botRestartRecoveryEnabled) return;
+  await safeRecoveryWrite(async () => {
+    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
+      lastEventAt: new Date().toISOString(),
+      lastKnownStatus: "codex_stream_started",
+      streamTurnKind: turnKind || ""
+    });
+    await appendRecoveryEvent({ type: "codex_stream_started", chatKey, turnKind: turnKind || "" });
+  });
+}
+
+async function recordCodexStreamFirstItem(chatKey, event, update, elapsedMs) {
   if (!config.botRestartRecoveryEnabled) return;
   const summary = summarizeStreamEvent(event);
   await safeRecoveryWrite(async () => {
     await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
       lastEventAt: new Date().toISOString(),
-      lastCompletedItemType: event.type === "item.completed" ? summary.itemType : undefined,
-      lastCompletedItemId: event.type === "item.completed" ? summary.itemId : undefined,
-      lastKnownStatus: summary.type
+      lastKnownStatus: "codex_stream_first_item",
+      firstItemType: update.item?.type || summary.itemType || "",
+      firstItemEventType: update.eventType || summary.eventType || event.type || ""
     });
-    await appendRecoveryEvent({ type: "stream_item", chatKey, ...summary });
+    await appendRecoveryEvent({ type: "codex_stream_first_item", chatKey, elapsedMs, ...summary });
+  });
+}
+
+async function recordCodexStreamFinalResponseSeen(chatKey, length, elapsedMs) {
+  if (!config.botRestartRecoveryEnabled) return;
+  await safeRecoveryWrite(async () => {
+    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
+      lastEventAt: new Date().toISOString(),
+      lastKnownStatus: "codex_stream_final_response_seen",
+      finalResponseLength: length,
+      finalResponseSeenAt: new Date().toISOString()
+    });
+    await appendRecoveryEvent({ type: "codex_stream_final_response_seen", chatKey, elapsedMs, length });
+  });
+}
+
+async function recordCodexStreamIteratorClosed(chatKey, metadata) {
+  if (!config.botRestartRecoveryEnabled) return;
+  await safeRecoveryWrite(async () => {
+    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
+      lastEventAt: new Date().toISOString(),
+      lastKnownStatus: "codex_stream_iterator_closed",
+      streamOutcome: metadata.outcome || ""
+    });
+    await appendRecoveryEvent({ type: "codex_stream_iterator_closed", chatKey, ...metadata });
+  });
+}
+
+async function recordCodexStreamUnknownEvent(chatKey, event, elapsedMs) {
+  if (!config.botRestartRecoveryEnabled) return;
+  await safeRecoveryWrite(async () => {
+    await appendRecoveryEvent({ type: "codex_stream_unknown_event", chatKey, elapsedMs, ...summarizeStreamEvent(event) });
+  });
+}
+
+async function recordStreamIdleNotice(ctx, chatKey, idleMs, isRecoveryTurn) {
+  if (!config.botRestartRecoveryEnabled) return;
+  await safeRecoveryWrite(async () => {
+    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
+      lastEventAt: new Date().toISOString(),
+      lastKnownStatus: "stream_idle_notice",
+      streamIdleMs: idleMs
+    });
+    await appendRecoveryEvent({ type: "stream_idle_notice", chatKey, idleMs, recovery: isRecoveryTurn });
+  });
+  if (isRecoveryTurn) {
+    await replyHtml(ctx, `${b(t("recoveryIdleTitle"))}\n${t("recoveryIdleDetail")}`).catch(() => {});
+  }
+}
+
+async function recordStreamIdleTimeout(chatKey, idleMs) {
+  if (!config.botRestartRecoveryEnabled) return;
+  await safeRecoveryWrite(async () => {
+    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
+      lastEventAt: new Date().toISOString(),
+      lastKnownStatus: STREAM_IDLE_TIMEOUT_MESSAGE,
+      recoveryEligible: false,
+      recoveryReason: STREAM_IDLE_TIMEOUT_MESSAGE,
+      streamIdleMs: idleMs
+    });
+    await appendRecoveryEvent({ type: STREAM_IDLE_TIMEOUT_MESSAGE, chatKey, idleMs });
+  });
+}
+
+async function recordTelegramReplyStarted(chatKey, text) {
+  if (!config.botRestartRecoveryEnabled) return;
+  await safeRecoveryWrite(async () => {
+    await appendRecoveryEvent({ type: "telegram_reply_started", chatKey, length: String(text || "").length });
+  });
+}
+
+async function recordTelegramReplyCompleted(chatKey, text) {
+  if (!config.botRestartRecoveryEnabled) return;
+  await safeRecoveryWrite(async () => {
+    await appendRecoveryEvent({ type: "telegram_reply_completed", chatKey, length: String(text || "").length });
+  });
+}
+
+async function recordTelegramReplyFailed(chatKey, error) {
+  if (!config.botRestartRecoveryEnabled) return;
+  await safeRecoveryWrite(async () => {
+    await appendRecoveryEvent({
+      type: "telegram_reply_failed",
+      chatKey,
+      message: truncate(error instanceof Error ? error.message : String(error), 500)
+    });
   });
 }
 
@@ -2009,12 +2197,20 @@ async function scheduleStartupRecovery({ force = false, notifyCtx = null, source
     }
     for (const turn of actions.turns) {
       const candidate = turn.recovery;
-      await markRecoveryAttempt(config.botRecoveryDir, candidate, { status: "started" });
-      await enqueuePendingTurnFrontForced(turn.chatKey, turn);
-      const firstTurn = await dequeuePendingTurn(turn.chatKey, createSyntheticCtx(turn));
-      if (firstTurn) {
+      const recoveryCtx = createSyntheticCtx(turn);
+      try {
+        await markRecoveryAttempt(config.botRecoveryDir, candidate, { status: "started" });
+        await notifyRecoveryStarted(recoveryCtx, turn);
+        await enqueuePendingTurnFrontForced(turn.chatKey, turn);
+        const firstTurn = await dequeuePendingTurn(turn.chatKey, recoveryCtx);
+        if (!firstTurn) throw new Error("Recovery turn could not be dequeued.");
         await startPreparedTurnQueue(turn.chatKey, firstTurn);
         started += 1;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await appendRecoveryEvent({ type: "recovery_start_failed", chatKey: turn.chatKey, recoveryKey: candidate.recoveryKey || "", message: truncate(message, 500) });
+        await markRecoveryAttempt(config.botRecoveryDir, candidate, { status: "failed" });
+        await notifyRecoveryStartFailed(recoveryCtx, turn, message);
       }
     }
     if (notifyCtx && started === 0) await appendRecoveryEvent({ type: "manual_recovery_no_candidates" });
@@ -2025,6 +2221,37 @@ async function scheduleStartupRecovery({ force = false, notifyCtx = null, source
     startupRecoveryRunning = false;
   }
   return started > 0;
+}
+
+async function notifyRecoveryStarted(ctx, turn) {
+  const candidate = turn.recovery || { chatKey: turn.chatKey };
+  if (await hasRecoveryStartNoticeBeenSent(config.botRecoveryDir, candidate)) {
+    await appendRecoveryEvent({ type: "recovery_started_notice_skipped", chatKey: turn.chatKey, recoveryKey: candidate.recoveryKey || "" });
+    return false;
+  }
+  try {
+    const message = await replyHtml(ctx, `${b(t("recoveryStartedTitle"))}\n${t("recoveryStartedDetail")}`);
+    await markRecoveryStartNoticeSent(config.botRecoveryDir, candidate);
+    await appendRecoveryEvent({
+      type: "recovery_started_notice_sent",
+      chatKey: turn.chatKey,
+      recoveryKey: candidate.recoveryKey || "",
+      messageId: message?.message_id || ""
+    });
+    return true;
+  } catch (error) {
+    await appendRecoveryEvent({
+      type: "recovery_started_notice_failed",
+      chatKey: turn.chatKey,
+      recoveryKey: candidate.recoveryKey || "",
+      message: truncate(error instanceof Error ? error.message : String(error), 500)
+    });
+    return false;
+  }
+}
+
+async function notifyRecoveryStartFailed(ctx, turn, message) {
+  await replyHtml(ctx, `${b(t("recoveryStartFailedTitle"))}\n${t("recoveryStartFailedDetail")}\n${code(message)}`).catch(() => {});
 }
 
 async function enqueuePendingTurnFrontForced(chatKey, preparedTurn) {
