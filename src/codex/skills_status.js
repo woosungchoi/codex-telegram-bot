@@ -8,9 +8,7 @@ const ABSOLUTE_POSIX_PATH_PATTERN = /(^|[^A-Za-z0-9/<])(\/[^/\s<>"'`|=,:;?&]+(?:
 
 export async function collectCodexSkillInventory({ codexHome, pluginCacheDir, configPath } = {}) {
   const root = path.resolve(codexHome || "");
-  const warnings = [];
-  const skills = [];
-  const seen = new Set();
+  const warnings = [], skills = [], seen = new Set();
   const context = { codexHome: root, warnings, skills, seen };
   const resolvedPluginCacheDir = pluginCacheDir ? path.resolve(pluginCacheDir) : path.join(root, "plugins", "cache");
   const resolvedConfigPath = configPath ? path.resolve(configPath) : path.join(root, "config.toml");
@@ -25,11 +23,11 @@ export async function collectCodexSkillInventory({ codexHome, pluginCacheDir, co
 }
 
 export function formatCodexSkillInventory(inventory, { maxChars = Infinity, maxRows = 40 } = {}) {
-  const safeInventory = inventory || { skills: [], warnings: [] };
-  const rowLimit = Math.max(0, Math.min(maxRows, safeInventory.skills.length));
+  const safeInventory = inventory || { skills: [], warnings: [] }, rowLimit = Math.max(0, Math.min(maxRows, safeInventory.skills.length));
   for (let visibleRows = rowLimit; visibleRows >= 0; visibleRows -= 1) {
     const html = renderInventory(safeInventory, visibleRows);
-    if (html.length <= maxChars) return html;
+    if (html.length <= maxChars)
+      return html;
   }
   return renderInventory(safeInventory, 0);
 }
@@ -48,12 +46,8 @@ export async function replyCodexSkillsStatus(ctx, deps, options = {}) {
 }
 
 async function collectLocalSkills({ codexHome, rootDir, status, excludedDirs = new Set(), warnings, skills, seen }) {
-  const entries = await readDirOrWarn(rootDir, warnings, codexHome, "skill root unavailable");
-  const baseSkill = { codexHome, status, sourceType: status, pluginKey: "", warnings, skills, seen };
-  for (const entry of entries) {
-    if (!entry.isDirectory() || excludedDirs.has(entry.name)) {
-      continue;
-    }
+  const entries = await readDirOrWarn(rootDir, warnings, codexHome, "skill root unavailable"), baseSkill = { codexHome, status, sourceType: status, pluginKey: "", warnings, skills, seen };
+  for (const entry of entries.filter((entry) => entry.isDirectory() && !excludedDirs.has(entry.name))) {
     await collectSkillFile({ ...baseSkill, skillDir: path.join(rootDir, entry.name), fallbackName: entry.name });
   }
 }
@@ -61,9 +55,9 @@ async function collectLocalSkills({ codexHome, rootDir, status, excludedDirs = n
 async function collectPluginSkills({ codexHome, pluginCacheDir, pluginConfig, warnings, skills, seen }) {
   const manifests = await findPluginManifests(pluginCacheDir, warnings, codexHome);
   for (const manifestPath of manifests) {
-    const pluginRoot = path.dirname(path.dirname(manifestPath));
-    const manifest = await readPluginManifest(manifestPath, warnings, codexHome);
-    if (!manifest) continue;
+    const pluginRoot = path.dirname(path.dirname(manifestPath)), manifest = await readPluginManifest(manifestPath, warnings, codexHome);
+    if (!manifest)
+      continue;
 
     const manifestSkillsPath = typeof manifest.skills === "string" ? manifest.skills.trim() : "";
     if (!manifestSkillsPath) {
@@ -75,22 +69,16 @@ async function collectPluginSkills({ codexHome, pluginCacheDir, pluginConfig, wa
       addWarning(warnings, "plugin skills root outside plugin cache entry", manifestPath, codexHome);
       continue;
     }
-    const realPluginRoot = await realPathOrWarn(pluginRoot, warnings, codexHome, "plugin cache unavailable");
-    const realSkillsRoot = await realPathOrWarn(skillsRoot, warnings, codexHome, "plugin skills root unavailable");
-    if (!realPluginRoot || !realSkillsRoot) continue;
+    const realPluginRoot = await realPathOrWarn(pluginRoot, warnings, codexHome, "plugin cache unavailable"), realSkillsRoot = await realPathOrWarn(skillsRoot, warnings, codexHome, "plugin skills root unavailable");
+    if (!realPluginRoot || !realSkillsRoot)
+      continue;
     if (!isInsidePath(realPluginRoot, realSkillsRoot)) {
       addWarning(warnings, "plugin skills root outside plugin cache entry", manifestPath, codexHome);
       continue;
     }
 
-    const marketplace = path.relative(pluginCacheDir, pluginRoot).split(path.sep)[0] || "unknown";
-    const pluginName = sanitizeDisplayText(typeof manifest.name === "string" && manifest.name.trim() ? manifest.name.trim() : path.basename(pluginRoot));
-    const pluginKey = `${pluginName}@${marketplace}`;
-    const status = pluginStatus(pluginConfig, pluginName, marketplace);
-    const childEntries = await readDirOrWarn(skillsRoot, warnings, codexHome, "plugin skills root unavailable");
-    const baseSkill = { codexHome, status, sourceType: "plugin", pluginKey, warnings, skills, seen, confinementRoot: realSkillsRoot };
-    for (const entry of childEntries) {
-      if (!entry.isDirectory()) continue;
+    const marketplace = path.relative(pluginCacheDir, pluginRoot).split(path.sep)[0] || "unknown", pluginName = sanitizeDisplayText(typeof manifest.name === "string" && manifest.name.trim() ? manifest.name.trim() : path.basename(pluginRoot)), pluginKey = `${pluginName}@${marketplace}`, status = pluginStatus(pluginConfig, pluginName, marketplace), childEntries = await readDirOrWarn(skillsRoot, warnings, codexHome, "plugin skills root unavailable"), baseSkill = { codexHome, status, sourceType: "plugin", pluginKey, warnings, skills, seen, confinementRoot: realSkillsRoot };
+    for (const entry of childEntries.filter((entry) => entry.isDirectory())) {
       await collectSkillFile({ ...baseSkill, skillDir: path.join(skillsRoot, entry.name), fallbackName: entry.name });
     }
   }
@@ -100,8 +88,10 @@ async function collectSkillFile({ codexHome, skillDir, status, sourceType, plugi
   const skillPath = path.join(skillDir, "SKILL.md");
   if (confinementRoot) {
     const realSkillPath = await realPathOrWarn(skillPath, warnings, codexHome, "skill file unavailable");
-    if (!realSkillPath) return;
-    if (!isInsidePath(confinementRoot, realSkillPath)) return addWarning(warnings, "skill file outside plugin skills root", skillPath, codexHome);
+    if (!realSkillPath)
+      return;
+    if (!isInsidePath(confinementRoot, realSkillPath))
+      return addWarning(warnings, "skill file outside plugin skills root", skillPath, codexHome);
   }
   let contents = "";
   try {
@@ -111,12 +101,11 @@ async function collectSkillFile({ codexHome, skillDir, status, sourceType, plugi
     return;
   }
 
-  const metadata = parseSkillFrontmatter(contents);
-  if (metadata.malformed) addWarning(warnings, "skill frontmatter ignored", skillPath, codexHome);
-  const displayName = metadata.name || fallbackName;
-  const relativePath = relativeCodexPath(codexHome, skillPath);
-  const dedupeKey = [sourceType, pluginKey, displayName, relativePath].join("\0");
-  if (seen.has(dedupeKey)) return;
+  const metadata = parseSkillFrontmatter(contents), displayName = metadata.name || fallbackName, relativePath = relativeCodexPath(codexHome, skillPath), dedupeKey = [sourceType, pluginKey, displayName, relativePath].join("\0");
+  if (metadata.malformed)
+    addWarning(warnings, "skill frontmatter ignored", skillPath, codexHome);
+  if (seen.has(dedupeKey))
+    return;
   seen.add(dedupeKey);
   skills.push({ displayName, description: metadata.description || "", status, sourceType, pluginKey, relativePath });
 }
@@ -124,16 +113,11 @@ async function collectSkillFile({ codexHome, skillDir, status, sourceType, plugi
 async function findPluginManifests(pluginCacheDir, warnings, codexHome) {
   const manifests = [];
   const marketplaces = await readDirOrWarn(pluginCacheDir, warnings, codexHome, "plugin cache unavailable");
-  for (const marketplace of marketplaces) {
-    if (!marketplace.isDirectory()) continue;
-    const marketplaceDir = path.join(pluginCacheDir, marketplace.name);
-    const plugins = await readDirOrWarn(marketplaceDir, warnings, codexHome, "plugin cache unavailable");
-    for (const plugin of plugins) {
-      if (!plugin.isDirectory()) continue;
-      const pluginDir = path.join(marketplaceDir, plugin.name);
-      const versions = await readDirOrWarn(pluginDir, warnings, codexHome, "plugin cache unavailable");
-      for (const version of versions) {
-        if (!version.isDirectory()) continue;
+  for (const marketplace of marketplaces.filter((entry) => entry.isDirectory())) {
+    const marketplaceDir = path.join(pluginCacheDir, marketplace.name), plugins = await readDirOrWarn(marketplaceDir, warnings, codexHome, "plugin cache unavailable");
+    for (const plugin of plugins.filter((entry) => entry.isDirectory())) {
+      const pluginDir = path.join(marketplaceDir, plugin.name), versions = await readDirOrWarn(pluginDir, warnings, codexHome, "plugin cache unavailable");
+      for (const version of versions.filter((entry) => entry.isDirectory())) {
         manifests.push(path.join(pluginDir, version.name, ".codex-plugin", "plugin.json"));
       }
     }
@@ -170,14 +154,17 @@ async function readPluginConfig(configPath, warnings, codexHome) {
       continue;
     }
     if (/^\s*\[/.test(line)) {
-      if (/^\s*\[plugins\./.test(line)) addWarning(warnings, "Codex config plugin header ignored", configPath, codexHome);
+      if (/^\s*\[plugins\./.test(line))
+        addWarning(warnings, "Codex config plugin header ignored", configPath, codexHome);
       pluginKey = "";
       continue;
     }
-    if (!pluginKey) continue;
+    if (!pluginKey)
+      continue;
     const enabledMatch = line.match(/^\s*enabled\s*=\s*(true|false)\s*(?:#.*)?$/);
     if (!enabledMatch) {
-      if (/^\s*enabled\s*=/.test(line)) addWarning(warnings, "Codex config plugin enabled value ignored", configPath, codexHome);
+      if (/^\s*enabled\s*=/.test(line))
+        addWarning(warnings, "Codex config plugin enabled value ignored", configPath, codexHome);
       continue;
     }
     statusByPlugin.set(pluginKey, enabledMatch[1] === "true" ? "plugin enabled" : "plugin disabled");
@@ -186,10 +173,11 @@ async function readPluginConfig(configPath, warnings, codexHome) {
 }
 
 function parseSkillFrontmatter(contents) {
-  if (!contents.startsWith("---")) return {};
-  const lines = contents.split(/\r?\n/);
-  if (lines[0] !== "---") return {};
-  const metadata = { malformed: false };
+  if (!contents.startsWith("---"))
+    return {};
+  const lines = contents.split(/\r?\n/), metadata = { malformed: false };
+  if (lines[0] !== "---")
+    return {};
   let closed = false;
   for (let index = 1; index < lines.length; index += 1) {
     const line = lines[index];
@@ -197,18 +185,23 @@ function parseSkillFrontmatter(contents) {
       closed = true;
       break;
     }
-    if (/^\s/.test(line)) continue;
+    if (/^\s/.test(line))
+      continue;
     const match = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
     if (!match) {
-      if (line.trim()) metadata.malformed = true;
+      if (line.trim())
+        metadata.malformed = true;
       continue;
     }
     const key = match[1];
-    if (key !== "name" && key !== "description") continue;
+    if (key !== "name" && key !== "description")
+      continue;
     const value = stripQuotedScalar(match[2].trim());
-    if (value) metadata[key] = value;
+    if (value)
+      metadata[key] = value;
   }
-  if (!closed) metadata.malformed = true;
+  if (!closed)
+    metadata.malformed = true;
   return metadata;
 }
 
@@ -239,20 +232,20 @@ function redactedPath(token) { return `[path]${token.match(/[),.;:!?]+$/u)?.[0] 
 
 function compareSkills(left, right) {
   const statusDelta = STATUS_ORDER.indexOf(left.status) - STATUS_ORDER.indexOf(right.status);
-  if (statusDelta !== 0) return statusDelta;
+  if (statusDelta !== 0)
+    return statusDelta;
   return left.displayName.localeCompare(right.displayName, "en", { sensitivity: "base" });
 }
 
 function countByStatus(skills) {
   const counts = Object.fromEntries(STATUS_ORDER.map((status) => [status, 0]));
-  for (const skill of skills) counts[skill.status] = (counts[skill.status] || 0) + 1;
+  for (const skill of skills)
+    counts[skill.status] = (counts[skill.status] || 0) + 1;
   return counts;
 }
 
 function renderInventory(inventory, visibleRows) {
-  const skills = inventory.skills || [];
-  const counts = inventory.counts || countByStatus(skills);
-  const visibleSkills = skills.slice(0, visibleRows);
+  const skills = inventory.skills || [], counts = inventory.counts || countByStatus(skills), visibleSkills = skills.slice(0, visibleRows);
   const lines = [
     b("Codex skills"),
     `Summary: ${STATUS_ORDER.map((status) => `${escapeHtml(status)} ${counts[status] || 0}`).join("; ")}`,
@@ -262,13 +255,16 @@ function renderInventory(inventory, visibleRows) {
 
   for (const status of STATUS_ORDER) {
     const group = visibleSkills.filter((skill) => skill.status === status);
-    if (group.length === 0) continue;
+    if (group.length === 0)
+      continue;
     lines.push("", b(status));
-    for (const skill of group) lines.push(renderSkillRow(skill));
+    for (const skill of group)
+      lines.push(renderSkillRow(skill));
   }
 
   const omitted = skills.length - visibleSkills.length;
-  if (omitted > 0) lines.push("", `${escapeHtml(String(omitted))} more omitted.`);
+  if (omitted > 0)
+    lines.push("", `${escapeHtml(String(omitted))} more omitted.`);
   return lines.join("\n");
 }
 
