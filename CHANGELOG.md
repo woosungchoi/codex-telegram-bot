@@ -59,7 +59,7 @@ All notable public changes are documented here.
   manifest parsing, disabled plugin declarations, Telegram HTML escaping,
   message capping, path redaction, symlink containment, frontmatter parsing,
   missing-root warnings, reply mode, and edit mode.
-- Confirmed the nested syntax-check script covers 105 JavaScript/MJS files in
+- Confirmed the nested syntax-check script covers 106 JavaScript/MJS files in
   the current release tree.
 - Confirmed locale validation covers English, Korean, and Traditional Chinese
   after adding the new `/skill` UI keys.
