@@ -169,7 +169,15 @@ function parseSkillFrontmatter(contents) {
     const key = match[1];
     if (key !== "name" && key !== "description")
       continue;
-    const value = stripQuotedScalar(match[2].trim());
+    const scalar = match[2].trim();
+    if ((scalar === "|" || scalar === ">") && key === "description") {
+      const block = readBlockScalar(lines, index + 1, scalar);
+      if (block.value)
+        metadata[key] = block.value;
+      index = block.nextIndex - 1;
+      continue;
+    }
+    const value = stripQuotedScalar(scalar);
     if (value)
       metadata[key] = value;
   }
@@ -181,6 +189,27 @@ function parseSkillFrontmatter(contents) {
 function stripQuotedScalar(value) {
   const quote = value[0];
   return value.length >= 2 && (quote === '"' || quote === "'") && value[value.length - 1] === quote ? value.slice(1, -1) : value;
+}
+
+function readBlockScalar(lines, startIndex, marker) {
+  const raw = [];
+  let index = startIndex;
+  for (; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line === "---")
+      break;
+    if (!/^\s/.test(line) && line.trim())
+      break;
+    raw.push(line);
+  }
+  return { value: normalizeBlockScalar(raw, marker), nextIndex: index };
+}
+
+function normalizeBlockScalar(lines, marker) {
+  const indents = lines.filter((line) => line.trim()).map((line) => line.match(/^\s*/)[0].length);
+  const indent = indents.length ? Math.min(...indents) : 0;
+  const stripped = lines.map((line) => line.trim() ? line.slice(indent) : "");
+  return marker === ">" ? stripped.join(" ").replace(/\s+/g, " ").trim() : stripped.join("\n").trim();
 }
 
 function pluginStatus(pluginConfig, pluginName, marketplace) {

@@ -22,7 +22,7 @@ import { buildInput, mergeReplyContext } from "./codex/input.js";
 import { mergeAdditionalDirectories } from "./codex/options.js";
 import { buildStyleInstructionPrompt } from "./codex/prompts.js";
 import { readCodexSessionBackfill } from "./codex/session_backfill.js";
-import { replyCodexSkillsStatus } from "./codex/skills_status.js";
+import { isCodexSkillsView, replyCodexSkillsStatus } from "./codex/skills_status.js";
 import { applyCodexStreamEvent, codexStreamItems, codexStreamResult, createCodexStreamState } from "./codex/stream.js";
 import { createCodexStreamWatchdog, isStreamIdleTimeout, STREAM_IDLE_TIMEOUT_MESSAGE } from "./codex/watchdog.js";
 import { analyzeContextPressure, resolveAutoCompactTokenLimit } from "./codex/compact.js";
@@ -679,7 +679,7 @@ bot.command("tools", async (ctx) => {
 });
 
 bot.command("skills", async (ctx) => {
-  await replyCodexSkillsStatus(ctx, { config, runtimeValue, replyHtml, editOrReplyHtml });
+  await replyCodexSkillsStatus(ctx, { config, runtimeValue, replyHtml, editOrReplyHtml }, { query: commandArgument(ctx.message?.text, "skills") });
 });
 
 bot.command("backup", async (ctx) => {
@@ -701,6 +701,13 @@ bot.command("export", async (ctx) => {
   ]));
   await replyDocumentQuietly(ctx, file.path, "Current chat export");
 });
+
+function commandArgument(text, command) {
+  const trimmed = String(text || "").trimStart();
+  const token = trimmed.split(/\s+/, 1)[0] || "";
+  const bareCommand = token.replace(/^\//, "").split("@", 1)[0].toLowerCase();
+  return bareCommand === command ? trimmed.slice(token.length).trim() : "";
+}
 
 bot.command("prefs", async (ctx) => {
   await handlePrefsCommand(ctx);
@@ -1030,6 +1037,16 @@ bot.action(/^tool:([a-z_]+)$/, async (ctx) => {
   const [, action] = ctx.match;
   await ctx.answerCbQuery();
   await handleToolButton(ctx, action);
+});
+
+bot.action(/^sk:([a-z]):([0-9]+)$/, async (ctx) => {
+  const [, view, page] = ctx.match;
+  await ctx.answerCbQuery();
+  if (!isCodexSkillsView(view)) {
+    await editOrReplyHtml(ctx, b("Invalid skills view"), withToolsBack());
+    return;
+  }
+  await replyCodexSkillsStatus(ctx, { config, runtimeValue, replyHtml, editOrReplyHtml }, { edit: true, view, page: Number(page), extra: withToolsBack() });
 });
 
 bot.action(/^usage:(refresh|refresh_confirm)$/, async (ctx) => {

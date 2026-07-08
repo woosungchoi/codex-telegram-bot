@@ -27,19 +27,21 @@ test("collects local and manifest-declared plugin skills with narrow status pars
   assert.ok(inventory.warnings.some((warning) => warning.message === "Codex config plugin header ignored"));
 });
 
-test("formats escaped, capped Telegram HTML without absolute path leakage", async () => {
+test("formats compact escaped Telegram HTML without absolute path leakage", async () => {
   const { codexHome } = await makeFixture();
   const inventory = await collectCodexSkillInventory({ codexHome });
 
-  const html = formatCodexSkillInventory(inventory, { maxChars: 760, maxRows: 3 });
+  const html = formatCodexSkillInventory(inventory, { maxChars: 760 });
 
   assert.match(html, /Codex skills/);
   assert.match(html, /observable install\/cache\/config state/);
+  assert.match(html, /unique \d+ \/ scanned \d+/);
   assert.match(html, /Warnings: \d+ sanitized/);
-  assert.match(html, /more omitted/);
+  assert.doesNotMatch(html, /more omitted/);
   assert.ok(html.length <= 760);
   assert.ok(!html.includes(codexHome));
   assert.ok(!html.includes("<script>"));
+  assert.doesNotMatch(html, /Use &lt;b&gt;bold&lt;\/b&gt;/);
   assert.ok(!html.includes("<b>bold</b>"));
   assert.match(html, /&lt;Skill&gt; &amp; &quot;One&quot;/);
 });
@@ -52,7 +54,7 @@ test("redacts untrusted skill metadata paths while escaping HTML", async () => {
   );
 
   const inventory = await collectCodexSkillInventory({ codexHome });
-  const html = formatCodexSkillInventory(inventory, { maxChars: 1000 });
+  const html = formatCodexSkillInventory(inventory, { maxChars: 1000, query: "adversarial" });
 
   assert.match(html, /equals=\[path\][\s\S]*colon:\[path\][\s\S]*comma,\[path\][\s\S]*url=file:\/\/\[path\][\s\S]*&lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt;/);
   assert.match(html, /filehost=file:\/\/localhost\[path\][\s\S]*fileuser=file:\/\/user@localhost\[path\][\s\S]*unicode=\[path\][\s\S]*punct=\[path\][\s\S]*trailing=\[path\],/);
@@ -146,10 +148,11 @@ test("replies with capped skills status when edit mode is not requested", async 
   assert.equal(calls.reply.length, 1);
   assert.equal(calls.edit.length, 0);
   assert.equal(calls.reply[0].ctx, ctx);
-  assert.equal(calls.reply[0].extra, undefined);
+  assert.ok(calls.reply[0].extra?.reply_markup?.inline_keyboard);
   assert.match(calls.reply[0].html, /Codex skills/);
-  assert.match(calls.reply[0].html, /more omitted/);
+  assert.doesNotMatch(calls.reply[0].html, /more omitted/);
   assert.ok(calls.reply[0].html.length <= 760);
+  assert.ok(collectCallbackData(calls.reply[0].extra).every((value) => Buffer.byteLength(value) <= 64));
 });
 
 test("edits with supplied keyboard when edit mode is requested", async () => {
@@ -174,7 +177,8 @@ test("edits with supplied keyboard when edit mode is requested", async () => {
   assert.deepEqual(result, { message_id: 22 });
   assert.equal(calls.reply.length, 0);
   assert.equal(calls.edit.length, 1);
-  assert.equal(calls.edit[0].extra, keyboard);
+  assert.ok(collectCallbackData(calls.edit[0].extra).includes("p:tools"));
+  assert.ok(collectCallbackData(calls.edit[0].extra).includes("sk:w:0"));
   assert.match(calls.edit[0].html, /Codex skills/);
 });
 
@@ -208,3 +212,7 @@ test("sanitizes collection failures into warning output", async () => {
 });
 
 function countStatus(skills, status) { return skills.filter((skill) => skill.status === status).length; }
+
+function collectCallbackData(extra) {
+  return (extra?.reply_markup?.inline_keyboard || []).flat().map((button) => button.callback_data).filter(Boolean);
+}
