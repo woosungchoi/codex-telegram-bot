@@ -3,7 +3,7 @@ import path from "node:path";
 import { b, code, escapeHtml } from "../telegram/html.js";
 
 const STATUS_ORDER = ["local/system", "local/custom", "plugin enabled", "plugin cached", "plugin disabled"];
-const FILE_URL_PATH_PATTERN = /\bfile:\/\/([^/\s]*)(\/[^/\s<>"'`|]+(?:\/[^/\s<>"'`|]+)*)/gu;
+const FILE_URL_PATH_PATTERN = /\bfile:\/\/([^/\s]*)(\/[^/\s<>"'`|=,:;?&]+(?:\/[^/\s<>"'`|=,:;?&]+)*(?:\s+[^/\s<>"'`|=,.:;?&]+(?:\s+[^/\s<>"'`|=,.:;?&]+)*\/[^/\s<>"'`|=,:;?&]+(?:\/[^/\s<>"'`|=,:;?&]+)*)*)/gu;
 const ABSOLUTE_POSIX_PATH_PATTERN = /(^|[^A-Za-z0-9/<])(\/[^/\s<>"'`|=,:;?&]+(?:\/[^/\s<>"'`|=,:;?&]+)*(?:\s+[^/\s<>"'`|=,.:;?&]+(?:\s+[^/\s<>"'`|=,.:;?&]+)*\/[^/\s<>"'`|=,:;?&]+(?:\/[^/\s<>"'`|=,:;?&]+)*)*)/gu;
 
 export async function collectCodexSkillInventory({ codexHome, pluginCacheDir, configPath } = {}) {
