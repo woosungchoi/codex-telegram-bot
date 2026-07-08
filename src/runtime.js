@@ -22,6 +22,7 @@ import { buildInput, mergeReplyContext } from "./codex/input.js";
 import { mergeAdditionalDirectories } from "./codex/options.js";
 import { buildStyleInstructionPrompt } from "./codex/prompts.js";
 import { readCodexSessionBackfill } from "./codex/session_backfill.js";
+import { replyCodexSkillsStatus } from "./codex/skills_status.js";
 import { applyCodexStreamEvent, codexStreamItems, codexStreamResult, createCodexStreamState } from "./codex/stream.js";
 import { createCodexStreamWatchdog, isStreamIdleTimeout, STREAM_IDLE_TIMEOUT_MESSAGE } from "./codex/watchdog.js";
 import { analyzeContextPressure, resolveAutoCompactTokenLimit } from "./codex/compact.js";
@@ -675,6 +676,10 @@ bot.command("health", async (ctx) => {
 
 bot.command("tools", async (ctx) => {
   await sendPanel(ctx, "tools");
+});
+
+bot.command("skills", async (ctx) => {
+  await replyCodexSkillsStatus(ctx, { config, runtimeValue, replyHtml, editOrReplyHtml });
 });
 
 bot.command("backup", async (ctx) => {
@@ -4996,7 +5001,8 @@ function toolsKeyboard() {
     ],
     [
       { text: "Whoami", callback_data: "tool:whoami" },
-      { text: "Config", callback_data: "tool:config" }
+      { text: "Config", callback_data: "tool:config" },
+      { text: t("skills"), callback_data: "tool:skills" }
     ],
     [
       { text: "Backup", callback_data: "tool:backup" },
@@ -5242,6 +5248,8 @@ async function handleToolButton(ctx, action) {
     await editOrReplyHtml(ctx, formatWhoamiHtml(ctx), withToolsBack());
   } else if (action === "config") {
     await editOrReplyHtml(ctx, formatConfigHtml(), withToolsBack());
+  } else if (action === "skills") {
+    await replyCodexSkillsStatus(ctx, { config, runtimeValue, replyHtml, editOrReplyHtml }, { edit: true, extra: withToolsBack() });
   } else if (action === "appserver_status") {
     await handleAppServerStatusButton(ctx);
   } else if (action === "worker_status") {
@@ -6257,6 +6265,7 @@ function telegramCommands(language = uiLanguage()) {
     { command: "queue", description: text("commandQueue") },
     { command: "settings", description: text("commandSettings") },
     { command: "tools", description: text("commandTools") },
+    { command: "skills", description: text("commandSkills") },
     { command: "stop", description: text("commandStop") },
     { command: "help", description: text("commandHelp") }
   ];
@@ -6350,6 +6359,7 @@ function helpTextHtml() {
     code("/queue"),
     code("/settings"),
     code("/tools"),
+    code("/skills"),
     code("/stop"),
     code("/help"),
     "",

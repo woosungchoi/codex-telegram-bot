@@ -8,7 +8,7 @@
   },
   "mainInstruction": "필요한 패널을 버튼으로 열어 조작하세요.",
   "settingsInstruction": "설정할 항목을 선택하세요. 자유 입력이 필요한 값은 기존 직접 명령어 안내를 유지합니다.",
-  "toolsInstruction": "진단, 로그, 백업, 정리 기능을 선택하세요.",
+  "toolsInstruction": "스킬, 진단, 로그, 백업, 정리 기능을 선택하세요.",
   "sandboxDescription": "Codex CLI sandbox mode를 선택합니다.",
   "approvalDescription": "Codex CLI approval policy를 선택합니다.",
   "webDescription": "웹 검색 모드를 선택합니다.",
@@ -55,6 +55,7 @@
   "queue": "대기열",
   "settings": "설정",
   "tools": "도구",
+  "skills": "스킬",
   "newThread": "새 thread",
   "resumeLast": "최근 이어가기",
   "stop": "중단",
@@ -271,7 +272,7 @@
   "advancedCommands": "고급 직접 명령어도 계속 동작합니다:",
   "menuHelp": "상태, 대기열, 설정, 도구를 한 화면에서 엽니다.",
   "settingsHelp": "모델, thinking, sandbox, approval, web, network, stream, 언어, 시간대, 표시 형식을 버튼으로 바꿉니다.",
-  "toolsHelp": "health, doctor, logs, backup, export, cleanup, forget을 버튼으로 실행합니다.",
+  "toolsHelp": "skills, health, doctor, logs, backup, export, cleanup, forget을 버튼으로 실행합니다.",
   "queueHelp": "pause/resume, mode, cancel, up, next를 버튼으로 조작합니다.",
   "commandMenu": "전체 조작 패널 열기",
   "commandNew": "새 Codex thread 시작",
@@ -280,6 +281,7 @@
   "commandQueue": "대기열 패널 열기",
   "commandSettings": "설정 버튼 패널 열기",
   "commandTools": "진단과 백업 도구 열기",
+  "commandSkills": "사용 가능한 Codex 스킬 보기",
   "commandStop": "실행 중인 Codex 작업 중단",
   "commandHelp": "명령어 도움말"
 }

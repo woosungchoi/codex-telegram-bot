@@ -8,7 +8,7 @@
   },
   "mainInstruction": "Open the panel you need with the buttons below.",
   "settingsInstruction": "Choose a setting to change. Values that need free text still use direct commands.",
-  "toolsInstruction": "Choose diagnostics, logs, backup, export, cleanup, or maintenance tools.",
+  "toolsInstruction": "Choose skills, diagnostics, logs, backup, export, cleanup, or maintenance tools.",
   "sandboxDescription": "Choose the Codex CLI sandbox mode.",
   "approvalDescription": "Choose the Codex CLI approval policy.",
   "webDescription": "Choose the web search mode.",
@@ -55,6 +55,7 @@
   "queue": "Queue",
   "settings": "Settings",
   "tools": "Tools",
+  "skills": "Skills",
   "newThread": "New thread",
   "resumeLast": "Resume latest",
   "stop": "Stop",
@@ -271,7 +272,7 @@
   "advancedCommands": "Advanced direct commands still work:",
   "menuHelp": "Open status, queue, settings, and tools in one panel.",
   "settingsHelp": "Change model, thinking, sandbox, approval, web, network, stream, language, time zone, and locale settings with buttons.",
-  "toolsHelp": "Run health, doctor, logs, backup, export, cleanup, and forget with buttons.",
+  "toolsHelp": "Run skills, health, doctor, logs, backup, export, cleanup, and forget with buttons.",
   "queueHelp": "Control pause/resume, mode, cancel, up, and next with buttons.",
   "commandMenu": "Open the control panel",
   "commandNew": "Start a new Codex thread",
@@ -280,6 +281,7 @@
   "commandQueue": "Open the queue panel",
   "commandSettings": "Open settings buttons",
   "commandTools": "Open diagnostics and backup tools",
+  "commandSkills": "Show available Codex skills",
   "commandStop": "Stop the running Codex task",
   "commandHelp": "Show command help"
 }
