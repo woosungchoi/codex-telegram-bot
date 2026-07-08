@@ -11,8 +11,7 @@ async function writeFile(filePath, contents) {
 }
 
 async function makeFixture() {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-skills-status-"));
-  const codexHome = path.join(root, "codex-home");
+  const codexHome = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "codex-skills-status-")), "codex-home");
 
   await writeFile(
     path.join(codexHome, "skills", ".system", "system-one", "SKILL.md"),
@@ -37,8 +36,6 @@ Body`
     codexHome,
     marketplace: "sisyphuslabs",
     pluginDir: "enabled",
-    version: "1.0.0",
-    manifestName: "enabled",
     skillDir: "plugin-enabled",
     skillName: `Enabled <script>alert("x")</script>`,
     skillDescription: `Enabled & observable "skill".`
@@ -47,8 +44,6 @@ Body`
     codexHome,
     marketplace: "marketplace",
     pluginDir: "cached",
-    version: "1.0.0",
-    manifestName: "cached",
     skillDir: "plugin-cached",
     skillName: "Cached Plugin Skill",
     skillDescription: "No config entry means cached."
@@ -57,8 +52,6 @@ Body`
     codexHome,
     marketplace: "openai-curated-remote",
     pluginDir: "disabled",
-    version: "1.0.0",
-    manifestName: "disabled",
     skillDir: "plugin-disabled",
     skillName: "Disabled Plugin Skill",
     skillDescription: "Remote marketplace config uses stripped name."
@@ -95,12 +88,12 @@ enabled = true
 `
   );
 
-  return { root, codexHome };
+  return { codexHome };
 }
 
-async function writePlugin({ codexHome, marketplace, pluginDir, version, manifestName, skillDir, skillName, skillDescription }) {
-  const pluginRoot = path.join(codexHome, "plugins", "cache", marketplace, pluginDir, version);
-  await writeFile(path.join(pluginRoot, ".codex-plugin", "plugin.json"), JSON.stringify({ name: manifestName, skills: "./skills" }));
+async function writePlugin({ codexHome, marketplace, pluginDir, skillDir, skillName, skillDescription }) {
+  const pluginRoot = path.join(codexHome, "plugins", "cache", marketplace, pluginDir, "1.0.0");
+  await writeFile(path.join(pluginRoot, ".codex-plugin", "plugin.json"), JSON.stringify({ name: pluginDir, skills: "./skills" }));
   await writeFile(
     path.join(pluginRoot, "skills", skillDir, "SKILL.md"),
     `---
@@ -153,8 +146,7 @@ test("formats escaped, capped Telegram HTML without absolute path leakage", asyn
 });
 
 test("parses quoted scalar frontmatter and ignores nested unknown metadata", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-skills-status-frontmatter-"));
-  const codexHome = path.join(root, "codex-home");
+  const codexHome = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "codex-skills-status-frontmatter-")), "codex-home");
   await writeFile(
     path.join(codexHome, "skills", ".system", "quoted", "SKILL.md"),
     `---
@@ -187,8 +179,7 @@ Body`
 });
 
 test("missing roots become sanitized warnings and no raw paths or exceptions are formatted", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-skills-status-missing-"));
-  const codexHome = path.join(root, "missing-home");
+  const codexHome = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "codex-skills-status-missing-")), "missing-home");
 
   const inventory = await collectCodexSkillInventory({ codexHome });
   const html = formatCodexSkillInventory(inventory, { maxChars: 1000 });
