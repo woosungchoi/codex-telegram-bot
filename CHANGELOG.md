@@ -14,8 +14,9 @@ All notable public changes are documented here.
 - Added observable warning output for inventory problems such as unreadable
   Codex config, ignored plugin config values, ignored plugin manifests, and
   ignored skill frontmatter, without exposing raw local exception details.
-- Added English and Korean command descriptions and menu text for `/skill`, so
-  Telegram's command list and the bot's localized UI surface the new command.
+- Added English, Korean, and Traditional Chinese command descriptions and menu
+  text for `/skill`, so Telegram's command list and the bot's localized UI
+  surface the new command.
 
 ### Security
 
@@ -60,6 +61,8 @@ All notable public changes are documented here.
   missing-root warnings, reply mode, and edit mode.
 - Confirmed the nested syntax-check script covers 105 JavaScript/MJS files in
   the current release tree.
+- Confirmed locale validation covers English, Korean, and Traditional Chinese
+  after adding the new `/skill` UI keys.
 - Confirmed `npm run verify` passes, including recursive syntax checks, locale
   validation, ESLint, Prettier package/workflow checks, the full Node test
   suite, and `npm audit --audit-level=moderate`.

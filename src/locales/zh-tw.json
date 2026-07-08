@@ -55,6 +55,7 @@
   "queue": "佇列",
   "settings": "設定",
   "tools": "工具",
+  "skills": "技能",
   "newThread": "新對話",
   "resumeLast": "接續最新",
   "stop": "停止",
@@ -280,6 +281,7 @@
   "commandQueue": "開啟佇列面板",
   "commandSettings": "開啟設定按鈕",
   "commandTools": "開啟診斷與備份工具",
+  "commandSkills": "顯示可用的 Codex 技能",
   "commandStop": "停止執行中的 Codex 任務",
   "commandHelp": "顯示指令說明"
 }
