@@ -3,8 +3,8 @@ import path from "node:path";
 import { b, code, escapeHtml } from "../telegram/html.js";
 
 const STATUS_ORDER = ["local/system", "local/custom", "plugin enabled", "plugin cached", "plugin disabled"];
-const DEFAULT_MAX_ROWS = 40;
-const ABSOLUTE_POSIX_PATH_PATTERN = /(^|file:\/\/|[^A-Za-z0-9/])(\/[A-Za-z0-9._~@:%+-]+(?:\/[A-Za-z0-9._~@:%+-]+)*)/g;
+const FILE_URL_PATH_PATTERN = /\bfile:\/\/([^/\s]*)(\/[^/\s<>"'`|]+(?:\/[^/\s<>"'`|]+)*)/gu;
+const ABSOLUTE_POSIX_PATH_PATTERN = /(^|[^A-Za-z0-9/<])(\/[^/\s<>"'`|=,:;?&]+(?:\/[^/\s<>"'`|=,:;?&]+)*(?:\s+[^/\s<>"'`|=,.:;?&]*\/[^/\s<>"'`|=,:;?&]+(?:\/[^/\s<>"'`|=,:;?&]+)*)*)/gu;
 
 export async function collectCodexSkillInventory({ codexHome, pluginCacheDir, configPath } = {}) {
   const root = path.resolve(codexHome || "");
@@ -24,7 +24,7 @@ export async function collectCodexSkillInventory({ codexHome, pluginCacheDir, co
   return { skills, warnings, counts: countByStatus(skills) };
 }
 
-export function formatCodexSkillInventory(inventory, { maxChars = Infinity, maxRows = DEFAULT_MAX_ROWS } = {}) {
+export function formatCodexSkillInventory(inventory, { maxChars = Infinity, maxRows = 40 } = {}) {
   const safeInventory = inventory || { skills: [], warnings: [] };
   const rowLimit = Math.max(0, Math.min(maxRows, safeInventory.skills.length));
   for (let visibleRows = rowLimit; visibleRows >= 0; visibleRows -= 1) {
@@ -64,13 +64,22 @@ async function collectPluginSkills({ codexHome, pluginCacheDir, pluginConfig, wa
     if (!manifest) continue;
 
     const manifestSkillsPath = typeof manifest.skills === "string" ? manifest.skills.trim() : "";
-    if (!manifestSkillsPath) { addWarning(warnings, "plugin manifest has no skills root", manifestPath, codexHome); continue; }
+    if (!manifestSkillsPath) {
+      addWarning(warnings, "plugin manifest has no skills root", manifestPath, codexHome);
+      continue;
+    }
     const skillsRoot = path.resolve(pluginRoot, manifestSkillsPath);
-    if (!isInsidePath(pluginRoot, skillsRoot)) { addWarning(warnings, "plugin skills root outside plugin cache entry", manifestPath, codexHome); continue; }
+    if (!isInsidePath(pluginRoot, skillsRoot)) {
+      addWarning(warnings, "plugin skills root outside plugin cache entry", manifestPath, codexHome);
+      continue;
+    }
     const realPluginRoot = await realPathOrWarn(pluginRoot, warnings, codexHome, "plugin cache unavailable");
     const realSkillsRoot = await realPathOrWarn(skillsRoot, warnings, codexHome, "plugin skills root unavailable");
     if (!realPluginRoot || !realSkillsRoot) continue;
-    if (!isInsidePath(realPluginRoot, realSkillsRoot)) { addWarning(warnings, "plugin skills root outside plugin cache entry", manifestPath, codexHome); continue; }
+    if (!isInsidePath(realPluginRoot, realSkillsRoot)) {
+      addWarning(warnings, "plugin skills root outside plugin cache entry", manifestPath, codexHome);
+      continue;
+    }
 
     const marketplace = marketplaceName(pluginCacheDir, pluginRoot);
     const pluginName = sanitizeDisplayText(typeof manifest.name === "string" && manifest.name.trim() ? manifest.name.trim() : path.basename(pluginRoot));
@@ -130,21 +139,24 @@ async function findPluginManifests(pluginCacheDir, warnings, codexHome) {
   return manifests;
 }
 
-async function readDirOrWarn(dir, warnings, codexHome, message) {
-  try { return await fs.readdir(dir, { withFileTypes: true }); } catch { addWarning(warnings, message, dir, codexHome); return []; }
-}
+async function readDirOrWarn(dir, warnings, codexHome, message) { return readOrWarn(() => fs.readdir(dir, { withFileTypes: true }), [], dir, warnings, codexHome, message); }
 
-async function readPluginManifest(manifestPath, warnings, codexHome) {
-  try { return JSON.parse(await fs.readFile(manifestPath, "utf8")); } catch { addWarning(warnings, "plugin manifest ignored", manifestPath, codexHome); return null; }
-}
+async function readPluginManifest(manifestPath, warnings, codexHome) { return readOrWarn(async () => JSON.parse(await fs.readFile(manifestPath, "utf8")), null, manifestPath, warnings, codexHome, "plugin manifest ignored"); }
 
-async function realPathOrWarn(targetPath, warnings, codexHome, message) {
-  try { return await fs.realpath(targetPath); } catch { addWarning(warnings, message, targetPath, codexHome); return ""; }
+async function realPathOrWarn(targetPath, warnings, codexHome, message) { return readOrWarn(() => fs.realpath(targetPath), "", targetPath, warnings, codexHome, message); }
+
+async function readOrWarn(operation, fallback, targetPath, warnings, codexHome, message) {
+  try {
+    return await operation();
+  } catch {
+    addWarning(warnings, message, targetPath, codexHome);
+    return fallback;
+  }
 }
 
 async function readPluginConfig(configPath, warnings, codexHome) {
-  let contents = "";
-  try { contents = await fs.readFile(configPath, "utf8"); } catch { addWarning(warnings, "Codex config unavailable", configPath, codexHome); return new Map(); }
+  const contents = await readOrWarn(() => fs.readFile(configPath, "utf8"), "", configPath, warnings, codexHome, "Codex config unavailable");
+  if (!contents) return new Map();
   const statusByPlugin = new Map();
   let pluginKey = "";
   for (const line of contents.split(/\r?\n/)) {
@@ -177,10 +189,16 @@ function parseSkillFrontmatter(contents) {
   let closed = false;
   for (let index = 1; index < lines.length; index += 1) {
     const line = lines[index];
-    if (line === "---") { closed = true; break; }
+    if (line === "---") {
+      closed = true;
+      break;
+    }
     if (/^\s/.test(line)) continue;
     const match = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (!match) { if (line.trim()) metadata.malformed = true; continue; }
+    if (!match) {
+      if (line.trim()) metadata.malformed = true;
+      continue;
+    }
     const key = match[1];
     if (key !== "name" && key !== "description") continue;
     const value = stripQuotedScalar(match[2].trim());
@@ -196,19 +214,12 @@ function stripQuotedScalar(value) {
 }
 
 function pluginStatus(pluginConfig, pluginName, marketplace) {
-  const variants = [marketplace];
-  if (marketplace.endsWith("-remote")) variants.push(marketplace.slice(0, -"remote".length - 1));
-  for (const variant of variants) {
-    const status = pluginConfig.get(`${pluginName}@${variant}`);
-    if (status) return status;
-  }
-  return "plugin cached";
+  const variants = marketplace.endsWith("-remote") ? [marketplace, marketplace.slice(0, -"remote".length - 1)] : [marketplace];
+  return variants.map((variant) => pluginConfig.get(`${pluginName}@${variant}`)).find(Boolean) || "plugin cached";
 }
 
 function marketplaceName(pluginCacheDir, pluginRoot) {
-  const relative = path.relative(pluginCacheDir, pluginRoot);
-  const [marketplace] = relative.split(path.sep);
-  return marketplace || "unknown";
+  return path.relative(pluginCacheDir, pluginRoot).split(path.sep)[0] || "unknown";
 }
 
 function addWarning(warnings, message, targetPath, codexHome) {
@@ -217,13 +228,14 @@ function addWarning(warnings, message, targetPath, codexHome) {
 
 function relativeCodexPath(codexHome, targetPath) {
   const relative = path.relative(codexHome, targetPath);
-  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return "CODEX_HOME";
-  return `CODEX_HOME/${relative.split(path.sep).join("/")}`;
+  return !relative || relative.startsWith("..") || path.isAbsolute(relative) ? "CODEX_HOME" : `CODEX_HOME/${relative.split(path.sep).join("/")}`;
 }
 
 function sanitizeDisplayText(value) {
-  return String(value).replace(ABSOLUTE_POSIX_PATH_PATTERN, "$1[path]");
+  return String(value).replace(FILE_URL_PATH_PATTERN, (_match, authority, token) => `file://${authority}${redactedPath(token)}`).replace(ABSOLUTE_POSIX_PATH_PATTERN, (_match, prefix, token) => `${prefix}${redactedPath(token)}`);
 }
+
+function redactedPath(token) { return `[path]${token.match(/[),.;:!?]+$/u)?.[0] || ""}`; }
 
 function compareSkills(left, right) {
   const statusDelta = STATUS_ORDER.indexOf(left.status) - STATUS_ORDER.indexOf(right.status);
@@ -261,9 +273,7 @@ function renderInventory(inventory, visibleRows) {
 }
 
 function renderSkillRow(skill) {
-  const description = skill.description ? ` - ${escapeHtml(sanitizeDisplayText(skill.description))}` : "";
-  const plugin = skill.pluginKey ? ` ${code(sanitizeDisplayText(skill.pluginKey))}` : "";
-  return `- ${escapeHtml(sanitizeDisplayText(skill.displayName))}${plugin}${description}`;
+  return `- ${escapeHtml(sanitizeDisplayText(skill.displayName))}${skill.pluginKey ? ` ${code(sanitizeDisplayText(skill.pluginKey))}` : ""}${skill.description ? ` - ${escapeHtml(sanitizeDisplayText(skill.description))}` : ""}`;
 }
 
 function isInsidePath(root, target) {
