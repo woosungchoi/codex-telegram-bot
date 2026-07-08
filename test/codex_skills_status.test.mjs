@@ -128,14 +128,15 @@ test("redacts untrusted skill metadata paths while escaping HTML", async () => {
   const codexHome = await tempCodexHome("codex-skills-status-metadata-");
   await writeFile(
     path.join(codexHome, "skills", ".system", "adversarial", "SKILL.md"),
-    skillDoc("name: adversarial", "description: equals=/etc/passwd colon:/tmp/top-secret comma,/home/openclaw/path url=file:///var/secret <script>")
+    skillDoc("name: adversarial", "description: equals=/etc/passwd colon:/tmp/top-secret comma,/home/openclaw/path url=file:///var/secret normalword semi;/etc/passwd pipe|/tmp/top-secret query?/home/openclaw/path amp&/var/secret dot./opt/secret <script>")
   );
 
   const inventory = await collectCodexSkillInventory({ codexHome });
   const html = formatCodexSkillInventory(inventory, { maxChars: 1000 });
 
   assert.match(html, /equals=\[path\][\s\S]*colon:\[path\][\s\S]*comma,\[path\][\s\S]*url=file:\/\/\[path\][\s\S]*&lt;script&gt;/);
-  assert.doesNotMatch(html, /<script>|\/etc\/passwd|\/tmp\/top-secret|\/home\/openclaw\/path|\/var\/secret/);
+  assert.match(html, /normalword semi;\[path\][\s\S]*pipe\|\[path\][\s\S]*query\?\[path\][\s\S]*amp&amp;\[path\][\s\S]*dot\.\[path\]/);
+  assert.doesNotMatch(html, /<script>|\/etc\/passwd|\/tmp\/top-secret|\/home\/openclaw\/path|\/var\/secret|\/opt\/secret/);
 });
 
 test("plugin skills root symlinks cannot escape the plugin root", async () => {
