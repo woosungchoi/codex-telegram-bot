@@ -4,7 +4,7 @@ import { b, code, escapeHtml } from "../telegram/html.js";
 
 const STATUS_ORDER = ["local/system", "local/custom", "plugin enabled", "plugin cached", "plugin disabled"];
 const DEFAULT_MAX_ROWS = 40;
-const ABSOLUTE_POSIX_PATH_PATTERN = /(^|[\s([{])\/[^\s<>"'`]*/g;
+const ABSOLUTE_POSIX_PATH_PATTERN = /(^|[\s([{=,]|:(?!\/\/)|file:\/\/)\/[^\s<>"'`]*/g;
 
 export async function collectCodexSkillInventory({ codexHome, pluginCacheDir, configPath } = {}) {
   const root = path.resolve(codexHome || "");

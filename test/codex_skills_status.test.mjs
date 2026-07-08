@@ -128,14 +128,14 @@ test("redacts untrusted skill metadata paths while escaping HTML", async () => {
   const codexHome = await tempCodexHome("codex-skills-status-metadata-");
   await writeFile(
     path.join(codexHome, "skills", ".system", "adversarial", "SKILL.md"),
-    skillDoc("name: adversarial", "description: raw /tmp/top-secret and /etc/passwd and /home/openclaw/path <script>")
+    skillDoc("name: adversarial", "description: equals=/etc/passwd colon:/tmp/top-secret comma,/home/openclaw/path url=file:///var/secret <script>")
   );
 
   const inventory = await collectCodexSkillInventory({ codexHome });
   const html = formatCodexSkillInventory(inventory, { maxChars: 1000 });
 
-  assert.match(html, /raw [\s\S]*\[path\][\s\S]*&lt;script&gt;/);
-  assert.doesNotMatch(html, /<script>|\/tmp\/top-secret|\/etc\/passwd|\/home\/openclaw\/path/);
+  assert.match(html, /equals=\[path\][\s\S]*colon:\[path\][\s\S]*comma,\[path\][\s\S]*url=file:\/\/\[path\][\s\S]*&lt;script&gt;/);
+  assert.doesNotMatch(html, /<script>|\/etc\/passwd|\/tmp\/top-secret|\/home\/openclaw\/path|\/var\/secret/);
 });
 
 test("plugin skills root symlinks cannot escape the plugin root", async () => {
