@@ -4,7 +4,7 @@ import { b, code, escapeHtml } from "../telegram/html.js";
 
 const STATUS_ORDER = ["local/system", "local/custom", "plugin enabled", "plugin cached", "plugin disabled"];
 const FILE_URL_PATH_PATTERN = /\bfile:\/\/([^/\s]*)(\/[^/\s<>"'`|]+(?:\/[^/\s<>"'`|]+)*)/gu;
-const ABSOLUTE_POSIX_PATH_PATTERN = /(^|[^A-Za-z0-9/<])(\/[^/\s<>"'`|=,:;?&]+(?:\/[^/\s<>"'`|=,:;?&]+)*(?:\s+[^/\s<>"'`|=,.:;?&]*\/[^/\s<>"'`|=,:;?&]+(?:\/[^/\s<>"'`|=,:;?&]+)*)*)/gu;
+const ABSOLUTE_POSIX_PATH_PATTERN = /(^|[^A-Za-z0-9/<])(\/[^/\s<>"'`|=,:;?&]+(?:\/[^/\s<>"'`|=,:;?&]+)*(?:\s+[^/\s<>"'`|=,.:;?&]+(?:\s+[^/\s<>"'`|=,.:;?&]+)*\/[^/\s<>"'`|=,:;?&]+(?:\/[^/\s<>"'`|=,:;?&]+)*)*)/gu;
 
 export async function collectCodexSkillInventory({ codexHome, pluginCacheDir, configPath } = {}) {
   const root = path.resolve(codexHome || "");
@@ -51,7 +51,9 @@ async function collectLocalSkills({ codexHome, rootDir, status, excludedDirs = n
   const entries = await readDirOrWarn(rootDir, warnings, codexHome, "skill root unavailable");
   const baseSkill = { codexHome, status, sourceType: status, pluginKey: "", warnings, skills, seen };
   for (const entry of entries) {
-    if (!entry.isDirectory() || excludedDirs.has(entry.name)) continue;
+    if (!entry.isDirectory() || excludedDirs.has(entry.name)) {
+      continue;
+    }
     await collectSkillFile({ ...baseSkill, skillDir: path.join(rootDir, entry.name), fallbackName: entry.name });
   }
 }
@@ -81,7 +83,7 @@ async function collectPluginSkills({ codexHome, pluginCacheDir, pluginConfig, wa
       continue;
     }
 
-    const marketplace = marketplaceName(pluginCacheDir, pluginRoot);
+    const marketplace = path.relative(pluginCacheDir, pluginRoot).split(path.sep)[0] || "unknown";
     const pluginName = sanitizeDisplayText(typeof manifest.name === "string" && manifest.name.trim() ? manifest.name.trim() : path.basename(pluginRoot));
     const pluginKey = `${pluginName}@${marketplace}`;
     const status = pluginStatus(pluginConfig, pluginName, marketplace);
@@ -156,7 +158,9 @@ async function readOrWarn(operation, fallback, targetPath, warnings, codexHome, 
 
 async function readPluginConfig(configPath, warnings, codexHome) {
   const contents = await readOrWarn(() => fs.readFile(configPath, "utf8"), "", configPath, warnings, codexHome, "Codex config unavailable");
-  if (!contents) return new Map();
+  if (!contents) {
+    return new Map();
+  }
   const statusByPlugin = new Map();
   let pluginKey = "";
   for (const line of contents.split(/\r?\n/)) {
@@ -216,10 +220,6 @@ function stripQuotedScalar(value) {
 function pluginStatus(pluginConfig, pluginName, marketplace) {
   const variants = marketplace.endsWith("-remote") ? [marketplace, marketplace.slice(0, -"remote".length - 1)] : [marketplace];
   return variants.map((variant) => pluginConfig.get(`${pluginName}@${variant}`)).find(Boolean) || "plugin cached";
-}
-
-function marketplaceName(pluginCacheDir, pluginRoot) {
-  return path.relative(pluginCacheDir, pluginRoot).split(path.sep)[0] || "unknown";
 }
 
 function addWarning(warnings, message, targetPath, codexHome) {

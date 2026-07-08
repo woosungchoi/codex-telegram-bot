@@ -128,7 +128,7 @@ test("redacts untrusted skill metadata paths while escaping HTML", async () => {
   const codexHome = await tempCodexHome("codex-skills-status-metadata-");
   await writeFile(
     path.join(codexHome, "skills", ".system", "adversarial", "SKILL.md"),
-    skillDoc("name: adversarial", "description: equals=/etc/passwd colon:/tmp/top-secret comma,/home/openclaw/path url=file:///var/secret filehost=file://localhost/etc/file-host-secret fileuser=file://user@localhost/etc/user-secret unicode=/tmp/비밀/secret punct=/tmp/top-secret.v1/config.json trailing=/tmp/trailing-secret, normalword semi;/etc/passwd pipe|/tmp/top-secret query?/home/openclaw/path amp&/var/secret dot./opt/secret <script>alert(\"x\")</script>")
+    skillDoc("name: adversarial", "description: equals=/etc/passwd colon:/tmp/top-secret comma,/home/openclaw/path url=file:///var/secret filehost=file://localhost/etc/file-host-secret fileuser=file://user@localhost/etc/user-secret unicode=/tmp/비밀/secret punct=/tmp/top-secret.v1/config.json trailing=/tmp/trailing-secret, space=/tmp/path with spaces/secret filehost=file://localhost/etc/file-host-secret <script>alert(\"x\")</script> normalword semi;/etc/passwd pipe|/tmp/top-secret query?/home/openclaw/path amp&/var/secret dot./opt/secret <script>alert(\"x\")</script>")
   );
 
   const inventory = await collectCodexSkillInventory({ codexHome });
@@ -137,7 +137,7 @@ test("redacts untrusted skill metadata paths while escaping HTML", async () => {
   assert.match(html, /equals=\[path\][\s\S]*colon:\[path\][\s\S]*comma,\[path\][\s\S]*url=file:\/\/\[path\][\s\S]*&lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt;/);
   assert.match(html, /filehost=file:\/\/localhost\[path\][\s\S]*fileuser=file:\/\/user@localhost\[path\][\s\S]*unicode=\[path\][\s\S]*punct=\[path\][\s\S]*trailing=\[path\],/);
   assert.match(html, /normalword semi;\[path\][\s\S]*pipe\|\[path\][\s\S]*query\?\[path\][\s\S]*amp&amp;\[path\][\s\S]*dot\.\[path\]/);
-  assert.doesNotMatch(html, /<script>|\/etc\/passwd|\/tmp\/top-secret|\/home\/openclaw\/path|\/var\/secret|\/opt\/secret|\/etc\/file-host-secret|\/etc\/user-secret|\/tmp\/비밀\/secret|\/tmp\/top-secret\.v1\/config\.json|\/tmp\/trailing-secret/);
+  assert.doesNotMatch(html, /<script>|\/etc\/passwd|\/tmp\/top-secret|\/tmp\/path with spaces\/secret|with spaces\/secret|\/home\/openclaw\/path|\/var\/secret|\/opt\/secret|\/etc\/file-host-secret|\/etc\/user-secret|\/tmp\/비밀\/secret|\/tmp\/top-secret\.v1\/config\.json|\/tmp\/trailing-secret/);
 });
 
 test("plugin skills root symlinks cannot escape the plugin root", async () => {
