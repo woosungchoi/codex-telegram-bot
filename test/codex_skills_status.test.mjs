@@ -10,27 +10,22 @@ async function writeFile(filePath, contents) {
   await fs.writeFile(filePath, contents);
 }
 
+function skillDoc(...frontmatter) { return ["---", ...frontmatter, "---", "Body"].join("\n"); }
+
+async function tempCodexHome(prefix) { return path.join(await fs.mkdtemp(path.join(os.tmpdir(), prefix)), "codex-home"); }
+
 async function makeFixture() {
-  const codexHome = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "codex-skills-status-")), "codex-home");
+  const codexHome = await tempCodexHome("codex-skills-status-");
 
   await writeFile(
     path.join(codexHome, "skills", ".system", "system-one", "SKILL.md"),
-    `---
-name: System <Skill> & "One"
-description: Use <b>bold</b> & "quotes".
----
-
-Body`
+    skillDoc(`name: System <Skill> & "One"`, `description: Use <b>bold</b> & "quotes".`)
   );
   await writeFile(
     path.join(codexHome, "skills", "custom-one", "SKILL.md"),
-    `---
-description: Custom skill without name.
----
-
-Body`
+    skillDoc("description: Custom skill without name.")
   );
-  await writeFile(path.join(codexHome, "skills", "broken-frontmatter", "SKILL.md"), "---\nname\n---\nBody");
+  await writeFile(path.join(codexHome, "skills", "broken-frontmatter", "SKILL.md"), skillDoc("name"));
 
   await writePlugin({
     codexHome,
@@ -64,28 +59,17 @@ Body`
   );
   await writeFile(
     path.join(confinedPlugin, "declared-skills", "inside", "SKILL.md"),
-    "---\nname: Declared Skill\n---\nBody"
+    skillDoc("name: Declared Skill")
   );
   await writeFile(
     path.join(confinedPlugin, "components", "outside", "SKILL.md"),
-    "---\nname: Leaked Component Skill\n---\nBody"
+    skillDoc("name: Leaked Component Skill")
   );
 
   await writeFile(path.join(codexHome, "plugins", "cache", "bad", "broken", "1.0.0", ".codex-plugin", "plugin.json"), "{");
   await writeFile(
     path.join(codexHome, "config.toml"),
-    `[plugins."enabled@sisyphuslabs"]
-enabled = true
-
-[plugins."disabled@openai-curated"]
-enabled = false
-
-[plugins."cached@marketplace"]
-enabled = "true"
-
-[plugins.bad
-enabled = true
-`
+    `[plugins."enabled@sisyphuslabs"]\nenabled = true\n\n[plugins."disabled@openai-curated"]\nenabled = false\n\n[plugins."cached@marketplace"]\nenabled = "true"\n\n[plugins.bad\nenabled = true\n`
   );
 
   return { codexHome };
@@ -96,14 +80,9 @@ async function writePlugin({ codexHome, marketplace, pluginDir, skillDir, skillN
   await writeFile(path.join(pluginRoot, ".codex-plugin", "plugin.json"), JSON.stringify({ name: pluginDir, skills: "./skills" }));
   await writeFile(
     path.join(pluginRoot, "skills", skillDir, "SKILL.md"),
-    `---
-name: ${skillName}
-description: ${skillDescription}
----
-
-Body`
+    skillDoc(`name: ${skillName}`, `description: ${skillDescription}`)
   );
-  await writeFile(path.join(pluginRoot, "skills", skillDir, "nested", "SKILL.md"), "---\nname: Nested Plugin Skill\n---\nBody");
+  await writeFile(path.join(pluginRoot, "skills", skillDir, "nested", "SKILL.md"), skillDoc("name: Nested Plugin Skill"));
 }
 
 test("collects local and manifest-declared plugin skills with narrow status parsing", async () => {
@@ -146,38 +125,53 @@ test("formats escaped, capped Telegram HTML without absolute path leakage", asyn
 });
 
 test("redacts untrusted skill metadata paths while escaping HTML", async () => {
-  const codexHome = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "codex-skills-status-metadata-")), "codex-home"); await writeFile(path.join(codexHome, "skills", ".system", "adversarial", "SKILL.md"), "---\nname: adversarial\ndescription: raw /home/openclaw/path <script>\n---\nBody");
-  const html = formatCodexSkillInventory(await collectCodexSkillInventory({ codexHome }), { maxChars: 1000 }); assert.match(html, /raw [\s\S]*&lt;script&gt;/); assert.doesNotMatch(html, /<script>|\/home\/openclaw\/path/);
+  const codexHome = await tempCodexHome("codex-skills-status-metadata-");
+  await writeFile(
+    path.join(codexHome, "skills", ".system", "adversarial", "SKILL.md"),
+    skillDoc("name: adversarial", "description: raw /tmp/top-secret and /etc/passwd and /home/openclaw/path <script>")
+  );
+
+  const inventory = await collectCodexSkillInventory({ codexHome });
+  const html = formatCodexSkillInventory(inventory, { maxChars: 1000 });
+
+  assert.match(html, /raw [\s\S]*\[path\][\s\S]*&lt;script&gt;/);
+  assert.doesNotMatch(html, /<script>|\/tmp\/top-secret|\/etc\/passwd|\/home\/openclaw\/path/);
 });
 
 test("plugin skills root symlinks cannot escape the plugin root", async () => {
-  const codexHome = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "codex-skills-status-symlink-")), "codex-home"), pluginRoot = path.join(codexHome, "plugins", "cache", "marketplace", "symlinked", "1.0.0"), outsideRoot = path.join(codexHome, "outside-plugin-skills");
-  await Promise.all([writeFile(path.join(codexHome, "config.toml"), ""), writeFile(path.join(pluginRoot, ".codex-plugin", "plugin.json"), JSON.stringify({ name: "symlinked", skills: "./skills" })), writeFile(path.join(outsideRoot, "escaped", "SKILL.md"), "---\nname: Symlink Escaped Skill\ndescription: raw /home/openclaw/path <script>\n---\nBody")]);
-  await fs.symlink(outsideRoot, path.join(pluginRoot, "skills")); const inventory = await collectCodexSkillInventory({ codexHome }), html = formatCodexSkillInventory(inventory, { maxChars: 1000 });
-  assert.ok(!inventory.skills.some((skill) => skill.displayName === "Symlink Escaped Skill")); assert.match(html, /Warnings: \d+ sanitized/); assert.doesNotMatch(html, /Symlink Escaped Skill|\/home\/openclaw\/path|<script>/);
+  const codexHome = await tempCodexHome("codex-skills-status-symlink-");
+  const pluginRoot = path.join(codexHome, "plugins", "cache", "marketplace", "symlinked", "1.0.0");
+  const outsideRoot = path.join(codexHome, "outside-plugin-skills");
+  await Promise.all([
+    writeFile(path.join(codexHome, "config.toml"), ""),
+    writeFile(
+      path.join(pluginRoot, ".codex-plugin", "plugin.json"),
+      JSON.stringify({ name: "symlinked", skills: "./skills" })
+    ),
+    writeFile(
+      path.join(outsideRoot, "escaped", "SKILL.md"),
+      skillDoc("name: Symlink Escaped Skill", "description: raw /home/openclaw/path <script>")
+    )
+  ]);
+  await fs.symlink(outsideRoot, path.join(pluginRoot, "skills"));
+
+  const inventory = await collectCodexSkillInventory({ codexHome });
+  const html = formatCodexSkillInventory(inventory, { maxChars: 1000 });
+
+  assert.ok(!inventory.skills.some((skill) => skill.displayName === "Symlink Escaped Skill"));
+  assert.match(html, /Warnings: \d+ sanitized/);
+  assert.doesNotMatch(html, /Symlink Escaped Skill|\/home\/openclaw\/path|<script>/);
 });
 
 test("parses quoted scalar frontmatter and ignores nested unknown metadata", async () => {
-  const codexHome = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "codex-skills-status-frontmatter-")), "codex-home");
+  const codexHome = await tempCodexHome("codex-skills-status-frontmatter-");
   await writeFile(
     path.join(codexHome, "skills", ".system", "quoted", "SKILL.md"),
-    `---
-name: "quoted-name"
-description: 'quoted <desc> & "prompt"'
----
-Body`
+    skillDoc('name: "quoted-name"', `description: 'quoted <desc> & "prompt"'`)
   );
   await writeFile(
     path.join(codexHome, "skills", ".system", "nested", "SKILL.md"),
-    `---
-metadata:
-  short-description: okay
-unknown:
-  deeper: ignored
-name: nested-ok
-description: "nested <desc> & prompt"
----
-Body`
+    skillDoc("metadata:", "  short-description: okay", "unknown:", "  deeper: ignored", "name: nested-ok", 'description: "nested <desc> & prompt"')
   );
 
   const inventory = await collectCodexSkillInventory({ codexHome });

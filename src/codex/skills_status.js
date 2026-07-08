@@ -4,7 +4,7 @@ import { b, code, escapeHtml } from "../telegram/html.js";
 
 const STATUS_ORDER = ["local/system", "local/custom", "plugin enabled", "plugin cached", "plugin disabled"];
 const DEFAULT_MAX_ROWS = 40;
-const POSIX_HOME_PATH_PATTERN = /\/(?:home|Users)\/[A-Za-z0-9._-]+(?:\/[^\s<>"'`]*)*/g;
+const ABSOLUTE_POSIX_PATH_PATTERN = /(^|[\s([{])\/[^\s<>"'`]*/g;
 
 export async function collectCodexSkillInventory({ codexHome, pluginCacheDir, configPath } = {}) {
   const root = path.resolve(codexHome || "");
@@ -27,7 +27,10 @@ export async function collectCodexSkillInventory({ codexHome, pluginCacheDir, co
 export function formatCodexSkillInventory(inventory, { maxChars = Infinity, maxRows = DEFAULT_MAX_ROWS } = {}) {
   const safeInventory = inventory || { skills: [], warnings: [] };
   const rowLimit = Math.max(0, Math.min(maxRows, safeInventory.skills.length));
-  for (let visibleRows = rowLimit; visibleRows >= 0; visibleRows -= 1) { const html = renderInventory(safeInventory, visibleRows); if (html.length <= maxChars) return html; }
+  for (let visibleRows = rowLimit; visibleRows >= 0; visibleRows -= 1) {
+    const html = renderInventory(safeInventory, visibleRows);
+    if (html.length <= maxChars) return html;
+  }
   return renderInventory(safeInventory, 0);
 }
 
@@ -46,7 +49,11 @@ export async function replyCodexSkillsStatus(ctx, deps, options = {}) {
 
 async function collectLocalSkills({ codexHome, rootDir, status, excludedDirs = new Set(), warnings, skills, seen }) {
   const entries = await readDirOrWarn(rootDir, warnings, codexHome, "skill root unavailable");
-  for (const entry of entries) if (entry.isDirectory() && !excludedDirs.has(entry.name)) await collectSkillFile({ codexHome, skillDir: path.join(rootDir, entry.name), status, sourceType: status, pluginKey: "", fallbackName: entry.name, warnings, skills, seen });
+  const baseSkill = { codexHome, status, sourceType: status, pluginKey: "", warnings, skills, seen };
+  for (const entry of entries) {
+    if (!entry.isDirectory() || excludedDirs.has(entry.name)) continue;
+    await collectSkillFile({ ...baseSkill, skillDir: path.join(rootDir, entry.name), fallbackName: entry.name });
+  }
 }
 
 async function collectPluginSkills({ codexHome, pluginCacheDir, pluginConfig, warnings, skills, seen }) {
@@ -70,7 +77,11 @@ async function collectPluginSkills({ codexHome, pluginCacheDir, pluginConfig, wa
     const pluginKey = `${pluginName}@${marketplace}`;
     const status = pluginStatus(pluginConfig, pluginName, marketplace);
     const childEntries = await readDirOrWarn(skillsRoot, warnings, codexHome, "plugin skills root unavailable");
-    for (const entry of childEntries) if (entry.isDirectory()) await collectSkillFile({ codexHome, skillDir: path.join(skillsRoot, entry.name), status, sourceType: "plugin", pluginKey, fallbackName: entry.name, warnings, skills, seen, confinementRoot: realSkillsRoot });
+    const baseSkill = { codexHome, status, sourceType: "plugin", pluginKey, warnings, skills, seen, confinementRoot: realSkillsRoot };
+    for (const entry of childEntries) {
+      if (!entry.isDirectory()) continue;
+      await collectSkillFile({ ...baseSkill, skillDir: path.join(skillsRoot, entry.name), fallbackName: entry.name });
+    }
   }
 }
 
@@ -211,7 +222,7 @@ function relativeCodexPath(codexHome, targetPath) {
 }
 
 function sanitizeDisplayText(value) {
-  return String(value).replace(POSIX_HOME_PATH_PATTERN, "[path]");
+  return String(value).replace(ABSOLUTE_POSIX_PATH_PATTERN, "$1[path]");
 }
 
 function compareSkills(left, right) {
