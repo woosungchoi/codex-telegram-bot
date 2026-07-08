@@ -2,6 +2,42 @@
 
 All notable public changes are documented here.
 
+## 1.2.3 - 2026-07-08
+
+### Changed
+
+- Reworked `/skills` into a compact inventory dashboard that reports unique,
+  scanned, duplicate, status, and warning counts without spending the default
+  Telegram message budget on long skill descriptions.
+- Added display-level duplicate collapse for cached plugin skill copies while
+  preserving source counts in detail output.
+- Added short `sk:<view>:<page>` callback navigation for All, Local, Enabled,
+  Cached, Disabled, and Warnings views.
+- Added `/skills <query>` detail output so long descriptions are available on
+  demand instead of crowding the default inventory.
+
+### Fixed
+
+- Prevented large enabled plugin inventories from being hidden behind a large
+  "more omitted" count when the compact unique skill list fits Telegram's
+  message limit.
+- Parsed SKILL.md block-scalar `description: |` and `description: >` values so
+  local custom skills no longer render a literal `|` as their description.
+- Kept warning details out of the default `/skills` view while preserving
+  sanitized warning output in the Warnings view.
+
+### Verification
+
+- Added focused display regression tests for compact pagination, duplicate
+  collapse, warnings view, queried detail output, block-scalar descriptions, and
+  bounded callback data.
+- Confirmed the real Codex home inventory formats as `60 scanned`, `36 unique`,
+  `24 duplicates`, `4 warnings`, and `1811` characters with no `more omitted`
+  marker in the default output.
+- Confirmed `npm run verify` passes, including recursive syntax checks, locale
+  validation, ESLint, Prettier package/workflow checks, the full Node test
+  suite, and `npm audit --audit-level=moderate`.
+
 ## 1.2.2 - 2026-07-08
 
 ### Added
