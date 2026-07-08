@@ -145,6 +145,18 @@ test("formats escaped, capped Telegram HTML without absolute path leakage", asyn
   assert.match(html, /&lt;Skill&gt; &amp; &quot;One&quot;/);
 });
 
+test("redacts untrusted skill metadata paths while escaping HTML", async () => {
+  const codexHome = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "codex-skills-status-metadata-")), "codex-home"); await writeFile(path.join(codexHome, "skills", ".system", "adversarial", "SKILL.md"), "---\nname: adversarial\ndescription: raw /home/openclaw/path <script>\n---\nBody");
+  const html = formatCodexSkillInventory(await collectCodexSkillInventory({ codexHome }), { maxChars: 1000 }); assert.match(html, /raw [\s\S]*&lt;script&gt;/); assert.doesNotMatch(html, /<script>|\/home\/openclaw\/path/);
+});
+
+test("plugin skills root symlinks cannot escape the plugin root", async () => {
+  const codexHome = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "codex-skills-status-symlink-")), "codex-home"), pluginRoot = path.join(codexHome, "plugins", "cache", "marketplace", "symlinked", "1.0.0"), outsideRoot = path.join(codexHome, "outside-plugin-skills");
+  await Promise.all([writeFile(path.join(codexHome, "config.toml"), ""), writeFile(path.join(pluginRoot, ".codex-plugin", "plugin.json"), JSON.stringify({ name: "symlinked", skills: "./skills" })), writeFile(path.join(outsideRoot, "escaped", "SKILL.md"), "---\nname: Symlink Escaped Skill\ndescription: raw /home/openclaw/path <script>\n---\nBody")]);
+  await fs.symlink(outsideRoot, path.join(pluginRoot, "skills")); const inventory = await collectCodexSkillInventory({ codexHome }), html = formatCodexSkillInventory(inventory, { maxChars: 1000 });
+  assert.ok(!inventory.skills.some((skill) => skill.displayName === "Symlink Escaped Skill")); assert.match(html, /Warnings: \d+ sanitized/); assert.doesNotMatch(html, /Symlink Escaped Skill|\/home\/openclaw\/path|<script>/);
+});
+
 test("parses quoted scalar frontmatter and ignores nested unknown metadata", async () => {
   const codexHome = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "codex-skills-status-frontmatter-")), "codex-home");
   await writeFile(
