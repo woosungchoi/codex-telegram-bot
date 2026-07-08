@@ -2,6 +2,70 @@
 
 All notable public changes are documented here.
 
+## 1.2.2 - 2026-07-08
+
+### Added
+
+- Added `/skill` as a Telegram command for inspecting the Codex skill inventory
+  visible to the bot runtime.
+- The new skills status view reports local system skills, local custom skills,
+  enabled plugin skills, cached plugin skills, and disabled plugin declarations
+  in one capped Telegram HTML response.
+- Added observable warning output for inventory problems such as unreadable
+  Codex config, ignored plugin config values, ignored plugin manifests, and
+  ignored skill frontmatter, without exposing raw local exception details.
+- Added English and Korean command descriptions and menu text for `/skill`, so
+  Telegram's command list and the bot's localized UI surface the new command.
+
+### Security
+
+- Escaped all skill names and descriptions before formatting Telegram HTML.
+- Redacted absolute filesystem paths, `file://` paths, URL-style file paths,
+  delimiter-adjacent paths, punctuation-adjacent paths, and space-bearing local
+  paths from untrusted skill metadata before replying in Telegram.
+- Prevented plugin skill-root symlinks from escaping the plugin root while
+  scanning cached plugin bundles.
+- Kept frontmatter parsing intentionally narrow: scalar `name` and
+  `description` values are accepted, while nested or unknown metadata remains
+  ignored.
+
+### Changed
+
+- Split the skills status implementation into focused collector, formatter, and
+  shared helper modules while keeping `src/codex/skills_status.js` as the public
+  command facade.
+- Moved the `/skill` test fixture builder into
+  `test/helpers/codex_skills_status_fixture.mjs`, leaving the main test file
+  focused on behavior.
+- Replaced the package syntax-check glob with `scripts/check-syntax.mjs`, which
+  recursively syntax-checks JavaScript and MJS files under `src`, `scripts`, and
+  `test`. This prevents newly added nested helpers from silently escaping
+  `npm run check`.
+
+### Fixed
+
+- Preserved the Telegram inline keyboard when refreshing the skills status view
+  in edit mode.
+- Capped the formatted skills inventory to the configured Telegram message
+  length and reports omitted rows instead of overflowing the message body.
+- Sanitized fallback output when skill inventory collection fails, so `/skill`
+  still returns a bounded diagnostic response instead of throwing through the
+  command handler.
+
+### Verification
+
+- Added focused `/skill` regression coverage for inventory collection, plugin
+  manifest parsing, disabled plugin declarations, Telegram HTML escaping,
+  message capping, path redaction, symlink containment, frontmatter parsing,
+  missing-root warnings, reply mode, and edit mode.
+- Confirmed the nested syntax-check script covers 105 JavaScript/MJS files in
+  the current release tree.
+- Confirmed `npm run verify` passes, including recursive syntax checks, locale
+  validation, ESLint, Prettier package/workflow checks, the full Node test
+  suite, and `npm audit --audit-level=moderate`.
+- Smoke-tested the `/skill` responder surface directly with reply and edit
+  paths, including keyboard preservation and raw path redaction.
+
 ## 1.2.1 - 2026-07-06
 
 ### Added

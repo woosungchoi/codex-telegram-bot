@@ -1,6 +1,6 @@
 {
   "name": "codex-telegram-bot",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "license": "MIT",
   "type": "module",
   "description": "Telegram bridge for Codex CLI via @openai/codex-sdk",
