@@ -25,6 +25,7 @@ test("readConfig applies stable defaults from env and options", () => {
   assert.equal(config.codexSessionsDir, "/home/tester/.codex/sessions");
   assert.equal(config.codexTransport, "sdk");
   assert.equal(config.codexWorkerMode, "sidecar");
+  assert.equal(config.codexReasoningEffort, "medium");
   assert.equal(config.codexWorkerStateDir, "/app/state/worker");
   assert.equal(config.codexWorkerSocket, "/app/state/worker/worker.sock");
   assert.equal(config.codexWorkerConnectTimeoutMs, 5000);
@@ -98,6 +99,13 @@ test("readConfig parses Codex transport and worker env values", () => {
   assert.equal(config.codexAppServerDirectTimeoutMs, 12000);
 });
 
+for (const effort of ["max", "ultra"]) {
+  test(`readConfig accepts configured Codex reasoning effort ${effort}`, () => {
+    const config = readTestConfig({ CODEX_REASONING_EFFORT: effort });
+    assert.equal(config.codexReasoningEffort, effort);
+  });
+}
+
 test("readConfig parses optional allowed chat and thread ids", () => {
   const config = readTestConfig({
     ALLOWED_CHAT_IDS: "100, -200",
@@ -161,6 +169,10 @@ test("readConfig rejects invalid enum env values", () => {
   assert.throws(
     () => readTestConfig({ CODEX_WORKER_MODE: "daemon" }),
     /CODEX_WORKER_MODE must be one of: sidecar, inline/
+  );
+  assert.throws(
+    () => readTestConfig({ CODEX_REASONING_EFFORT: "extreme" }),
+    /CODEX_REASONING_EFFORT must be one of:/
   );
 });
 

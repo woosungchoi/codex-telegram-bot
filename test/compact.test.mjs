@@ -31,6 +31,22 @@ test("buildCodexCompactConfig derives auto compact limit from window and percent
   }), 75000);
 });
 
+test("buildCodexCompactConfig omits native-default context and compact overrides", () => {
+  const config = buildCodexCompactConfig({
+    codexModelContextWindow: 0,
+    codexAutoCompactTokenLimit: 0,
+    codexToolOutputTokenLimit: 12000,
+    codexCompactStrength: "balanced",
+    codexCompactPromptFile: "",
+    codexContextCompactThresholdPercent: 75
+  });
+
+  assert.equal(Object.hasOwn(config, "model_context_window"), false);
+  assert.equal(Object.hasOwn(config, "model_auto_compact_token_limit"), false);
+  assert.equal(config.tool_output_token_limit, 12000);
+  assert.match(config.compact_prompt, /current goal/);
+});
+
 test("compact prompt file takes precedence over strength prompt", () => {
   const config = buildCodexCompactConfig({
     codexModelContextWindow: 0,

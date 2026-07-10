@@ -8,7 +8,7 @@ const defaultAppRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const CONFIG_VALID = {
   approval: new Set(["never", "on-request", "on-failure", "untrusted"]),
   sandbox: new Set(["read-only", "workspace-write", "danger-full-access"]),
-  reasoning: new Set(["minimal", "low", "medium", "high", "xhigh"]),
+  reasoning: new Set(["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]),
   webSearch: new Set(["disabled", "cached", "live"]),
   codexTransport: new Set(["sdk", "app-server-direct"]),
   codexWorkerMode: new Set(["sidecar", "inline"]),
