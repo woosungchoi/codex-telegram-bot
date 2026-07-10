@@ -2,6 +2,33 @@
 
 All notable public changes are documented here.
 
+## 1.2.5 - 2026-07-10
+
+### Security
+
+- Restricted runtime state, uploads, backups, recovery records, cleanup
+  artifacts, worker job data, and Unix sockets to owner-only permissions.
+- Created sensitive regular and atomic temporary files with mode `0600`, and
+  sensitive runtime directories with mode `0700`, even under a permissive
+  process umask.
+- Corrected existing permissive files on write or append, and hardened copied
+  backup trees without following symlinks.
+- Added `UMask=0077` to both the bot and worker systemd user services.
+
+### Changed
+
+- Documented `chmod 600 .env` for standard and minimal installations.
+- Added a symlink-safe one-time permission migration for existing default-path
+  installations and restart guidance for updated systemd units.
+
+### Verification
+
+- Added regression coverage for forced `umask 0002`, atomic writes, append
+  correction, symlink-safe tree hardening, worker sockets, recovery data,
+  cleanup artifacts, and private bootstrap directories.
+- Confirmed the full verification suite and package audit pass with the new
+  permission invariants.
+
 ## 1.2.4 - 2026-07-10
 
 ### Added
