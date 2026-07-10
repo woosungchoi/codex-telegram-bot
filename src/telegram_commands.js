@@ -25,7 +25,7 @@ export const REGISTERED_TELEGRAM_COMMANDS = new Set([
   "approval_untrusted",
   "approval_default",
   "reasoning",
-  ...["minimal", "low", "medium", "high", "xhigh", "default"].map((value) => `reasoning_${value}`),
+  ...["minimal", "low", "medium", "high", "xhigh", "max", "ultra", "default"].map((value) => `reasoning_${value}`),
   "fast",
   "fast_on",
   "fast_off",

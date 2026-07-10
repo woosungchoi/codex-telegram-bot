@@ -11,6 +11,21 @@ test("registered commands are recognized", () => {
   assert.equal(isRegisteredTelegramCommandText({ text: "/start@my_bot", entities: [{ type: "bot_command", offset: 0, length: 13 }] }), true);
 });
 
+test("max and ultra reasoning shortcuts are recognized in supported command forms", () => {
+  for (const command of ["/reasoning_max", "/reasoning_ultra"]) {
+    const cases = [
+      ["exact bot_command entity", botCommandMessage(command)],
+      ["entity-less exact command", { text: command }],
+      ["@bot mention", botCommandMessage(`${command}@my_bot`)],
+      ["uppercase command", botCommandMessage(command.toUpperCase())],
+      ["entity-less command with arguments", { text: `${command} apply this` }]
+    ];
+    for (const [label, message] of cases) {
+      assert.equal(isRegisteredTelegramCommandText(message), true, `${command}: ${label}`);
+    }
+  }
+});
+
 test("slash-prefixed paths and unknown commands are treated as normal text", () => {
   assert.equal(isRegisteredTelegramCommandText({ text: "/home/openclaw/.openclaw/ahahhss 이 폴더를 봐줘", entities: [{ type: "bot_command", offset: 0, length: 36 }] }), false);
   assert.equal(isRegisteredTelegramCommandText({ text: "/tmp/project check this" }), false);
