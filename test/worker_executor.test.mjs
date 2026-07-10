@@ -13,41 +13,59 @@ async function tempStore() {
   return store;
 }
 
-test("worker executor writes stream events and completion", async () => {
-  const store = await tempStore();
-  const createThread = () => ({
-    id: "thread-1",
-    async runStreamed() {
+for (const [effort, transport] of [["max", "sdk"], ["ultra", "app-server-direct"]]) {
+  test(`worker executor writes stream events and completion with ${effort} reasoning`, async (t) => {
+    // Given
+    const store = await tempStore();
+    t.after(() => fs.rm(store.paths.stateDir, { recursive: true, force: true }));
+    const effectiveOptions = {
+      model: "gpt-5.6-sol",
+      modelReasoningEffort: effort
+    };
+    let capturedThreadOptions = null;
+    const createThread = (options) => {
+      capturedThreadOptions = options;
       return {
-        events: (async function* events() {
-          yield { type: "thread.started", thread_id: "thread-1" };
-          yield { type: "item.completed", item: { id: "msg-1", type: "agent_message", text: "done" } };
-          yield { type: "turn.completed", usage: { total_tokens: 3 } };
-        })()
+        id: "thread-1",
+        async runStreamed() {
+          return {
+            events: (async function* events() {
+              yield { type: "thread.started", thread_id: "thread-1" };
+              yield { type: "item.completed", item: { id: "msg-1", type: "agent_message", text: "done" } };
+              yield { type: "turn.completed", usage: { total_tokens: 3 } };
+            })()
+          };
+        }
       };
-    }
-  });
+    };
 
-  const result = await runWorkerJob({
-    job: { id: "job-1", chatKey: "chat-1", inputText: "hello", effectiveOptions: {} },
-    config: { codexTransport: "sdk" },
-    store,
-    signal: new AbortController().signal,
-    createThread
-  });
-  assert.equal(result.finalResponse, "done");
-  assert.deepEqual((await store.readJobEvents("job-1", { afterSeq: 0 })).map((event) => event.type), [
-    "worker.job.started",
-    "thread.started",
-    "item.completed",
-    "turn.completed",
-    "worker.job.completed"
-  ]);
-  assert.equal((await store.readJobState("job-1")).status, "completed");
-});
+    // When
+    const result = await runWorkerJob({
+      job: { id: `job-${effort}`, chatKey: "chat-1", inputText: "hello", transport, effectiveOptions },
+      config: { codexTransport: "sdk" },
+      store,
+      signal: new AbortController().signal,
+      createThread
+    });
 
-test("worker executor writes failed events", async () => {
+    // Then
+    assert.equal(capturedThreadOptions.transport, transport);
+    assert.deepEqual(capturedThreadOptions.effectiveOptions, effectiveOptions);
+    assert.equal(result.finalResponse, "done");
+    assert.deepEqual((await store.readJobEvents(`job-${effort}`, { afterSeq: 0 })).map((event) => event.type), [
+      "worker.job.started",
+      "thread.started",
+      "item.completed",
+      "turn.completed",
+      "worker.job.completed"
+    ]);
+    assert.equal((await store.readJobState(`job-${effort}`)).status, "completed");
+  });
+}
+
+test("worker executor writes failed events", async (t) => {
   const store = await tempStore();
+  t.after(() => fs.rm(store.paths.stateDir, { recursive: true, force: true }));
   const createThread = () => ({
     id: "thread-1",
     async runStreamed() {
