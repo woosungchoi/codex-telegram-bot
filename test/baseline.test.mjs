@@ -23,7 +23,7 @@ async function lineCount(path) {
 test("public package metadata and assets stay intact", async () => {
   const pkg = await readJson("package.json");
   assert.equal(pkg.name, "codex-telegram-bot");
-  assert.equal(pkg.version, "1.2.5");
+  assert.equal(pkg.version, "1.2.6");
   assert.equal(pkg.license, "MIT");
   assert.equal(pkg.private, undefined);
   assert.equal(pkg.repository?.url, "git+https://github.com/woosungchoi/codex-telegram-bot.git");

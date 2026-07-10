@@ -2,6 +2,27 @@
 
 All notable public changes are documented here.
 
+## 1.2.6 - 2026-07-10
+
+### Fixed
+
+- Prevented graceful worker restarts from leaving orphaned active jobs by
+  tracking job tasks and waiting for their terminal state and active-index
+  cleanup before shutdown completes.
+- Reconciled persisted nonterminal jobs when a new worker process starts,
+  marking interrupted work failed and removing stale active-index entries.
+- Made `/stop` finalize persisted orphaned jobs even when the restarted worker
+  no longer has their in-memory abort controller.
+- Recorded normal cancellation requests before aborting the worker controller,
+  preserving terminal event and state ordering.
+
+### Verification
+
+- Added deterministic regression coverage for delayed shutdown cleanup,
+  startup orphan reconciliation, and controller-less orphan cancellation.
+- Confirmed the full verification suite and package audit pass with worker
+  active and running job counts returning to zero after cleanup.
+
 ## 1.2.5 - 2026-07-10
 
 ### Security
