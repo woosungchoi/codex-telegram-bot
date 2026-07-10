@@ -25,7 +25,10 @@ import {
   readCodexModelCatalog,
   reasoningOptionsForModel
 } from "./codex/models.js";
-import { mergeAdditionalDirectories } from "./codex/options.js";
+import {
+  mergeAdditionalDirectories,
+  planModelReasoningTransition
+} from "./codex/options.js";
 import { buildStyleInstructionPrompt } from "./codex/prompts.js";
 import { readCodexSessionBackfill } from "./codex/session_backfill.js";
 import { isCodexSkillsView, replyCodexSkillsStatus } from "./codex/skills_status.js";
@@ -1014,19 +1017,32 @@ bot.action(/^model:set:([a-zA-Z0-9._-]+|default)$/, async (ctx) => {
     return;
   }
 
+  const prospectiveModel = model === "default" ? config.codexModel ?? "" : model;
+  const explicitReasoning = state.chats[chatKey]?.options?.modelReasoningEffort;
+  const transition = planRuntimeModelReasoningTransition(
+    models,
+    prospectiveModel,
+    explicitReasoning,
+    true
+  );
+  if (transition.action === "reject") {
+    await replyHtml(
+      ctx,
+      `${b("Thinking level unavailable.")}\n${code(transition.reasoning || "default")} is not supported by ${code(prospectiveModel || "default")}\n\n${t("modelSelectionDescription")}`,
+      modelSelectionKeyboard(models)
+    );
+    return;
+  }
+
   const chat = getChatState(chatKey);
   if (model === "default") delete chat.options.model;
   else chat.options.model = model;
-
-  const { effectiveModel, explicitReasoning, reasoningCleared } = reconcileExplicitReasoningOverride(
-    chatKey,
-    models
-  );
+  if (transition.action === "clear") delete chat.options.modelReasoningEffort;
 
   invalidateThreadCache(chatKey);
   await saveState(config.stateFile, state);
-  const reasoningOptions = reasoningOptionsForModel(models, effectiveModel);
-  const reconciliation = reasoningCleared
+  const reasoningOptions = reasoningOptionsForModel(models, prospectiveModel);
+  const reconciliation = transition.action === "clear"
     ? `Reasoning override cleared: ${code(explicitReasoning)}`
     : `Reasoning override cleared: ${code("no")}`;
   await replyHtml(
@@ -1045,6 +1061,17 @@ bot.action(/^reasoning:set:([a-z0-9][a-z0-9_-]{0,49}|default)$/, async (ctx) => 
   const models = await listCodexModels();
   const effectiveModel = effectiveModelSlug(chatKey);
   const reasoningOptions = reasoningOptionsForModel(models, effectiveModel);
+  if (reasoning === "default") {
+    const transition = planRuntimeModelReasoningTransition(models, effectiveModel, undefined);
+    if (transition.action === "reject") {
+      await replyHtml(
+        ctx,
+        `${b("Thinking level unavailable.")}\n${code(transition.reasoning || "default")} is not supported by ${code(effectiveModel || "default")}\n\n${formatReasoningPromptHtml(chatKey, models)}`,
+        reasoningSelectionKeyboard(reasoningOptions)
+      );
+      return;
+    }
+  }
   if (reasoning !== "default" && !isReasoningEffortSupported(models, effectiveModel, reasoning)) {
     await replyHtml(
       ctx,
@@ -2279,15 +2306,19 @@ function effectiveModelSlug(chatKey) {
   return state.chats[chatKey]?.options?.model ?? config.codexModel ?? "";
 }
 
-function reconcileExplicitReasoningOverride(chatKey, models) {
-  const chat = getChatState(chatKey);
-  const effectiveModel = effectiveModelSlug(chatKey);
-  const explicitReasoning = chat.options.modelReasoningEffort;
-  const reasoningCleared = Object.hasOwn(chat.options, "modelReasoningEffort")
-    && Boolean(findCodexModel(models, effectiveModel))
-    && !isReasoningEffortSupported(models, effectiveModel, explicitReasoning);
-  if (reasoningCleared) delete chat.options.modelReasoningEffort;
-  return { effectiveModel, explicitReasoning, reasoningCleared };
+function planRuntimeModelReasoningTransition(
+  models,
+  modelSlug,
+  explicitReasoning,
+  allowExplicitClear = false
+) {
+  return planModelReasoningTransition({
+    models,
+    modelSlug,
+    explicitReasoning,
+    configuredReasoning: config.codexReasoningEffort,
+    allowExplicitClear
+  });
 }
 
 function getChatState(chatKey) {
@@ -2344,11 +2375,40 @@ async function updateOptionValue(ctx, key, value) {
 async function setOption(chatKey, key, rawValue) {
   const value = rawValue.trim();
   const lower = value.toLowerCase();
-  const modelCatalog = key === "model" ? await listCodexModels() : null;
-  if (lower === "off" || lower === "default" || lower === "clear") {
+  const clearsOption = lower === "off" || lower === "default" || lower === "clear";
+  let modelCatalog = null;
+  let transition = { action: "keep" };
+  if (key === "model") {
+    modelCatalog = await listCodexModels();
+    const prospectiveModel = clearsOption ? config.codexModel ?? "" : value;
+    transition = planRuntimeModelReasoningTransition(
+      modelCatalog,
+      prospectiveModel,
+      state.chats[chatKey]?.options?.modelReasoningEffort,
+      true
+    );
+    if (transition.action === "reject") {
+      const supported = reasoningOptionsForModel(modelCatalog, prospectiveModel)
+        .map(({ effort }) => effort)
+        .join(", ") || "none";
+      throw new Error(`reasoning for ${prospectiveModel || "default"} must be one of: ${supported}`);
+    }
+  } else if (key === "modelReasoningEffort" && clearsOption) {
+    modelCatalog = await listCodexModels();
+    const model = effectiveModelSlug(chatKey);
+    transition = planRuntimeModelReasoningTransition(modelCatalog, model, undefined);
+    if (transition.action === "reject") {
+      const supported = reasoningOptionsForModel(modelCatalog, model)
+        .map(({ effort }) => effort)
+        .join(", ") || "none";
+      throw new Error(`reasoning for ${model || "default"} must be one of: ${supported}`);
+    }
+  }
+
+  if (clearsOption) {
     const chat = getChatState(chatKey);
     delete chat.options[key];
-    if (modelCatalog) reconcileExplicitReasoningOverride(chatKey, modelCatalog);
+    if (transition.action === "clear") delete chat.options.modelReasoningEffort;
     invalidateThreadCache(chatKey);
     return;
   }
@@ -2365,7 +2425,7 @@ async function setOption(chatKey, key, rawValue) {
   const chat = getChatState(chatKey);
   if (key === "model") {
     chat.options.model = value;
-    reconcileExplicitReasoningOverride(chatKey, modelCatalog);
+    if (transition.action === "clear") delete chat.options.modelReasoningEffort;
   } else if (key === "workingDirectory") {
     await ensureDirectory(value, "working directory");
     chat.options.workingDirectory = value;
