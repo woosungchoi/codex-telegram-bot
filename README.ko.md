@@ -81,9 +81,11 @@ cp .env.minimal.example .env
 - `CODEX_APP_SERVER_DIRECT_TIMEOUT_MS`: 선택적 direct app-server 요청 timeout, 기본값 `5000`
 - `CODEX_SESSIONS_DIR`: 기본값은 `$CODEX_HOME/sessions`
 - `CODEX_MODELS_CACHE_FILE`: Telegram 모델 버튼에 쓰는 Codex 모델 cache, 기본값은 `$CODEX_HOME/models_cache.json`
+- `CODEX_MODEL`: global 기본 model입니다. Global `CODEX_REASONING_EFFORT`는 global `CODEX_MODEL`이 지원하는 값이어야 하며, Telegram은 알려진 per-chat model/effort 조합을 현재 Codex catalog capability에 맞춰 검증합니다.
+- `CODEX_REASONING_EFFORT`: global 기본 reasoning effort입니다. 현재 Codex catalog capability가 picker option을 결정하며, Telegram은 선택된 알려진 모델이 알리지 않은 effort를 거부합니다. Max (`max`)는 단일 작업을 깊게 추론합니다. Ultra (`ultra`)는 자동 위임을 활성화하며 catalog가 알릴 때만 표시됩니다. 높은 effort는 latency와 usage를 늘릴 수 있습니다.
 - `CODEX_BASE_URL`, `CODEX_API_KEY`, `CODEX_CONFIG_JSON`, `CODEX_ENV_JSON`: 선택적 `Codex` SDK 생성자 설정
-- `CODEX_MODEL_CONTEXT_WINDOW`: 선택적 Codex `model_context_window` override입니다. `CODEX_CONTEXT_COMPACT_THRESHOLD_PERCENT`와 함께 설정하면 bot이 `model_auto_compact_token_limit`을 계산합니다.
-- `CODEX_AUTO_COMPACT_TOKEN_LIMIT`: 선택적 Codex `model_auto_compact_token_limit` override입니다. 정확한 토큰 기준을 알고 있을 때 이 값을 우선 사용하세요.
+- `CODEX_MODEL_CONTEXT_WINDOW`: 선택적 raw Codex `model_context_window` override입니다. 일반 OpenAI/Codex 사용자는 이 값과 `CODEX_AUTO_COMPACT_TOKEN_LIMIT`을 비워 두어 model 변경 시 native context 및 automatic-compaction limit을 사용해야 합니다. Custom provider나 특수 deployment에서 명시하면 Codex가 model의 effective-window percentage를 적용하기 전에 raw catalog context를 대체합니다. `CODEX_CONTEXT_COMPACT_THRESHOLD_PERCENT`와 함께 설정하면 bot이 `model_auto_compact_token_limit`을 계산합니다.
+- `CODEX_AUTO_COMPACT_TOKEN_LIMIT`: 선택적 Codex `model_auto_compact_token_limit` override입니다. 비워 두면 native per-model threshold를 사용하며, custom provider나 특수 deployment에서 명시한 값은 해당 threshold를 직접 대체합니다.
 - `CODEX_TOOL_OUTPUT_TOKEN_LIMIT`: 저장되는 tool output 압박을 줄이기 위한 선택적 Codex `tool_output_token_limit` override입니다.
 - `CODEX_COMPACT_STRENGTH`: compact prompt 강도입니다. `default`, `light`, `balanced`, `aggressive` 중 하나이며, `default`는 Codex 기본 compact prompt를 유지합니다.
 - `CODEX_COMPACT_PROMPT_FILE`: 선택적 Codex `experimental_compact_prompt_file` 경로입니다. 설정하면 `CODEX_COMPACT_STRENGTH`보다 우선합니다.
@@ -284,7 +286,7 @@ PR 체크리스트와 locale metadata 형식은 `docs/translations.md`에 정리
 - `/workdir <absolute-dir|default>`, `/workdir_default`
 - `/sandbox`, `/sandbox_read_only`, `/sandbox_workspace_write`, `/sandbox_danger_full_access`, `/sandbox_default`
 - `/approval`, `/approval_never`, `/approval_on_request`, `/approval_on_failure`, `/approval_untrusted`, `/approval_default`
-- `/reasoning`, `/reasoning_minimal`, `/reasoning_low`, `/reasoning_medium`, `/reasoning_high`, `/reasoning_xhigh`, `/reasoning_default`
+- `/reasoning`, `/reasoning_minimal`, `/reasoning_low`, `/reasoning_medium`, `/reasoning_high`, `/reasoning_xhigh`, `/reasoning_default`: reasoning picker를 열거나 effort를 설정 또는 reset합니다. `/reasoning max`와 `/reasoning ultra`는 현재 catalog가 선택한 모델에 알린 경우에만 해당 effort를 선택하며, Telegram은 선택한 알려진 모델이 지원하지 않는 effort를 거부합니다.
 - `/websearch`, `/websearch_disabled`, `/websearch_cached`, `/websearch_live`, `/websearch_default`
 - `/network`, `/network_on`, `/network_off`, `/network_default`
 - `/skipgit`, `/skipgit_on`, `/skipgit_off`, `/skipgit_default`

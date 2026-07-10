@@ -91,9 +91,11 @@ Edit `.env`:
 - `CODEX_APP_SERVER_DIRECT_TIMEOUT_MS`: timeout for optional direct app-server requests, default `5000`
 - `CODEX_SESSIONS_DIR`: defaults to `$CODEX_HOME/sessions`
 - `CODEX_MODELS_CACHE_FILE`: Codex model cache used by Telegram model buttons, default `$CODEX_HOME/models_cache.json`
+- `CODEX_MODEL`: global default model. The global `CODEX_REASONING_EFFORT` must be supported by the global `CODEX_MODEL`; Telegram validates known per-chat model/effort pairs against current Codex catalog capabilities.
+- `CODEX_REASONING_EFFORT`: global default reasoning effort. Current Codex catalog capabilities drive the picker, and Telegram rejects an effort that the selected known model does not advertise. Max (`max`) provides deep single-task reasoning. Ultra (`ultra`) enables automatic delegation and appears only when the catalog advertises it. Higher efforts can increase latency and usage.
 - `CODEX_BASE_URL`, `CODEX_API_KEY`, `CODEX_CONFIG_JSON`, `CODEX_ENV_JSON`: optional `Codex` SDK constructor settings
-- `CODEX_MODEL_CONTEXT_WINDOW`: optional Codex `model_context_window` override. When set with `CODEX_CONTEXT_COMPACT_THRESHOLD_PERCENT`, the bot derives `model_auto_compact_token_limit`.
-- `CODEX_AUTO_COMPACT_TOKEN_LIMIT`: optional Codex `model_auto_compact_token_limit` override. Prefer this when you know the exact token threshold.
+- `CODEX_MODEL_CONTEXT_WINDOW`: optional raw Codex `model_context_window` override. Standard OpenAI/Codex users should leave this and `CODEX_AUTO_COMPACT_TOKEN_LIMIT` blank so model changes use native context and automatic-compaction limits. For a custom provider or special deployment, an explicit value replaces the raw catalog context before Codex applies the model's effective-window percentage. When set with `CODEX_CONTEXT_COMPACT_THRESHOLD_PERCENT`, the bot derives `model_auto_compact_token_limit`.
+- `CODEX_AUTO_COMPACT_TOKEN_LIMIT`: optional Codex `model_auto_compact_token_limit` override. Leave it blank to use the native per-model threshold; an explicit value directly replaces that threshold for a custom provider or special deployment.
 - `CODEX_TOOL_OUTPUT_TOKEN_LIMIT`: optional Codex `tool_output_token_limit` override for reducing stored tool output pressure.
 - `CODEX_COMPACT_STRENGTH`: compact prompt style, `default`, `light`, `balanced`, or `aggressive`; `default` leaves Codex's built-in compact prompt unchanged.
 - `CODEX_COMPACT_PROMPT_FILE`: optional Codex `experimental_compact_prompt_file` path. When set, it takes precedence over `CODEX_COMPACT_STRENGTH`.
@@ -334,7 +336,7 @@ but remain available for typed use and automation:
 - `/workdir <absolute-dir|default>`, `/workdir_default`
 - `/sandbox`, `/sandbox_read_only`, `/sandbox_workspace_write`, `/sandbox_danger_full_access`, `/sandbox_default`
 - `/approval`, `/approval_never`, `/approval_on_request`, `/approval_on_failure`, `/approval_untrusted`, `/approval_default`
-- `/reasoning`, `/reasoning_minimal`, `/reasoning_low`, `/reasoning_medium`, `/reasoning_high`, `/reasoning_xhigh`, `/reasoning_default`
+- `/reasoning`, `/reasoning_minimal`, `/reasoning_low`, `/reasoning_medium`, `/reasoning_high`, `/reasoning_xhigh`, `/reasoning_default`: open, set, or reset reasoning. `/reasoning max` and `/reasoning ultra` select those efforts when the current catalog advertises them for the selected model; Telegram rejects unsupported efforts for a known selected model.
 - `/websearch`, `/websearch_disabled`, `/websearch_cached`, `/websearch_live`, `/websearch_default`
 - `/network`, `/network_on`, `/network_off`, `/network_default`
 - `/skipgit`, `/skipgit_on`, `/skipgit_off`, `/skipgit_default`
