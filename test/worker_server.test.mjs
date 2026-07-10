@@ -12,6 +12,7 @@ function mode(stat) {
 }
 
 async function startServer(executeJob, options = {}) {
+  const { prepareStore, ...serverOptions } = options;
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-worker-server-"));
   const config = {
     codexWorkerStateDir: dir,
@@ -20,7 +21,8 @@ async function startServer(executeJob, options = {}) {
     codexTransport: "sdk"
   };
   const store = createWorkerStore(config);
-  const worker = createWorkerServer({ config, store, executeJob, logger: { warn() {} }, ...options });
+  await prepareStore?.(store);
+  const worker = createWorkerServer({ config, store, executeJob, logger: { warn() {} }, ...serverOptions });
   await worker.listen();
   return { config, worker, client: createWorkerClient(config), store };
 }
@@ -64,6 +66,83 @@ test("worker server records shutdown for active jobs", async () => {
   await worker.close();
   const events = await store.readJobEvents("job-shutdown", { afterSeq: 0 });
   assert.equal(events.some((event) => event.type === "worker.shutdown"), true);
+});
+
+test("worker close waits for active job cleanup", async (t) => {
+  let releaseCleanup;
+  let markCleanupStarted;
+  const cleanupGate = new Promise((resolve) => {
+    releaseCleanup = resolve;
+  });
+  const cleanupStarted = new Promise((resolve) => {
+    markCleanupStarted = resolve;
+  });
+  t.after(() => releaseCleanup());
+
+  const executeJob = async ({ job, store, signal }) => {
+    if (!signal.aborted) {
+      await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+    }
+    markCleanupStarted();
+    await cleanupGate;
+    await store.appendJobEvent(job.id, {
+      type: "worker.job.cancelled",
+      status: "cancelled",
+      chatKey: job.chatKey
+    });
+  };
+  const { worker, client, store } = await startServer(executeJob);
+  await client.startJob({ id: "job-close", chatKey: "chat-close", inputText: "hi" });
+
+  const closing = worker.close();
+  await cleanupStarted;
+  const closeState = await Promise.race([
+    closing.then(() => "closed"),
+    new Promise((resolve) => setTimeout(() => resolve("waiting"), 50))
+  ]);
+  assert.equal(closeState, "waiting");
+
+  releaseCleanup();
+  await closing;
+  assert.equal((await store.readActiveJobs()).jobs["job-close"], undefined);
+  assert.equal((await store.readJobState("job-close")).status, "cancelled");
+});
+
+test("worker startup marks persisted orphaned jobs failed", async () => {
+  const { worker, client, store } = await startServer(async () => {}, {
+    prepareStore: async (preparedStore) => {
+      await preparedStore.writeJobState({ id: "job-orphan", chatKey: "chat-orphan", status: "running" });
+      await preparedStore.upsertActiveJob({ id: "job-orphan", chatKey: "chat-orphan", status: "running" });
+    }
+  });
+  try {
+    assert.deepEqual(await client.status(), { status: "ok", activeJobs: [], runningJobIds: [] });
+    assert.equal((await store.readJobState("job-orphan")).status, "failed");
+    const events = await store.readJobEvents("job-orphan", { afterSeq: 0 });
+    assert.equal(events.at(-1).type, "worker.job.failed");
+  } finally {
+    await worker.close();
+  }
+});
+
+test("worker cancel finalizes a persisted orphan without a controller", async () => {
+  const { worker, client, store } = await startServer(async () => {});
+  try {
+    await store.writeJobState({ id: "job-orphan", chatKey: "chat-orphan", status: "running" });
+    await store.upsertActiveJob({ id: "job-orphan", chatKey: "chat-orphan", status: "running" });
+
+    assert.deepEqual(await client.cancelJob("job-orphan"), {
+      jobId: "job-orphan",
+      cancelled: true,
+      orphaned: true
+    });
+    assert.deepEqual((await client.status()).activeJobs, []);
+    assert.equal((await store.readJobState("job-orphan")).status, "cancelled");
+    const events = await store.readJobEvents("job-orphan", { afterSeq: 0 });
+    assert.equal(events.at(-1).type, "worker.job.cancelled");
+  } finally {
+    await worker.close();
+  }
 });
 
 test("worker server starts, rejects duplicate chat jobs, and cancels", async () => {

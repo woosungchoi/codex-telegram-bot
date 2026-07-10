@@ -15,6 +15,7 @@ export function createWorkerServer({
   if (!config) throw new Error("config is required.");
   const controllers = new Map();
   const codexClients = new Map();
+  const jobTasks = new Map();
 
   async function dispatch(request) {
     const method = request?.method || "";
@@ -24,7 +25,7 @@ export function createWorkerServer({
     if (method === "job/events") return jobEvents(store, params.jobId, params);
     if (method === "job/cancel") return cancelJob(store, controllers, params.jobId);
     if (method === "job/start") {
-      return startJob({ config, store, controllers, codexClients, executeJob, logger, heartbeatMs, job: params.job });
+      return startJob({ config, store, controllers, codexClients, jobTasks, executeJob, logger, heartbeatMs, job: params.job });
     }
     throw new Error(`Unknown worker method: ${method}`);
   }
@@ -49,6 +50,7 @@ export function createWorkerServer({
     server,
     async listen() {
       await store.ensure();
+      await reconcileOrphanedJobs(store);
       await fs.rm(config.codexWorkerSocket, { force: true }).catch(() => {});
       await new Promise((resolve, reject) => {
         server.once("error", reject);
@@ -61,6 +63,7 @@ export function createWorkerServer({
       return this;
     },
     async close() {
+      await new Promise((resolve) => server.close(resolve));
       for (const [jobId, controller] of controllers.entries()) {
         await store.appendJobEvent(jobId, {
           type: "worker.shutdown",
@@ -69,13 +72,13 @@ export function createWorkerServer({
         }).catch(() => {});
         controller.abort(new Error("worker shutdown"));
       }
-      await new Promise((resolve) => server.close(resolve));
+      await Promise.allSettled([...jobTasks.values()]);
       await fs.rm(config.codexWorkerSocket, { force: true }).catch(() => {});
     }
   };
 }
 
-async function startJob({ config, store, controllers, codexClients, executeJob, logger, heartbeatMs, job }) {
+async function startJob({ config, store, controllers, codexClients, jobTasks, executeJob, logger, heartbeatMs, job }) {
   if (!job?.id) throw new Error("job/start requires job.id.");
   if (!job.chatKey) throw new Error("job/start requires job.chatKey.");
   const active = await store.readActiveJobs();
@@ -120,7 +123,7 @@ async function startJob({ config, store, controllers, codexClients, executeJob, 
     if (heartbeat) clearInterval(heartbeat);
   };
   controller.signal.addEventListener("abort", stopHeartbeat, { once: true });
-  executeJob({ job: accepted, config, store, signal: controller.signal, codexClients })
+  const task = executeJob({ job: accepted, config, store, signal: controller.signal, codexClients })
     .catch((error) => {
       logger.warn?.("worker job failed:", error instanceof Error ? error.message : String(error));
     })
@@ -130,8 +133,30 @@ async function startJob({ config, store, controllers, codexClients, executeJob, 
       controllers.delete(job.id);
       await store.removeActiveJob(job.id).catch(() => {});
     });
+  jobTasks.set(job.id, task);
+  task.finally(() => {
+    if (jobTasks.get(job.id) === task) jobTasks.delete(job.id);
+  }).catch(() => {});
 
   return { jobId: job.id, status: "accepted" };
+}
+
+async function reconcileOrphanedJobs(store) {
+  const active = await store.readActiveJobs();
+  for (const [indexId, entry] of Object.entries(active.jobs)) {
+    const jobId = String(entry?.id || indexId);
+    const job = await store.readJobState(jobId);
+    if (!isTerminalWorkerStatus(job?.status)) {
+      await store.appendJobEvent(jobId, {
+        type: "worker.job.failed",
+        status: "failed",
+        chatKey: job?.chatKey ?? entry?.chatKey,
+        threadId: job?.threadId ?? entry?.threadId ?? "",
+        message: "worker restarted before job completed"
+      });
+    }
+    await store.removeActiveJob(indexId);
+  }
 }
 
 async function workerStatus(store, controllers) {
@@ -161,12 +186,30 @@ async function jobEvents(store, jobId, params) {
 async function cancelJob(store, controllers, jobId) {
   if (!jobId) throw new Error("job/cancel requires jobId.");
   const controller = controllers.get(jobId);
-  if (!controller) return { jobId, cancelled: false };
-  controller.abort(new Error("cancelled by Telegram bot"));
+  if (!controller) {
+    const job = await store.readJobState(jobId);
+    if (!job) return { jobId, cancelled: false };
+    if (!isTerminalWorkerStatus(job.status)) {
+      await store.appendJobEvent(jobId, {
+        type: "worker.job.cancelled",
+        status: "cancelled",
+        chatKey: job.chatKey,
+        threadId: job.threadId || "",
+        message: "orphaned worker job cancelled"
+      });
+    }
+    await store.removeActiveJob(jobId);
+    return { jobId, cancelled: true, orphaned: true };
+  }
   await store.appendJobEvent(jobId, {
     type: "worker.job.cancel.requested",
     status: "running",
     message: "cancel requested"
   });
+  controller.abort(new Error("cancelled by Telegram bot"));
   return { jobId, cancelled: true };
+}
+
+function isTerminalWorkerStatus(status) {
+  return status === "completed" || status === "failed" || status === "cancelled";
 }
