@@ -116,6 +116,7 @@ function normalizeReasoningOptions(entries) {
           ? entry.description
           : ""
     });
+    if (options.length === 12) break;
   }
   return options;
 }

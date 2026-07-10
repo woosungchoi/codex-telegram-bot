@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as modelHelpers from "../src/codex/models.js";
+import { reasoningSelectionKeyboard } from "../src/ui/keyboards.js";
 
 const {
   readCodexModelCatalog,
@@ -212,6 +213,38 @@ test("invalid and duplicate catalog entries are filtered within callback limits"
       );
       assert.equal(findCodexModel(models, "bad slug"), undefined);
       assert.equal(findCodexModel(models, "api-hidden"), undefined);
+    }
+  );
+});
+
+test("oversized reasoning catalogs stop at twelve options and thirteen keyboard buttons", async () => {
+  const advertisedEfforts = Array.from({ length: 20_000 }, (_, index) => `effort_${index}`);
+  await withCache(
+    {
+      models: [
+        {
+          slug: "oversized-model",
+          visibility: "list",
+          supported_reasoning_levels: advertisedEfforts
+        }
+      ]
+    },
+    async (cacheFile) => {
+      const models = await readCodexModelCatalog(cacheFile);
+      const options = reasoningOptionsForModel(models, "oversized-model");
+      assert.equal(options.length, 12);
+      assert.deepEqual(
+        options.map(({ effort }) => effort),
+        advertisedEfforts.slice(0, 12)
+      );
+
+      const buttons = reasoningSelectionKeyboard(options).reply_markup.inline_keyboard.flat();
+      assert.equal(buttons.length, 13);
+      assert.deepEqual(buttons[0], {
+        text: "Default",
+        callback_data: "reasoning:set:default"
+      });
+      assert.equal(buttons.at(-1).callback_data, "reasoning:set:effort_11");
     }
   );
 });
