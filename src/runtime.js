@@ -19,6 +19,12 @@ import {
   readAppServerThread
 } from "./codex/app_server.js";
 import { buildInput, mergeReplyContext } from "./codex/input.js";
+import {
+  findCodexModel,
+  isReasoningEffortSupported,
+  readCodexModelCatalog,
+  reasoningOptionsForModel
+} from "./codex/models.js";
 import { mergeAdditionalDirectories } from "./codex/options.js";
 import { buildStyleInstructionPrompt } from "./codex/prompts.js";
 import { readCodexSessionBackfill } from "./codex/session_backfill.js";
@@ -107,7 +113,11 @@ import {
   upsertActiveTurnSnapshot
 } from "./recovery/state.js";
 import { startRecoveryBackfillPoller } from "./recovery/backfill_poller.js";
-import { booleanOptionKeyboardRows } from "./ui/keyboards.js";
+import {
+  booleanOptionKeyboardRows,
+  modelSelectionKeyboard,
+  reasoningSelectionKeyboard
+} from "./ui/keyboards.js";
 import { formatSettingPanelHtml } from "./ui/panels.js";
 import { createWorkerClient } from "./worker/client.js";
 
@@ -118,7 +128,7 @@ const STREAM_BACKFILLED_MESSAGE = "stream_backfilled";
 const VALID = {
   approval: new Set(["never", "on-request", "on-failure", "untrusted"]),
   sandbox: new Set(["read-only", "workspace-write", "danger-full-access"]),
-  reasoning: new Set(["minimal", "low", "medium", "high", "xhigh"]),
+  reasoning: new Set(["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]),
   serviceTier: new Set(["fast", "flex"]),
   webSearch: new Set(["disabled", "cached", "live"]),
   codexTransport: new Set([CODEX_TRANSPORT_SDK, CODEX_TRANSPORT_APP_SERVER_DIRECT]),
@@ -249,15 +259,6 @@ const TIME_PRESET_CHOICES = [
   ["03_30", "03:30"],
   ["09_00", "09:00"],
   ["18_00", "18:00"]
-];
-
-const FALLBACK_CODEX_MODELS = [
-  { slug: "gpt-5.5", displayName: "GPT-5.5", fastSupported: true },
-  { slug: "gpt-5.4", displayName: "GPT-5.4", fastSupported: true },
-  { slug: "gpt-5.4-mini", displayName: "GPT-5.4 Mini", fastSupported: false },
-  { slug: "gpt-5.3-codex", displayName: "GPT-5.3 Codex", fastSupported: false },
-  { slug: "gpt-5.3-codex-spark", displayName: "GPT-5.3 Codex Spark", fastSupported: false },
-  { slug: "gpt-5.2", displayName: "GPT-5.2", fastSupported: false }
 ];
 
 const config = readRuntimeConfig();
@@ -503,15 +504,25 @@ bot.command("reasoning", async (ctx) => {
   const chatKey = getChatKey(ctx);
   const value = getCommandArgs(ctx).trim();
   if (value) {
-    await updateOptionCommand(ctx, "modelReasoningEffort", [...VALID.reasoning].join("|"));
+    await updateOptionValue(ctx, "modelReasoningEffort", value.toLowerCase());
     return;
   }
   if (await rejectIfActive(ctx, chatKey)) return;
   await sendReasoningSelection(ctx, chatKey);
 });
 
-for (const reasoning of ["minimal", "low", "medium", "high", "xhigh", "default"]) {
-  bot.command(`reasoning_${reasoning}`, async (ctx) => {
+for (const shortcut of [
+  "reasoning_minimal",
+  "reasoning_low",
+  "reasoning_medium",
+  "reasoning_high",
+  "reasoning_xhigh",
+  "reasoning_max",
+  "reasoning_ultra",
+  "reasoning_default"
+]) {
+  const reasoning = shortcut.slice("reasoning_".length);
+  bot.command(shortcut, async (ctx) => {
     await updateOptionValue(ctx, "modelReasoningEffort", reasoning);
   });
 }
@@ -993,26 +1004,66 @@ bot.action(/^model:set:([a-zA-Z0-9._-]+|default)$/, async (ctx) => {
   const chatKey = getChatKey(ctx);
   if (await rejectIfActive(ctx, chatKey)) return;
 
+  const models = await listCodexModels();
+  if (model !== "default" && !models.some((candidate) => candidate.slug === model)) {
+    await replyHtml(
+      ctx,
+      `${b("Model unavailable.")}\n\n${formatModelSelectionHtml(chatKey, models)}`,
+      modelSelectionKeyboard(models)
+    );
+    return;
+  }
+
   const chat = getChatState(chatKey);
   if (model === "default") delete chat.options.model;
   else chat.options.model = model;
+
+  const { effectiveModel, explicitReasoning, reasoningCleared } = reconcileExplicitReasoningOverride(
+    chatKey,
+    models
+  );
+
   invalidateThreadCache(chatKey);
   await saveState(config.stateFile, state);
-  await replyHtml(ctx, `${b("Model updated.")}\n\n${formatReasoningPromptHtml(chatKey)}`, reasoningSelectionKeyboard());
+  const reasoningOptions = reasoningOptionsForModel(models, effectiveModel);
+  const reconciliation = reasoningCleared
+    ? `Reasoning override cleared: ${code(explicitReasoning)}`
+    : `Reasoning override cleared: ${code("no")}`;
+  await replyHtml(
+    ctx,
+    `${b("Model updated.")}\n${reconciliation}\n\n${formatReasoningPromptHtml(chatKey, models)}`,
+    reasoningSelectionKeyboard(reasoningOptions)
+  );
 });
 
-bot.action(/^reasoning:set:(minimal|low|medium|high|xhigh|default)$/, async (ctx) => {
+bot.action(/^reasoning:set:([a-z0-9][a-z0-9_-]{0,49}|default)$/, async (ctx) => {
   const [, reasoning] = ctx.match;
   await ctx.answerCbQuery();
   const chatKey = getChatKey(ctx);
   if (await rejectIfActive(ctx, chatKey)) return;
+
+  const models = await listCodexModels();
+  const effectiveModel = effectiveModelSlug(chatKey);
+  const reasoningOptions = reasoningOptionsForModel(models, effectiveModel);
+  if (reasoning !== "default" && !isReasoningEffortSupported(models, effectiveModel, reasoning)) {
+    await replyHtml(
+      ctx,
+      `${b("Thinking level unavailable.")}\n\n${formatReasoningPromptHtml(chatKey, models)}`,
+      reasoningSelectionKeyboard(reasoningOptions)
+    );
+    return;
+  }
 
   const chat = getChatState(chatKey);
   if (reasoning === "default") delete chat.options.modelReasoningEffort;
   else chat.options.modelReasoningEffort = reasoning;
   invalidateThreadCache(chatKey);
   await saveState(config.stateFile, state);
-  await replyHtml(ctx, `${b("Thinking updated.")}\n\n${formatOptionsHtml(chatKey)}`);
+  await replyHtml(
+    ctx,
+    `${b("Thinking updated.")}\n\n${formatReasoningPromptHtml(chatKey, models)}`,
+    reasoningSelectionKeyboard(reasoningOptions)
+  );
 });
 
 bot.action(/^p:([a-z_]+)$/, async (ctx) => {
@@ -2224,6 +2275,21 @@ function getEffectiveOptions(chatKey) {
   return { ...defaultChatOptions(), ...getChatState(chatKey).options };
 }
 
+function effectiveModelSlug(chatKey) {
+  return state.chats[chatKey]?.options?.model ?? config.codexModel ?? "";
+}
+
+function reconcileExplicitReasoningOverride(chatKey, models) {
+  const chat = getChatState(chatKey);
+  const effectiveModel = effectiveModelSlug(chatKey);
+  const explicitReasoning = chat.options.modelReasoningEffort;
+  const reasoningCleared = Object.hasOwn(chat.options, "modelReasoningEffort")
+    && Boolean(findCodexModel(models, effectiveModel))
+    && !isReasoningEffortSupported(models, effectiveModel, explicitReasoning);
+  if (reasoningCleared) delete chat.options.modelReasoningEffort;
+  return { effectiveModel, explicitReasoning, reasoningCleared };
+}
+
 function getChatState(chatKey) {
   if (!state.chats[chatKey]) {
     state.chats[chatKey] = { options: {}, updatedAt: new Date().toISOString() };
@@ -2276,17 +2342,31 @@ async function updateOptionValue(ctx, key, value) {
 }
 
 async function setOption(chatKey, key, rawValue) {
-  const chat = getChatState(chatKey);
   const value = rawValue.trim();
   const lower = value.toLowerCase();
+  const modelCatalog = key === "model" ? await listCodexModels() : null;
   if (lower === "off" || lower === "default" || lower === "clear") {
+    const chat = getChatState(chatKey);
     delete chat.options[key];
+    if (modelCatalog) reconcileExplicitReasoningOverride(chatKey, modelCatalog);
     invalidateThreadCache(chatKey);
     return;
   }
 
-  if (key === "model") chat.options.model = value;
-  else if (key === "workingDirectory") {
+  if (key === "modelReasoningEffort") {
+    const models = await listCodexModels();
+    const model = effectiveModelSlug(chatKey);
+    if (!isReasoningEffortSupported(models, model, lower)) {
+      const supported = reasoningOptionsForModel(models, model).map(({ effort }) => effort).join(", ") || "none";
+      throw new Error(`reasoning for ${model || "default"} must be one of: ${supported}`);
+    }
+  }
+
+  const chat = getChatState(chatKey);
+  if (key === "model") {
+    chat.options.model = value;
+    reconcileExplicitReasoningOverride(chatKey, modelCatalog);
+  } else if (key === "workingDirectory") {
     await ensureDirectory(value, "working directory");
     chat.options.workingDirectory = value;
   } else if (key === "sandboxMode") {
@@ -2296,8 +2376,7 @@ async function setOption(chatKey, key, rawValue) {
     assertEnum(value, VALID.approval, "approval");
     chat.options.approvalPolicy = value;
   } else if (key === "modelReasoningEffort") {
-    assertEnum(value, VALID.reasoning, "reasoning");
-    chat.options.modelReasoningEffort = value;
+    chat.options.modelReasoningEffort = lower;
   } else if (key === "webSearchMode") {
     assertEnum(value, VALID.webSearch, "websearch");
     chat.options.webSearchMode = value;
@@ -4272,7 +4351,13 @@ async function sendModelSelection(ctx, chatKey) {
 }
 
 async function sendReasoningSelection(ctx, chatKey) {
-  await replyHtml(ctx, formatReasoningPromptHtml(chatKey), reasoningSelectionKeyboard());
+  const models = await listCodexModels();
+  const reasoningOptions = reasoningOptionsForModel(models, effectiveModelSlug(chatKey));
+  await replyHtml(
+    ctx,
+    formatReasoningPromptHtml(chatKey, models),
+    reasoningSelectionKeyboard(reasoningOptions)
+  );
 }
 
 async function sendPanel(ctx, panel, options = {}) {
@@ -4300,8 +4385,12 @@ async function sendPanel(ctx, panel, options = {}) {
     html = formatModelSelectionHtml(chatKey, models);
     keyboard = withBackRow(modelSelectionKeyboard(models), "settings");
   } else if (panel === "settings_reasoning") {
-    html = formatReasoningPromptHtml(chatKey);
-    keyboard = withBackRow(reasoningSelectionKeyboard(), "settings");
+    const models = await listCodexModels();
+    html = formatReasoningPromptHtml(chatKey, models);
+    keyboard = withBackRow(
+      reasoningSelectionKeyboard(reasoningOptionsForModel(models, effectiveModelSlug(chatKey))),
+      "settings"
+    );
   } else if (panel === "settings_fast") {
     html = await fastPanelHtml(chatKey);
     keyboard = fastKeyboard();
@@ -5691,70 +5780,7 @@ async function rejectCallbackIfActive(ctx, chatKey) {
 }
 
 async function listCodexModels() {
-  try {
-    const parsed = JSON.parse(await fs.readFile(config.codexModelsCacheFile, "utf8"));
-    const rawModels = Array.isArray(parsed?.models) ? parsed.models : [];
-    const models = rawModels
-      .filter((model) => model?.slug && (model.visibility === "list" || model.supported_in_api !== false))
-      .sort((left, right) => (left.priority ?? 999) - (right.priority ?? 999))
-      .map((model) => ({
-        slug: model.slug,
-        displayName: model.display_name || model.slug,
-        fastSupported: hasFastServiceTier(model),
-        defaultReasoning: model.default_reasoning_level || "",
-        supportedReasoning: Array.isArray(model.supported_reasoning_levels) ? model.supported_reasoning_levels : []
-      }));
-    return models.length > 0 ? uniqueModels(models).slice(0, 12) : FALLBACK_CODEX_MODELS;
-  } catch {
-    return FALLBACK_CODEX_MODELS;
-  }
-}
-
-function hasFastServiceTier(model) {
-  if (Array.isArray(model.additional_speed_tiers) && model.additional_speed_tiers.includes("fast")) return true;
-  if (Array.isArray(model.service_tiers)) {
-    return model.service_tiers.some((tier) => {
-      const id = String(tier?.id ?? tier?.name ?? tier).toLowerCase();
-      return id === "fast";
-    });
-  }
-  return false;
-}
-
-function uniqueModels(models) {
-  const seen = new Set();
-  return models.filter((model) => {
-    if (seen.has(model.slug)) return false;
-    seen.add(model.slug);
-    return true;
-  });
-}
-
-function modelSelectionKeyboard(models) {
-  const buttons = models.map((model) => ({
-    text: `${model.displayName}${model.fastSupported ? " ⚡" : ""}`,
-    callback_data: `model:set:${model.slug}`
-  }));
-  return {
-    reply_markup: {
-      inline_keyboard: [
-        ...chunk(buttons, 2),
-        [{ text: "Default", callback_data: "model:set:default" }]
-      ]
-    }
-  };
-}
-
-function reasoningSelectionKeyboard() {
-  const buttons = [
-    { text: "Default", callback_data: "reasoning:set:default" },
-    ...[...VALID.reasoning].map((value) => ({ text: value, callback_data: `reasoning:set:${value}` }))
-  ];
-  return {
-    reply_markup: {
-      inline_keyboard: chunk(buttons, 3)
-    }
-  };
+  return readCodexModelCatalog(config.codexModelsCacheFile);
 }
 
 function formatModelSelectionHtml(chatKey, models) {
@@ -5771,15 +5797,24 @@ function formatModelSelectionHtml(chatKey, models) {
   ].join("\n");
 }
 
-function formatReasoningPromptHtml(chatKey) {
-  const options = getEffectiveOptions(chatKey);
-  return [
+function formatReasoningPromptHtml(chatKey, models) {
+  const chatOptions = state.chats[chatKey]?.options ?? {};
+  const model = effectiveModelSlug(chatKey);
+  const reasoning = chatOptions.modelReasoningEffort ?? config.codexReasoningEffort;
+  const catalogModel = findCodexModel(models, model);
+  const supported = reasoningOptionsForModel(models, model).map(({ effort }) => effort);
+  const lines = [
     b(t("thinkingSettingsTitle")),
-    `Model: ${code(options.model || "default")}`,
-    `Current thinking: ${code(options.modelReasoningEffort)}`,
+    `Model: ${code(model || "default")}`,
+    `Current thinking: ${code(reasoning)}`
+  ];
+  if (catalogModel) lines.push(`Catalog default: ${code(catalogModel.defaultReasoning || "unknown")}`);
+  lines.push(
+    `Supported thinking: ${code(supported.length > 0 ? supported.join(", ") : "none")}`,
     "",
     t("thinkingSettingsDescription")
-  ].join("\n");
+  );
+  return lines.join("\n");
 }
 
 function formatFastStatusHtml(chatKey, models) {
@@ -6184,8 +6219,8 @@ async function readModelsCacheMeta() {
     const stat = await fs.stat(config.codexModelsCacheFile);
     const parsed = JSON.parse(await fs.readFile(config.codexModelsCacheFile, "utf8"));
     const models = Array.isArray(parsed?.models) ? parsed.models : [];
-    const fastModels = models
-      .filter((model) => model?.slug && hasFastServiceTier(model))
+    const fastModels = (await listCodexModels())
+      .filter((model) => model.fastSupported)
       .map((model) => model.slug);
     return {
       status: `found, ${models.length} models, ${formatBytes(stat.size)}`,
@@ -6499,14 +6534,6 @@ function countBy(values, getKey) {
 
 function unique(values) {
   return [...new Set(values)];
-}
-
-function chunk(values, size) {
-  const rows = [];
-  for (let index = 0; index < values.length; index += size) {
-    rows.push(values.slice(index, index + size));
-  }
-  return rows;
 }
 
 function sleep(ms) {
