@@ -61,6 +61,6 @@
   "devDependencies": {
     "@openai/codex": "0.143.0",
     "eslint": "10.6.0",
-    "prettier": "3.9.4"
+    "prettier": "3.9.5"
   }
 }
