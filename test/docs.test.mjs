@@ -45,6 +45,13 @@ test("README files document local verification", async () => {
   assert.match(await read("README.ko.md"), /npm run verify/);
 });
 
+test("service units and install docs require private runtime permissions", async () => {
+  assert.match(await read("systemd/codex-telegram-bot.service"), /^UMask=0077$/m);
+  assert.match(await read("systemd/codex-telegram-worker.service"), /^UMask=0077$/m);
+  assert.match(await read("README.md"), /chmod 600 \.env/);
+  assert.match(await read("README.ko.md"), /chmod 600 \.env/);
+});
+
 test("README and security docs document upload cleanup confirmation button", async () => {
   assert.match(await read("README.md"), /Confirm upload cleanup/);
   assert.match(await read("README.ko.md"), /Confirm upload cleanup/);

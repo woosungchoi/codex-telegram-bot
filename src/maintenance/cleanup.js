@@ -1,5 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import {
+  ensurePrivateDirectory,
+  hardenPrivateTree,
+  writePrivateFile
+} from "../fs/private.js";
 
 export function buildCleanupArtifactPaths({ cleanupArtifactDir, dateKey, planId, action }) {
   const safePlanId = String(planId || "plan").replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -19,17 +24,26 @@ export async function createCleanupArtifact({ plan, action, cleanupArtifactDir, 
     planId: plan.id,
     action
   });
-  await fs.mkdir(artifact.dir, { recursive: true });
-  await fs.mkdir(artifact.deleteBackupDir, { recursive: true });
-  await fs.writeFile(path.join(artifact.dir, "plan.json"), `${JSON.stringify(plan, null, 2)}\n`, "utf8");
-  await fs.writeFile(artifact.restoreScript, cleanupRestoreScript(artifact.manifest), "utf8");
+  await ensurePrivateDirectory(artifact.dir);
+  await ensurePrivateDirectory(artifact.deleteBackupDir);
+  await writePrivateFile(path.join(artifact.dir, "plan.json"), `${JSON.stringify(plan, null, 2)}\n`, "utf8");
+  await writePrivateFile(artifact.restoreScript, cleanupRestoreScript(artifact.manifest), "utf8");
   return artifact;
 }
 
 export async function finalizeCleanupArtifact(artifact, operations, result) {
   const lines = operations.map((operation) => JSON.stringify(operation));
-  await fs.writeFile(artifact.manifest, `${lines.join("\n")}${lines.length ? "\n" : ""}`, "utf8");
-  await fs.writeFile(path.join(artifact.dir, "result.json"), `${JSON.stringify(result, null, 2)}\n`, "utf8");
+  await writePrivateFile(artifact.manifest, `${lines.join("\n")}${lines.length ? "\n" : ""}`, "utf8");
+  await writePrivateFile(path.join(artifact.dir, "result.json"), `${JSON.stringify(result, null, 2)}\n`, "utf8");
+}
+
+export async function copyCleanupBackup(source, destination) {
+  await ensurePrivateDirectory(path.dirname(destination));
+  await fs.cp(source, destination, { recursive: true, force: true });
+  const unexpected = await hardenPrivateTree(destination);
+  if (unexpected.length > 0) {
+    throw new Error(`Unsupported file type in cleanup backup: ${unexpected[0].type}`);
+  }
 }
 
 export function cleanupRestoreScript(manifestPath) {

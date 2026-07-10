@@ -1,13 +1,13 @@
-import fs from "node:fs/promises";
+import { appendPrivateFile, ensurePrivateDirectory } from "../fs/private.js";
 import { recoveryPaths } from "./state.js";
 
 export async function appendRecoveryJournal(recoveryDir, event) {
-  await fs.mkdir(recoveryDir, { recursive: true });
+  await ensurePrivateDirectory(recoveryDir);
   const payload = {
     ...event,
     at: event.at || new Date().toISOString()
   };
-  await fs.appendFile(recoveryPaths(recoveryDir).journal, `${JSON.stringify(payload)}\n`, "utf8");
+  await appendPrivateFile(recoveryPaths(recoveryDir).journal, `${JSON.stringify(payload)}\n`, "utf8");
 }
 
 export function summarizeStreamEvent(event) {

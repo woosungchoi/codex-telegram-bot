@@ -44,7 +44,18 @@ import {
 import { readConfig as readRuntimeConfig } from "./config.js";
 import { renderHandoffMarkdown, sanitizeHandoffFilename, sessionHighlightFromItem } from "./handoff.js";
 import { LANGUAGE_CHOICES, TELEGRAM_LANGUAGE_CODES, VALID_LANGUAGES, textFor } from "./i18n.js";
-import { createCleanupArtifact, finalizeCleanupArtifact } from "./maintenance/cleanup.js";
+import {
+  copyCleanupBackup,
+  createCleanupArtifact,
+  finalizeCleanupArtifact
+} from "./maintenance/cleanup.js";
+import {
+  appendPrivateFile,
+  ensurePrivateDirectory,
+  hardenPrivateTree,
+  writePrivateFile,
+  writePrivateFileAtomic
+} from "./fs/private.js";
 import { parseCodexMaintenanceOutput } from "./maintenance/codex.js";
 import {
   dequeueNextTurn,
@@ -3119,10 +3130,10 @@ async function downloadTelegramFileRecord(ctx, fileId, ext) {
   if (config.uploadMaxBytes > 0 && bytes.length > config.uploadMaxBytes) {
     throw new Error(`Telegram file exceeds UPLOAD_MAX_BYTES (${formatBytes(bytes.length)} > ${formatBytes(config.uploadMaxBytes)}).`);
   }
-  await fs.mkdir(config.uploadDir, { recursive: true });
+  await ensurePrivateDirectory(config.uploadDir);
   const filename = `${Date.now()}-${fileId.replace(/[^a-zA-Z0-9_-]/g, "")}${ext}`;
   const filePath = path.join(config.uploadDir, filename);
-  await fs.writeFile(filePath, bytes);
+  await writePrivateFile(filePath, bytes);
   return { path: filePath, bytes: bytes.length };
 }
 
@@ -3330,10 +3341,7 @@ function parseTimeOfDay(value) {
 }
 
 async function saveState(file, value) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  await fs.rename(tmp, file);
+  await writePrivateFileAtomic(file, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 async function ensureDirectory(dir, label) {
@@ -3565,9 +3573,10 @@ async function applyCleanupPlan(plan, action) {
         }
         const relativePath = path.relative(sessionsRoot, sourcePath);
         const targetPath = path.join(config.cleanupQuarantineDir, getLocalDateKey(), "sessions", relativePath);
-        await fs.mkdir(path.dirname(targetPath), { recursive: true });
+        await ensurePrivateDirectory(path.dirname(targetPath));
         await fs.rename(sourcePath, targetPath);
-        await fs.writeFile(
+        await hardenPrivateTree(targetPath);
+        await writePrivateFile(
           `${targetPath}.cleanup.json`,
           `${JSON.stringify({
             threadId: candidate.threadId,
@@ -3594,9 +3603,10 @@ async function applyCleanupPlan(plan, action) {
         }
         const relativePath = path.relative(quarantineRoot, deletePath);
         const backupPath = path.join(artifact.deleteBackupDir, relativePath);
-        await fs.mkdir(path.dirname(backupPath), { recursive: true });
-        await fs.cp(deletePath, backupPath, { recursive: true, force: true });
-        await fs.cp(`${deletePath}.cleanup.json`, `${backupPath}.cleanup.json`, { force: true }).catch(() => {});
+        await copyCleanupBackup(deletePath, backupPath);
+        await copyCleanupBackup(`${deletePath}.cleanup.json`, `${backupPath}.cleanup.json`).catch((error) => {
+          if (error?.code !== "ENOENT") throw error;
+        });
         await fs.rm(deletePath, { force: true });
         await fs.rm(`${deletePath}.cleanup.json`, { force: true });
         operations.push({ type: "delete", threadId: candidate.threadId, from: deletePath, backup: backupPath });
@@ -3925,8 +3935,7 @@ function pruneExpiredUploadCleanupPlans() {
 }
 
 async function appendCleanupLog(entry) {
-  await fs.mkdir(path.dirname(config.cleanupLogFile), { recursive: true });
-  await fs.appendFile(config.cleanupLogFile, `${JSON.stringify(entry)}\n`, "utf8");
+  await appendPrivateFile(config.cleanupLogFile, `${JSON.stringify(entry)}\n`, "utf8");
 }
 
 async function createUploadCleanupPlan(options = {}) {
@@ -3962,7 +3971,7 @@ async function runDailyStateSnapshotCheck() {
 }
 
 async function createStateBackup(source) {
-  await fs.mkdir(config.backupDir, { recursive: true });
+  await ensurePrivateDirectory(config.backupDir);
   const createdAt = new Date().toISOString();
   const payload = {
     createdAt,
@@ -3980,14 +3989,14 @@ async function createStateBackup(source) {
     cleanupLog: await readOptionalText(config.cleanupLogFile)
   };
   const filePath = path.join(config.backupDir, `${timestampForFilename(createdAt)}-${source}.json`);
-  await fs.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  await writePrivateFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   await pruneOldBackups();
   const stat = await fs.stat(filePath);
   return { path: filePath, bytes: stat.size, chatCount: payload.stats.chats };
 }
 
 async function createChatExport(chatKey) {
-  await fs.mkdir(config.backupDir, { recursive: true });
+  await ensurePrivateDirectory(config.backupDir);
   const createdAt = new Date().toISOString();
   const chat = getChatState(chatKey);
   const payload = {
@@ -4000,7 +4009,7 @@ async function createChatExport(chatKey) {
     cachedThreadId: threadCache.get(chatKey)?.id || ""
   };
   const filePath = path.join(config.backupDir, `${timestampForFilename(createdAt)}-chat-${safeFilename(chatKey)}.json`);
-  await fs.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  await writePrivateFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   const stat = await fs.stat(filePath);
   return { path: filePath, bytes: stat.size };
 }

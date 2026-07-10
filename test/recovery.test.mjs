@@ -31,6 +31,10 @@ async function tmpRecoveryDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), "codex-bot-recovery-"));
 }
 
+function mode(stat) {
+  return stat.mode & 0o777;
+}
+
 test("recovery journal appends one JSON object per line", async () => {
   const dir = await tmpRecoveryDir();
   await appendRecoveryJournal(dir, { type: "turn_started", chatKey: "1" });
@@ -39,6 +43,8 @@ test("recovery journal appends one JSON object per line", async () => {
   const entries = body.trim().split("\n").map((line) => JSON.parse(line));
   assert.deepEqual(entries.map((entry) => entry.type), ["turn_started", "turn_completed"]);
   assert.equal(entries.every((entry) => typeof entry.at === "string"), true);
+  assert.equal(mode(await fs.stat(dir)), 0o700);
+  assert.equal(mode(await fs.stat(recoveryPaths(dir).journal)), 0o600);
 });
 
 test("stream event summaries omit message bodies", () => {
@@ -66,6 +72,7 @@ test("active snapshots are written atomically and read back", async () => {
   assert.equal(active.turns["chat-1"].chatId, 100);
   assert.equal(active.turns["chat-1"].threadId, "thread-1");
   assert.equal((await fs.readdir(dir)).some((name) => name.endsWith(".tmp")), false);
+  assert.equal(mode(await fs.stat(recoveryPaths(dir).activeTurns)), 0o600);
 });
 
 test("thread start updates active snapshot and completed turns remove it", async () => {

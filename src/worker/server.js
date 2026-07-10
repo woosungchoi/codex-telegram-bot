@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import net from "node:net";
+import { PRIVATE_FILE_MODE } from "../fs/private.js";
 import { createFrameReader, encodeFrame, errorResponse, okResponse } from "./protocol.js";
 import { createWorkerStore } from "./store.js";
 import { runWorkerJob } from "./executor.js";
@@ -56,6 +57,7 @@ export function createWorkerServer({
           resolve();
         });
       });
+      await fs.chmod(config.codexWorkerSocket, PRIVATE_FILE_MODE);
       return this;
     },
     async close() {

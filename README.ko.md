@@ -43,6 +43,7 @@
 cd ~/codex-telegram-bot
 npm install
 cp .env.example .env
+chmod 600 .env
 ```
 
 현재 디렉터리에 `.env`를 만든 뒤에는 clone을 보관하지 않고 package command로 실행할 수도 있습니다.
@@ -62,7 +63,12 @@ codex-telegram-bot
 
 ```bash
 cp .env.minimal.example .env
+chmod 600 .env
 ```
+
+`.env`에는 credential이 있으므로 owner-only로 유지해야 합니다. Runtime state에는
+chat/thread metadata, queue, upload, recovery 기록, backup이 포함될 수 있으므로 bot도
+민감한 state file을 `0600`, 해당 directory를 `0700`으로 생성합니다.
 
 `.env`를 수정합니다.
 
@@ -352,6 +358,18 @@ service를 restart해 반영하는 것을 권장합니다.
 
 ## systemd User Service
 
+기본 경로를 쓰는 기존 설치는 아래 1회 권한 교정 전에 service를 중지하세요.
+`find -P`는 symlink를 따라가지 않습니다. Symlink는 별도로 검토하고, 사용자 관리
+파일이 섞일 수 있는 custom state path에 이 재귀 명령을 무차별 적용하지 마세요.
+
+```bash
+systemctl --user stop codex-telegram-bot.service codex-telegram-worker.service
+chmod 600 .env
+find -P state -xdev -type d -exec chmod 700 -- {} +
+find -P state -xdev -type f -exec chmod 600 -- {} +
+find -P state -xdev -type s -exec chmod 600 -- {} +
+```
+
 ```bash
 mkdir -p ~/.config/systemd/user
 cp ~/codex-telegram-bot/systemd/codex-telegram-bot.service ~/.config/systemd/user/
@@ -360,6 +378,16 @@ systemctl --user daemon-reload
 systemctl --user enable --now codex-telegram-worker.service codex-telegram-bot.service
 systemctl --user status codex-telegram-worker.service
 systemctl --user status codex-telegram-bot.service
+```
+
+설치된 unit을 갱신한 뒤에는 최신 unit 파일 두 개를 다시 복사하고
+`systemctl --user daemon-reload`를 실행한 다음 worker, bot 순서로 재시작해야
+effective `UMask=0077`이 적용됩니다.
+
+```bash
+systemctl --user daemon-reload
+systemctl --user restart codex-telegram-worker.service
+systemctl --user restart codex-telegram-bot.service
 ```
 
 로그 확인:

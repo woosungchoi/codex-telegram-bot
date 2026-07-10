@@ -5,6 +5,10 @@ import os from "node:os";
 import path from "node:path";
 import { bootstrapBot } from "../src/app/bootstrap.js";
 
+function mode(stat) {
+  return stat.mode & 0o777;
+}
+
 test("bootstrapBot prepares directories, starts schedulers, launches bot, and registers signals", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bot-bootstrap-"));
   const events = [];
@@ -34,7 +38,8 @@ test("bootstrapBot prepares directories, starts schedulers, launches bot, and re
     },
     ensureDirectory: async (dir, label) => {
       events.push(`ensure:${label}`);
-      await fs.mkdir(dir, { recursive: true });
+      await fs.mkdir(dir, { recursive: true, mode: 0o775 });
+      await fs.chmod(dir, 0o775);
     },
     registerTelegramCommands: async () => events.push("commands"),
     startCleanupScheduler: () => events.push("cleanup"),
@@ -62,6 +67,10 @@ test("bootstrapBot prepares directories, starts schedulers, launches bot, and re
   assert.deepEqual(signals, ["SIGINT", "SIGTERM", "SIGUSR2"]);
   for (const dir of ["work", "uploads", "quarantine", "backups", "recovery"]) {
     assert.equal((await fs.stat(path.join(root, dir))).isDirectory(), true);
+  }
+  assert.equal(mode(await fs.stat(path.join(root, "work"))), 0o775);
+  for (const dir of ["uploads", "quarantine", "backups", "recovery"]) {
+    assert.equal(mode(await fs.stat(path.join(root, dir))), 0o700);
   }
 });
 

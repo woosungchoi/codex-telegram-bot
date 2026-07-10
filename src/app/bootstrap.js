@@ -1,4 +1,4 @@
-import fs from "node:fs/promises";
+import { ensurePrivateDirectory } from "../fs/private.js";
 
 export async function bootstrapBot({
   bot,
@@ -28,10 +28,10 @@ export async function bootstrapBot({
   processRef.once("SIGUSR2", () => stopForSignal("SIGUSR2"));
 
   await ensureDirectory(config.codexWorkdir, "CODEX_WORKDIR");
-  await fs.mkdir(config.uploadDir, { recursive: true });
-  await fs.mkdir(config.cleanupQuarantineDir, { recursive: true });
-  await fs.mkdir(config.backupDir, { recursive: true });
-  if (config.botRecoveryDir) await fs.mkdir(config.botRecoveryDir, { recursive: true });
+  await ensurePrivateDirectory(config.uploadDir);
+  await ensurePrivateDirectory(config.cleanupQuarantineDir);
+  await ensurePrivateDirectory(config.backupDir);
+  if (config.botRecoveryDir) await ensurePrivateDirectory(config.botRecoveryDir);
   startCleanupScheduler();
   startStateSnapshotScheduler();
   registerTelegramCommands().catch((error) => {

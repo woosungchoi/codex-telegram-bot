@@ -52,6 +52,7 @@ Run from a local clone:
 cd ~/codex-telegram-bot
 npm install
 cp .env.example .env
+chmod 600 .env
 ```
 
 After creating `.env` in the current directory, you can also run the package
@@ -72,7 +73,13 @@ For the smallest starting point, use:
 
 ```bash
 cp .env.minimal.example .env
+chmod 600 .env
 ```
+
+`.env` contains credentials and must remain owner-only. Runtime state can
+contain chat/thread metadata, queued work, uploads, recovery records, and
+backups, so the bot also creates sensitive state files with mode `0600` and
+their directories with mode `0700`.
 
 Edit `.env`:
 
@@ -461,6 +468,19 @@ the environment values on first startup.
 
 ## systemd User Service
 
+For an existing default-path installation, stop the services before the
+one-time permission correction below. `find -P` does not follow symlinks.
+Inspect and handle any symlink separately; do not apply these recursive
+commands blindly to a custom state path that may contain user-managed files.
+
+```bash
+systemctl --user stop codex-telegram-bot.service codex-telegram-worker.service
+chmod 600 .env
+find -P state -xdev -type d -exec chmod 700 -- {} +
+find -P state -xdev -type f -exec chmod 600 -- {} +
+find -P state -xdev -type s -exec chmod 600 -- {} +
+```
+
 ```bash
 mkdir -p ~/.config/systemd/user
 cp ~/codex-telegram-bot/systemd/codex-telegram-bot.service ~/.config/systemd/user/
@@ -469,6 +489,16 @@ systemctl --user daemon-reload
 systemctl --user enable --now codex-telegram-worker.service codex-telegram-bot.service
 systemctl --user status codex-telegram-worker.service
 systemctl --user status codex-telegram-bot.service
+```
+
+After updating either installed unit, copy both current unit files again,
+then run `systemctl --user daemon-reload` and restart the worker before the
+bot so the effective `UMask=0077` takes effect.
+
+```bash
+systemctl --user daemon-reload
+systemctl --user restart codex-telegram-worker.service
+systemctl --user restart codex-telegram-bot.service
 ```
 
 Logs:

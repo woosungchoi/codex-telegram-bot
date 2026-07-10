@@ -4,6 +4,7 @@ After=network-online.target
 
 [Service]
 Type=simple
+UMask=0077
 WorkingDirectory=%h/codex-telegram-bot
 EnvironmentFile=%h/codex-telegram-bot/.env
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin

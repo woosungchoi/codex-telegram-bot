@@ -1,5 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import {
+  ensurePrivateDirectory,
+  hardenPrivateTree,
+  writePrivateFileAtomic
+} from "../fs/private.js";
 
 const STATE_VERSION = 1;
 
@@ -15,7 +20,7 @@ export function recoveryPaths(recoveryDir) {
 }
 
 export async function ensureRecoveryDir(recoveryDir) {
-  await fs.mkdir(recoveryDir, { recursive: true });
+  await ensurePrivateDirectory(recoveryDir);
 }
 
 export async function readJsonFileSafe(filePath, fallback, { quarantineDir = "" } = {}) {
@@ -29,10 +34,7 @@ export async function readJsonFileSafe(filePath, fallback, { quarantineDir = "" 
 }
 
 export async function writeJsonFileAtomic(filePath, payload) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  await fs.writeFile(tmpPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-  await fs.rename(tmpPath, filePath);
+  await writePrivateFileAtomic(filePath, `${JSON.stringify(payload, null, 2)}\n`);
 }
 
 export async function readActiveTurnSnapshots(recoveryDir) {
@@ -175,7 +177,8 @@ function normalizeActiveTurns(payload) {
 }
 
 async function quarantineCorruptFile(filePath, quarantineDir) {
-  await fs.mkdir(quarantineDir, { recursive: true });
+  await ensurePrivateDirectory(quarantineDir);
   const target = path.join(quarantineDir, `${path.basename(filePath)}.${Date.now()}.corrupt`);
   await fs.rename(filePath, target);
+  await hardenPrivateTree(target);
 }

@@ -7,6 +7,10 @@ import { createWorkerClient } from "../src/worker/client.js";
 import { createWorkerServer } from "../src/worker/server.js";
 import { createWorkerStore } from "../src/worker/store.js";
 
+function mode(stat) {
+  return stat.mode & 0o777;
+}
+
 async function startServer(executeJob, options = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-worker-server-"));
   const config = {
@@ -22,9 +26,10 @@ async function startServer(executeJob, options = {}) {
 }
 
 test("worker server reports status", async () => {
-  const { worker, client } = await startServer(async () => {});
+  const { config, worker, client } = await startServer(async () => {});
   try {
     assert.deepEqual(await client.status(), { status: "ok", activeJobs: [], runningJobIds: [] });
+    assert.equal(mode(await fs.stat(config.codexWorkerSocket)), 0o600);
   } finally {
     await worker.close();
   }

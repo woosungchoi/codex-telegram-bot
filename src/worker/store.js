@@ -1,15 +1,20 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import {
+  appendPrivateFile,
+  ensurePrivateDirectory,
+  hardenPrivateTree,
+  writePrivateFileAtomic
+} from "../fs/private.js";
 import { workerPaths } from "./paths.js";
 
 const STATE_VERSION = 1;
 const fileLocks = new Map();
-let atomicWriteCounter = 0;
 
 export async function ensureWorkerStateDir(paths) {
-  await fs.mkdir(paths.stateDir, { recursive: true });
-  await fs.mkdir(paths.jobsDir, { recursive: true });
-  await fs.mkdir(paths.eventsDir, { recursive: true });
+  await ensurePrivateDirectory(paths.stateDir);
+  await ensurePrivateDirectory(paths.jobsDir);
+  await ensurePrivateDirectory(paths.eventsDir);
 }
 
 export function createWorkerStore(config = {}) {
@@ -37,7 +42,7 @@ export async function appendJobEvent(paths, jobId, event) {
       seq,
       at: event.at || new Date().toISOString()
     };
-    await fs.appendFile(jobEventsPath(paths, jobId), `${JSON.stringify(payload)}\n`, "utf8");
+    await appendPrivateFile(jobEventsPath(paths, jobId), `${JSON.stringify(payload)}\n`, "utf8");
     await writeJobStateLocked(paths, {
       ...(job ?? {}),
       id: jobId,
@@ -149,11 +154,7 @@ async function readJsonFileSafe(filePath, fallback, { quarantineDir = "" } = {})
 }
 
 async function writeJsonFileAtomic(filePath, payload) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  atomicWriteCounter = (atomicWriteCounter + 1) % Number.MAX_SAFE_INTEGER;
-  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.${atomicWriteCounter}.tmp`;
-  await fs.writeFile(tmpPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-  await fs.rename(tmpPath, filePath);
+  await writePrivateFileAtomic(filePath, `${JSON.stringify(payload, null, 2)}\n`);
 }
 
 async function withFileLock(filePath, fn) {
@@ -174,7 +175,8 @@ async function withFileLock(filePath, fn) {
 }
 
 async function quarantineCorruptFile(filePath, quarantineDir) {
-  await fs.mkdir(quarantineDir, { recursive: true });
+  await ensurePrivateDirectory(quarantineDir);
   const target = path.join(quarantineDir, `${path.basename(filePath)}.${Date.now()}.corrupt`);
   await fs.rename(filePath, target);
+  await hardenPrivateTree(target);
 }
