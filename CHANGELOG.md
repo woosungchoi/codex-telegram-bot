@@ -2,6 +2,47 @@
 
 All notable public changes are documented here.
 
+## 1.2.4 - 2026-07-10
+
+### Added
+
+- Added catalog-backed GPT-5.6 Sol, Terra, and Luna reasoning controls that
+  preserve Codex's advertised effort order and descriptions.
+- Added model-aware Telegram reasoning panels, callbacks, `/reasoning max`,
+  `/reasoning ultra`, and matching shortcut commands. Ultra is shown only for
+  models whose Codex catalog entry advertises it.
+- Added explicit `gpt-5.6` alias handling for Sol while keeping unknown custom
+  models on the conservative legacy reasoning choices.
+
+### Changed
+
+- Updated `@openai/codex-sdk` and `@openai/codex` to `0.144.1`, and updated
+  Prettier to `3.9.5`.
+- Kept `max` and `ultra` unchanged across the SDK, app-server-direct, and
+  sidecar-worker execution paths.
+- Documented that standard OpenAI/Codex deployments should leave the explicit
+  context-window and auto-compact token overrides blank so model changes retain
+  Codex's native limits.
+
+### Fixed
+
+- Validated the prospective effective model/reasoning pair before changing
+  Telegram chat state. Unsupported inherited configured reasoning now rejects
+  the transition without saving state or invalidating a cached thread.
+- Registered the Max and Ultra shortcuts in the canonical Telegram command
+  classifier, including entity-less command handling.
+- Bounded untrusted catalog reasoning entries to the first 12 valid unique
+  efforts, preventing oversized Telegram prompts and keyboards while preserving
+  advertised order and default semantics.
+
+### Verification
+
+- Added regression coverage for model aliases, known-empty and unknown model
+  behavior, forged or unsupported callbacks, command classification, state
+  mutation ordering, transport propagation, and oversized catalogs.
+- Confirmed the full verification suite, package audit, model-aware keyboard
+  surface, rejected Luna/Ultra selection, and bounded Sol Max/Ultra turns.
+
 ## 1.2.3 - 2026-07-08
 
 ### Changed
