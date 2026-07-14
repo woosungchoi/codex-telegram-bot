@@ -53,13 +53,13 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@openai/codex-sdk": "0.144.3",
+    "@openai/codex-sdk": "0.144.4",
     "dotenv": "^17.2.3",
     "markdown-it": "^14.3.0",
     "telegraf": "^4.16.3"
   },
   "devDependencies": {
-    "@openai/codex": "0.144.3",
+    "@openai/codex": "0.144.4",
     "eslint": "10.7.0",
     "prettier": "3.9.5"
   }
