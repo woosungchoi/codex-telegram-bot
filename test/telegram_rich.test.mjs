@@ -192,6 +192,8 @@ test("tryReplyRichMarkdown does not fallback on transient network failures", asy
 test("shouldFallbackFromRichError classifies rich capability and transient failures", () => {
   assert.equal(shouldFallbackFromRichError(Object.assign(new Error("Bad Request: rich_message is invalid"), { code: 400 })), true);
   assert.equal(shouldFallbackFromRichError(new Error("Unsupported method sendRichMessage")), true);
+  assert.equal(shouldFallbackFromRichError(Object.assign(new Error("Bad Request: chat not found"), { code: 400 })), false);
+  assert.equal(shouldFallbackFromRichError(Object.assign(new Error("Forbidden"), { code: 403 })), false);
   assert.equal(shouldFallbackFromRichError(new Error("socket hang up")), false);
 });
 

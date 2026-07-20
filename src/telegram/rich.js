@@ -1,3 +1,8 @@
+import {
+  shouldFallbackTelegramRich,
+  summarizeTelegramError
+} from "./api.js";
+
 export const RICH_MESSAGE_MAX_CHARS = 32768;
 
 export function cleanUndefinedPayloadFields(value) {
@@ -85,29 +90,10 @@ export function promoteStandaloneInlineCode(markdown) {
 }
 
 export function shouldFallbackFromRichError(error) {
-  const code = error?.code ?? error?.statusCode ?? error?.response?.statusCode;
-  if (code === 400 || code === 404) return true;
-
-  const message = String(error?.description ?? error?.message ?? error ?? "").toLowerCase();
-  if (!message) return false;
-  if (/(timed? ?out|econnreset|econnrefused|eai_again|enotfound|network|socket hang up)/i.test(message)) {
-    return false;
-  }
-  return (
-    message.includes("bad request")
-    || message.includes("not found")
-    || message.includes("method")
-    || message.includes("unsupported")
-    || message.includes("rich_message")
-    || message.includes("rich message")
-    || message.includes("can't parse")
-    || message.includes("failed to parse")
-    || message.includes("message is too long")
-  );
+  return shouldFallbackTelegramRich(error);
 }
 
 export function summarizeRichError(error) {
-  const code = error?.code ?? error?.statusCode ?? error?.response?.statusCode;
-  const description = String(error?.description ?? error?.response?.description ?? error?.message ?? error ?? "");
-  return cleanUndefinedPayloadFields({ code, description });
+  const summary = summarizeTelegramError(error);
+  return cleanUndefinedPayloadFields({ code: summary.code, description: summary.description });
 }

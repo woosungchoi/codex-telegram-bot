@@ -1,4 +1,5 @@
 import { extractTelegramPhotoArtifacts, formatRejectedPhotoArtifacts } from "./attachments.js";
+import { summarizeTelegramError } from "./api.js";
 import { formatCodexAnswerMarkdownHtml, formatCodexAnswerSafeHtml } from "./markdown.js";
 import { replyTelegramPhotos } from "./photo.js";
 import { tryReplyRichMarkdown } from "./rich.js";
@@ -61,7 +62,7 @@ function appendRejectedPhotoArtifacts(text, rejected) {
 async function replyPhotosWithFallback(ctx, photos, replyPhotos, replyHtml) {
   await replyPhotos(ctx, photos, {
     onError: async (photo, error) => {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = summarizeTelegramError(error).description;
       const text = [
         "Photo upload failed. File remains on disk:",
         `\`${photo.path}\``,
