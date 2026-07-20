@@ -157,6 +157,17 @@ test("an unavailable edit target becomes one new HTML reply", async () => {
   assert.equal(ctx.replyCalls[0].extra.message_thread_id, 4);
 });
 
+test("strict edit mode never creates a replacement reply", async () => {
+  const error = apiError(400, "Bad Request: message to edit not found");
+  const ctx = createContext({ edit: async () => { throw error; } });
+  await assert.rejects(
+    () => editOrReplyTelegramHtml(ctx, "<b>closed</b>", {}, { replyOnUnavailable: false }),
+    /message to edit not found/
+  );
+  assert.equal(ctx.editCalls.length, 1);
+  assert.equal(ctx.replyCalls.length, 0);
+});
+
 test("an HTML parse edit retries as plain edit but a transport edit does not reply", async () => {
   const parseError = apiError(400, "Bad Request: unsupported start tag");
   const ctx = createContext({

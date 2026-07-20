@@ -17,27 +17,27 @@ function chunk(items, size) {
   return rows;
 }
 
-export function modelSelectionKeyboard(models) {
+export function modelSelectionKeyboard(models, { callbackPrefix = "model:set:" } = {}) {
   const buttons = models.map((model) => ({
     text: `${model.displayName}${model.fastSupported ? " ⚡" : ""}`,
-    callback_data: `model:set:${model.slug}`
+    callback_data: `${callbackPrefix}${model.slug}`
   }));
   return {
     reply_markup: {
       inline_keyboard: [
         ...chunk(buttons, 2),
-        [{ text: "Default", callback_data: "model:set:default" }]
+        [{ text: "Default", callback_data: `${callbackPrefix}default` }]
       ]
     }
   };
 }
 
-export function reasoningSelectionKeyboard(reasoningOptions) {
+export function reasoningSelectionKeyboard(reasoningOptions, { callbackPrefix = "reasoning:set:" } = {}) {
   const buttons = [
-    { text: "Default", callback_data: "reasoning:set:default" },
+    { text: "Default", callback_data: `${callbackPrefix}default` },
     ...reasoningOptions.map(({ effort }) => ({
       text: effort,
-      callback_data: `reasoning:set:${effort}`
+      callback_data: `${callbackPrefix}${effort}`
     }))
   ];
   return {

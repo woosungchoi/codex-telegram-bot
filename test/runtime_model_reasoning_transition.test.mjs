@@ -1,16 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { isReasoningEffortSupported, reasoningOptionsForModel } from "../src/codex/models.js";
+import {
+  findCodexModel,
+  isReasoningEffortSupported,
+  reasoningOptionsForModel
+} from "../src/codex/models.js";
+import { applyReasoningSelection } from "../src/ui/model_selection_flow.js";
 
 const runtimeSource = fs.readFileSync(new URL("../src/runtime.js", import.meta.url), "utf8");
 const MODELS = [
   {
     slug: "gpt-5.6-sol",
+    fastSupported: true,
     supportedReasoning: ["high", "ultra"].map((effort) => ({ effort, description: "" }))
   },
   {
     slug: "gpt-5.6-luna",
+    fastSupported: false,
     supportedReasoning: [{ effort: "high", description: "" }]
   },
   { slug: "known-empty", supportedReasoning: [] }
@@ -61,17 +68,23 @@ const declarations = [
   runtimeFunction("invalidateThreadCache"),
   runtimeFunction("setOption"),
   runtimeFunction("updateOptionValue"),
-  runtimeFunction("formatModelSelectionHtml")
+  runtimeFunction("formatModelSelectionHtml"),
+  runtimeFunction("replaceChatOptionsAtomically"),
+  runtimeFunction("handleSettingsModelSelection"),
+  runtimeFunction("handleSettingsReasoningSelection")
 ].join("\n");
 const moduleSource = `${runtimeOptionsImport()}
 export function createRuntimeBindings(context) {
   const { state, threadCache, config, listCodexModels, reasoningOptionsForModel,
-    isReasoningEffortSupported, getChatKey, rejectIfActive, saveState, replyHtml,
+    findCodexModel, isReasoningEffortSupported, applyReasoningSelection,
+    getChatKey, rejectIfActive, saveState, replyHtml, editOrReplyHtml,
     code, b, t, runtimeValue, formatOptionsHtml, formatReasoningPromptHtml,
-    modelSelectionKeyboard, reasoningSelectionKeyboard } = context;
+    modelSelectionKeyboard, reasoningSelectionKeyboard, settingsSelectionKeyboard,
+    fastPanelHtml, fastKeyboard } = context;
   ${declarations}
   return {
     command: updateOptionValue,
+    settingsReasoning: handleSettingsReasoningSelection,
     modelAction: (${actionHandler("bot.action(/^model:set:")}),
     reasoningAction: (${actionHandler("bot.action(/^reasoning:set:")})
   };
@@ -92,12 +105,15 @@ function createHarness(configuredReasoning, initialOptions, configuredModel = "g
       stateFile: "/unused/state.json"
     },
     listCodexModels: async () => MODELS,
+    findCodexModel,
     reasoningOptionsForModel,
     isReasoningEffortSupported,
+    applyReasoningSelection,
     getChatKey: () => "chat",
     rejectIfActive: async () => false,
     saveState: async () => { counters.saves += 1; },
     replyHtml: async (_ctx, html) => { counters.replies.push(html); },
+    editOrReplyHtml: async (_ctx, html) => { counters.replies.push(html); },
     code: String,
     b: String,
     t: () => "selection help",
@@ -105,15 +121,19 @@ function createHarness(configuredReasoning, initialOptions, configuredModel = "g
     formatOptionsHtml: () => "options",
     formatReasoningPromptHtml: () => "reasoning",
     modelSelectionKeyboard: () => ({}),
-    reasoningSelectionKeyboard: () => ({})
+    reasoningSelectionKeyboard: () => ({}),
+    settingsSelectionKeyboard: () => ({}),
+    fastPanelHtml: async () => "fast",
+    fastKeyboard: () => ({})
   };
-  const { command, modelAction, reasoningAction } = createRuntimeBindings(context);
+  const { command, settingsReasoning, modelAction, reasoningAction } = createRuntimeBindings(context);
 
   return {
     state,
     counters,
     threadCache,
     command,
+    settingsReasoning,
     modelAction,
     reasoningAction,
     ctx(value) {
@@ -235,4 +255,25 @@ test("model and reasoning callbacks enforce the same transactional boundary", as
   assert.equal(Object.hasOwn(cleared.state.chats.chat.options, "modelReasoningEffort"), false);
   assert.equal(cleared.counters.saves, 1);
   assert.equal(cleared.threadCache.has("chat"), false);
+});
+
+test("settings model flow clears stale Fast and offers Fast only after compatible reasoning", async () => {
+  const nonFast = createHarness("high", {
+    model: "gpt-5.6-sol",
+    modelReasoningEffort: "high",
+    serviceTier: "fast"
+  });
+  await nonFast.modelAction(nonFast.ctx("gpt-5.6-luna"));
+  assert.deepEqual(nonFast.state.chats.chat.options, {
+    model: "gpt-5.6-luna",
+    modelReasoningEffort: "high"
+  });
+
+  const fast = createHarness("high", {
+    model: "gpt-5.6-sol",
+    modelReasoningEffort: "high"
+  });
+  await fast.settingsReasoning(fast.ctx("ultra"), "ultra", { continueToFast: true });
+  assert.equal(fast.state.chats.chat.options.modelReasoningEffort, "ultra");
+  assert.match(fast.counters.replies.at(-1), /fast/);
 });

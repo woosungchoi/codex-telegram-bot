@@ -50,6 +50,26 @@ test("model-aware model keyboard keeps two columns, fast markers, and final Defa
   );
 });
 
+test("standalone selection callback prefixes preserve compact flow context", () => {
+  const modelKeyboard = modelSelectionKeyboard(
+    [{ slug: "gpt-5.6-sol", displayName: "GPT-5.6 Sol", fastSupported: true }],
+    { callbackPrefix: "m:abc123:" }
+  );
+  assert.deepEqual(modelKeyboard.reply_markup.inline_keyboard, [
+    [{ text: "GPT-5.6 Sol ⚡", callback_data: "m:abc123:gpt-5.6-sol" }],
+    [{ text: "Default", callback_data: "m:abc123:default" }]
+  ]);
+
+  const reasoningKeyboard = reasoningSelectionKeyboard(
+    [{ effort: "ultra", description: "Automatic delegation" }],
+    { callbackPrefix: "r:abc123:" }
+  );
+  assert.deepEqual(reasoningKeyboard.reply_markup.inline_keyboard, [[
+    { text: "Default", callback_data: "r:abc123:default" },
+    { text: "ultra", callback_data: "r:abc123:ultra" }
+  ]]);
+});
+
 test("Sol and Terra reasoning keyboard includes max and ultra in advertised order", () => {
   assert.deepEqual(reasoningSelectionKeyboard(solTerraReasoning), {
     reply_markup: {
@@ -148,6 +168,21 @@ test("callback lengths stay within Telegram limits and descriptions never enter 
     ]),
     maximumReasoningKeyboard
   ];
+
+  keyboards.push(
+    modelSelectionKeyboard(
+      [{ slug: maximumModelSlug, displayName: "Custom", fastSupported: false }],
+      { callbackPrefix: "m:abc123:" }
+    ),
+    reasoningSelectionKeyboard(
+      [{ effort: maximumEffort, description: "" }],
+      { callbackPrefix: "r:abc123:" }
+    ),
+    reasoningSelectionKeyboard(
+      [{ effort: maximumEffort, description: "" }],
+      { callbackPrefix: "rm:" }
+    )
+  );
 
   const buttons = keyboards.flatMap(({ reply_markup }) => reply_markup.inline_keyboard.flat());
   for (const button of buttons) {

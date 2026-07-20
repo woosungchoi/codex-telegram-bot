@@ -15,3 +15,20 @@ test("Traditional Chinese locale is loaded and selectable", () => {
   assert.equal(TELEGRAM_LANGUAGE_CODES.includes("zh"), true);
   assert.equal(textFor("zh-tw", "language"), "語言");
 });
+
+test("selection cancellation and menu close copy is localized in every UI language", () => {
+  const keys = [
+    "modelSelectionCancelled",
+    "reasoningSelectionCancelled",
+    "selectionExpired",
+    "selectionFinalizing",
+    "selectionUpdateFailed",
+    "menuClosed",
+    "close"
+  ];
+  for (const language of VALID_LANGUAGES) {
+    for (const key of keys) assert.notEqual(textFor(language, key), key, `${language}:${key}`);
+  }
+  assert.equal(textFor("ko", "menuClosed"), "메뉴를 닫았습니다.");
+  assert.equal(textFor("en", "modelSelectionCancelled"), "Model selection cancelled.");
+});

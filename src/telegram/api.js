@@ -122,13 +122,13 @@ export async function editOrReplyTelegramHtml(ctx, html, extra = {}, options = {
         return await ctx.editMessageText(stripHtml(html), withoutParseMode(extra));
       } catch (plainError) {
         if (isTelegramMessageNotModified(plainError)) return undefined;
-        if (shouldReplyAfterTelegramEditFailure(plainError)) {
+        if (shouldReplyAfterTelegramEditFailure(plainError) && options.replyOnUnavailable !== false) {
           return replyTelegramHtml(ctx, html, extra, options);
         }
         throw plainError;
       }
     }
-    if (shouldReplyAfterTelegramEditFailure(error)) {
+    if (shouldReplyAfterTelegramEditFailure(error) && options.replyOnUnavailable !== false) {
       return replyTelegramHtml(ctx, html, extra, options);
     }
     throw error;
