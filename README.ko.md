@@ -176,12 +176,20 @@ job별 JSONL event log를 영속적으로 기록합니다. Telegram bot은 Teleg
 이 분리가 bot 재시작 복구의 핵심입니다. `codex-telegram-bot.service`가 turn
 실행 중 재시작되어도 worker는 Codex stream을 계속 유지합니다. bot은 startup
 후 worker에 다시 연결해 저장된 cursor 이후 event를 재생하고 final answer 또는
-failure message를 전송합니다.
+failure message를 전송합니다. Sidecar job이 이미 완료됐다면 영속 event log에서
+결과를 재구성하며 Codex turn을 다시 실행하지 않습니다.
 
-SDK stream backfill은 fallback으로 계속 유지됩니다. SDK stream이 idle 상태가
-되거나 worker 자체에 연결할 수 없으면, recovery가 `CODEX_SESSIONS_DIR`의 해당
-rollout JSONL에서 agent message와 `task_complete`를 확인해 이미 완료된 작업을
-중복 시작하지 않도록 합니다.
+Final answer 전달 상태는 별도로 영속화합니다. 준비됐지만 아직 전송을 시작하지
+않은 것으로 확인된 결과만 restart 후 안전하게 재전송할 수 있습니다. Telegram
+요청을 시작한 뒤 timeout이 발생하면 실제 전달 여부가 불확실합니다. Telegram
+`sendMessage`에는 idempotency key가 없으므로, bot은 중복 답변을 피하기 위해 이
+상태를 보존하고 자동 재전송하지 않습니다.
+
+SDK stream backfill은 inline 및 worker 소유가 아닌 recovery의 fallback으로 계속
+유지됩니다. `CODEX_SESSIONS_DIR`의 해당 rollout JSONL에서 agent message와
+`task_complete`를 확인할 수 있습니다. Worker 소유 snapshot은 worker에 연결할 수
+없더라도 새 Codex turn으로 넘어가지 않고 상태를 보존하므로 중복 작업을 시작하지
+않습니다.
 
 `CODEX_WORKER_MODE=inline`은 개발/비상 fallback입니다. inline 모드에서는 bot이
 Codex를 직접 실행하므로 bot process가 재시작되면 active stream도 함께 끊깁니다.
@@ -309,13 +317,15 @@ Telegram 메시지를 reply로 보내면, reply 대상 메시지의 text/caption
 
 Codex가 inbound Telegram 메시지를 처리하는 동안 같은 chat에 추가 plain text, photo, image-document 메시지가 들어오면 기본적으로 queue에 저장되고, active turn이 끝난 뒤 순서대로 처리됩니다. Queue는 `STATE_FILE`에 저장되므로 queued text와 다운로드한 image path는 bot restart 후에도 유지됩니다. `/status`와 `/queue`는 backlog를 표시합니다. `/queue`에는 pause/resume, queue mode, clear all, cancel one item, move an item up, run an item next inline button도 표시됩니다. 직접 명령어 `/queue_pause`, `/queue_resume`, `/cancelqueue`, `/cancelqueue <id|number>`도 계속 사용할 수 있습니다.
 
+Codex 실행은 완료됐지만 final Telegram reply가 pending이거나 전달 결과가 불확실하면 같은 chat의 새 메시지는 기존 영속 queue에 대기합니다. `/status`와 `/queue`는 Codex 실행과 final delivery를 구분하고, 안전한 재전송 가능 여부 또는 중복 방지를 위한 자동 재전송 비활성 상태를 표시합니다.
+
 `/queue_mode`는 Codex turn 실행 중 새 메시지가 어떻게 동작할지 정합니다.
 
 - `safe`: 메시지를 queue에 넣고 active turn 뒤에 실행합니다. 기본값입니다.
 - `interrupt`: 새 메시지를 준비해 queue 앞에 넣고 active turn을 abort한 뒤, 같은 thread에서 새 메시지를 다음 turn으로 실행합니다.
 - `side`: active turn은 계속 실행하고 새 메시지는 별도 side thread에서 답변합니다. Side reply는 표시되며 main thread context와 별개로 취급해야 합니다.
 
-`TELEGRAM_PENDING_TURN_MAX_AGE_SECONDS`보다 오래된 queued item은 자동 만료되고, 봇은 prune할 때 chat에 알립니다. "지금 뭐해?", "진행 상태?", "status" 같은 짧은 상태 질문은 queue에 들어가지 않고 즉시 답변됩니다. `/stop`은 해당 chat의 active turn, side turn, queued message를 중단합니다. Streaming이 켜져 있으면 봇은 file check, command execution, file change 같은 짧은 progress message를 선택한 Telegram 언어로 보냅니다. 이 progress message는 turn 실행 중에는 보이고, final 또는 error response가 전송된 뒤 삭제됩니다. Raw command log나 reasoning text는 stream하지 않습니다. 봇은 각 메시지가 실제로 처리될 때 reaction을 답니다. 기본 흐름은 처리 중 `🤔`, 완료 `👌`, 오류 `😢`, 중단 `😴`입니다. Live progress가 비활성화되어 있으면 긴 turn에는 `TELEGRAM_COMPLETION_NOTICE_SECONDS` 이후 compact completion notice도 전송됩니다.
+`TELEGRAM_PENDING_TURN_MAX_AGE_SECONDS`보다 오래된 queued item은 자동 만료되고, 봇은 prune할 때 chat에 알립니다. "지금 뭐해?", "진행 상태?", "status" 같은 짧은 상태 질문은 queue에 들어가지 않고 즉시 답변됩니다. `/stop`은 해당 chat의 active turn, side turn, queued message를 중단합니다. Streaming이 켜져 있으면 봇은 file check, command execution, file change 같은 짧은 progress message를 선택한 Telegram 언어로 보냅니다. 이 progress message는 turn 실행 중에는 보이고, final 또는 error response가 전송된 뒤 삭제됩니다. Raw command log나 reasoning text는 stream하지 않습니다. Progress message 전송 실패는 기록하지만 Codex 실행이나 worker event 소비를 중단하지 않습니다. 봇은 각 메시지가 실제로 처리될 때 reaction을 답니다. 기본 흐름은 처리 중 `🤔`, 완료 `👌`, 오류 `😢`, 중단 `😴`입니다. Live progress가 비활성화되어 있으면 긴 turn에는 `TELEGRAM_COMPLETION_NOTICE_SECONDS` 이후 compact completion notice도 전송됩니다.
 
 `/help`, `/status`, `/options`, `/config`, `/threads`, cleanup prompt 같은 bot-owned message는 Telegram HTML formatting으로 전송됩니다. Dynamic value는 `<code>` 또는 `<pre>`로 감싸기 전에 중앙에서 escape됩니다. Free-form Codex answer는 기본적으로 `TELEGRAM_FORMAT_CODEX_ANSWERS=markdown`을 사용합니다. 모든 Codex turn에는 선택한 언어의 내장 지침이 함께 들어가서 제목, 표, list, preformatted code block, 구분자, bold, inline code, fenced code block을 필요할 때 적극 활용하도록 요청합니다. 이 서식 지침은 `CODEX_PERSONA_PROMPT`로 기본 말투를 override해도 계속 추가되며, 사용자가 명시한 다른 형식 요청이 있으면 그 요청을 우선합니다. Markdown mode는 raw answer Markdown을 Telegram rich message로 먼저 보내므로 table, divider, heading, list, bold/italic, inline code, fenced code block이 Telegram native rich formatting으로 표시될 수 있습니다. 한 줄 전체가 짧은 inline code 하나인 경우에는 Telegram이 배경 있는 compact block으로 렌더링할 수 있도록 1줄 rich code block으로 승격합니다. Rich message를 사용할 수 없거나 거부되면 기존 Telegram HTML renderer로 fallback합니다. Fallback 경로에서는 raw HTML을 escape하고, HTML parse failure가 발생하면 plain text로 fallback하여 malformed output 때문에 delivery가 막히지 않게 합니다.
 

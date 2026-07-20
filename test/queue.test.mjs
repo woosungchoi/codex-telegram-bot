@@ -26,6 +26,8 @@ function turn(id, offsetSeconds = 60) {
 }
 
 test("incoming queue mode chooses safe, interrupt, side, pause, or immediate action", () => {
+  assert.equal(planIncomingTurn({ active: false, pendingDelivery: true, queueMode: "interrupt" }), "enqueue_back");
+  assert.equal(planIncomingTurn({ active: true, pendingDelivery: true, queueMode: "side" }), "enqueue_back");
   assert.equal(planIncomingTurn({ active: true, queueMode: "safe" }), "enqueue_back");
   assert.equal(planIncomingTurn({ active: true, queueMode: "interrupt" }), "enqueue_front_interrupt");
   assert.equal(planIncomingTurn({ active: true, queueMode: "side" }), "start_side");

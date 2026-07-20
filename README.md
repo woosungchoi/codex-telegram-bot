@@ -188,11 +188,20 @@ This split is the primary bot restart recovery mechanism. If
 `codex-telegram-bot.service` restarts while a turn is running, the worker keeps
 the Codex stream alive. On startup, the bot reconnects to the worker, replays
 events after the saved cursor, and sends the final answer or failure message.
+When a sidecar job has already completed, the bot reconstructs its result from
+the durable event log and does not run the Codex turn again.
 
-SDK stream backfill is still kept as a fallback. If the SDK stream goes idle or
-the worker itself is unavailable, recovery can still inspect the matching
-`CODEX_SESSIONS_DIR` rollout JSONL for an agent message plus `task_complete`.
-This fallback avoids starting duplicate work when Codex already completed.
+Final-answer delivery has its own persisted state. A known-safe result that was
+prepared but never sent may be replayed after restart. If a Telegram request
+timed out after sending began, the outcome is uncertain; because Telegram does
+not provide an idempotency key for `sendMessage`, the bot preserves that state
+for manual review instead of automatically retrying and risking a duplicate.
+
+SDK stream backfill is still kept as a fallback for inline and non-worker
+recovery. It can inspect the matching `CODEX_SESSIONS_DIR` rollout JSONL for an
+agent message plus `task_complete`. A worker-owned snapshot does not fall
+through to a new Codex turn when the worker is unavailable; its state is kept
+for later review or recovery so the bot does not start duplicate work.
 
 `CODEX_WORKER_MODE=inline` is a development and emergency fallback. In inline
 mode the bot executes Codex directly, so a bot process restart also interrupts
@@ -371,6 +380,11 @@ pause/resume, queue mode, clear all, cancel one item, move an item up, or run an
 item next. The direct commands `/queue_pause`, `/queue_resume`, `/cancelqueue`,
 and `/cancelqueue <id|number>` remain available.
 
+If Codex has completed but its final Telegram reply is still pending or has an
+uncertain outcome, new messages for that chat stay in the same persisted queue.
+`/status` and `/queue` distinguish Codex execution from final delivery and show
+whether safe replay is available or automatic replay is disabled.
+
 `/queue_mode` controls how new messages behave while a Codex turn is running:
 
 - `safe`: queue the message and run it after the active turn. This is the default.
@@ -385,7 +399,8 @@ messages for that chat. When streaming is enabled, the bot also
 sends short progress messages in the selected Telegram language, such as file checks, command execution, and
 file changes. Those progress messages stay visible while the turn is running,
 then are deleted after the final or error response is sent. It does not stream
-raw command logs or reasoning text. The bot reacts to each message when it is
+raw command logs or reasoning text. A progress-message delivery failure is
+recorded but does not stop Codex execution or worker event consumption. The bot reacts to each message when it is
 actually being processed. The default flow is `🤔` while processing, `👌` when
 complete, `😢` on error, and `😴` when stopped. Long turns also get a compact
 completion notice after `TELEGRAM_COMPLETION_NOTICE_SECONDS` when live progress

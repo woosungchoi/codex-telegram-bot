@@ -21,6 +21,7 @@ import {
   readRecoveryDedupe,
   readRestartMarker,
   isDuplicateRestartUpdate,
+  replaceActiveTurnSnapshot,
   rememberRestartUpdate,
   removeActiveTurnSnapshot,
   recoveryPaths,
@@ -99,6 +100,34 @@ test("thread start updates active snapshot and completed turns remove it", async
   assert.equal(active.turns["chat-1"], undefined);
 });
 
+test("fresh active turn replacement removes stale worker recovery fields", async () => {
+  const dir = await tmpRecoveryDir();
+  await upsertActiveTurnSnapshot(dir, "chat-1", {
+    chatId: 100,
+    threadId: "old-thread",
+    workerJobId: "old-job",
+    workerEventSeq: 38,
+    recoveryReason: "old-failure",
+    recoveryEligible: true
+  });
+
+  const replaced = await replaceActiveTurnSnapshot(dir, "chat-1", {
+    chatId: 100,
+    threadId: "",
+    inputPreview: "new turn",
+    recoveryEligible: true,
+    lastKnownStatus: "starting"
+  });
+  assert.equal(replaced.chatKey, "chat-1");
+  assert.equal(replaced.inputPreview, "new turn");
+  assert.equal(Object.hasOwn(replaced, "workerJobId"), false);
+  assert.equal(Object.hasOwn(replaced, "workerEventSeq"), false);
+  assert.equal(Object.hasOwn(replaced, "recoveryReason"), false);
+
+  const active = await readActiveTurnSnapshots(dir);
+  assert.deepEqual(active.turns["chat-1"], replaced);
+});
+
 test("restart marker captures eligible active turn candidates", async () => {
   const dir = await tmpRecoveryDir();
   await upsertActiveTurnSnapshot(dir, "chat-1", {
@@ -160,6 +189,29 @@ test("startup plan filters stale and repeated recovery candidates", async () => 
   assert.deepEqual(plan.candidates.map((candidate) => candidate.chatKey), []);
   assert.deepEqual(plan.suspended.map((candidate) => candidate.chatKey), ["fresh"]);
   assert.deepEqual(plan.stale.map((candidate) => candidate.chatKey), ["stale"]);
+});
+
+test("generic startup recovery can exclude worker-owned snapshots", async () => {
+  const dir = await tmpRecoveryDir();
+  await upsertActiveTurnSnapshot(dir, "worker-chat", {
+    chatId: 100,
+    threadId: "thread-worker",
+    workerJobId: "job-1",
+    recoveryEligible: true,
+    lastEventAt: "2026-06-15T00:00:00.000Z"
+  });
+  await upsertActiveTurnSnapshot(dir, "inline-chat", {
+    chatId: 200,
+    threadId: "thread-inline",
+    recoveryEligible: true,
+    lastEventAt: "2026-06-15T00:00:00.000Z"
+  });
+  const plan = await buildStartupRecoveryPlan(dir, {
+    now: new Date("2026-06-15T00:01:00.000Z"),
+    maxAgeSeconds: 3600,
+    excludeWorkerJobs: true
+  });
+  assert.deepEqual(plan.candidates.map((candidate) => candidate.chatKey), ["inline-chat"]);
 });
 
 test("empty restart markers are cleared after startup planning", async () => {

@@ -62,6 +62,18 @@ export async function upsertActiveTurnSnapshot(recoveryDir, chatKey, snapshotPat
   return payload.turns[chatKey];
 }
 
+export async function replaceActiveTurnSnapshot(recoveryDir, chatKey, snapshot, { now = new Date() } = {}) {
+  const payload = await readActiveTurnSnapshots(recoveryDir);
+  payload.turns[chatKey] = {
+    ...snapshot,
+    chatKey,
+    updatedAt: now.toISOString()
+  };
+  payload.updatedAt = now.toISOString();
+  await writeActiveTurnSnapshotsAtomic(recoveryDir, payload);
+  return payload.turns[chatKey];
+}
+
 export async function removeActiveTurnSnapshot(recoveryDir, chatKey) {
   const payload = await readActiveTurnSnapshots(recoveryDir);
   delete payload.turns[chatKey];

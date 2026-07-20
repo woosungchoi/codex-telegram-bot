@@ -1,4 +1,5 @@
-export function planIncomingTurn({ active, paused, pendingCount, queueMode }) {
+export function planIncomingTurn({ active, pendingDelivery, paused, pendingCount, queueMode }) {
+  if (pendingDelivery) return "enqueue_back";
   if (active) {
     if (queueMode === "interrupt") return "enqueue_front_interrupt";
     if (queueMode === "side") return "start_side";

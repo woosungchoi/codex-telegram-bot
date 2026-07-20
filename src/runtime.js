@@ -77,6 +77,15 @@ import {
 } from "./telegram/context.js";
 import { b, code, escapeHtml, pre, stripHtml } from "./telegram/html.js";
 import {
+  createTelegramApiAgent,
+  editOrReplyTelegramHtml,
+  replyTelegramHtml,
+  runTelegramFinalDelivery,
+  runTelegramProgressBestEffort,
+  sendTelegramHtml,
+  summarizeTelegramError
+} from "./telegram/api.js";
+import {
   createUploadedPdfRecord,
   formatPdfReferenceText,
   formatUploadedPdfHtml,
@@ -123,6 +132,7 @@ import {
   readActiveTurnSnapshots,
   readRestartMarker,
   readRecoveryDedupe,
+  replaceActiveTurnSnapshot,
   removeActiveTurnSnapshot,
   upsertActiveTurnSnapshot
 } from "./recovery/state.js";
@@ -134,6 +144,27 @@ import {
 } from "./ui/keyboards.js";
 import { formatSettingPanelHtml } from "./ui/panels.js";
 import { createWorkerClient } from "./worker/client.js";
+import {
+  hasPendingWorkerDelivery,
+  isWorkerSnapshotResumeEligible,
+  markWorkerDeliveryFailed,
+  markWorkerDeliveryResultReady,
+  markWorkerDeliverySending,
+  markWorkerDeliverySent,
+  markWorkerDeliveryStreaming,
+  mergeWorkerDeliveryCursor,
+  normalizeWorkerDeliveryEntry,
+  pruneWorkerDeliveries,
+  selectWorkerDeliveryCandidates,
+  summarizeWorkerDeliveryStatus,
+  workerDeliveryDigestMatches,
+  workerDeliveryKey
+} from "./worker/delivery.js";
+import {
+  isTerminalWorkerEvent,
+  isTerminalWorkerStatus,
+  reconstructCompletedWorkerJob
+} from "./worker/replay.js";
 
 const execFileAsync = promisify(execFile);
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -276,7 +307,11 @@ const TIME_PRESET_CHOICES = [
 ];
 
 const config = readRuntimeConfig();
-const bot = new Telegraf(config.telegramBotToken, { handlerTimeout: Infinity });
+const telegramApiAgent = createTelegramApiAgent();
+const bot = new Telegraf(config.telegramBotToken, {
+  handlerTimeout: Infinity,
+  telegram: { agent: telegramApiAgent }
+});
 const state = await loadState(config.stateFile);
 const threadCache = new Map();
 const activeTurns = new Map();
@@ -301,10 +336,10 @@ const restartController = createRestartController({
 hydratePendingTurnsFromState();
 
 bot.catch(async (error, ctx) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error("Unhandled Telegram update error:", message);
+  const errorSummary = summarizeTelegramError(error);
+  console.error("Unhandled Telegram update error:", errorSummary);
   if (ctx.chat) {
-    await replyHtml(ctx, `${b("Telegram bot error")}\n${code(message)}`).catch(() => {});
+    await replyHtml(ctx, `${b("Telegram bot error")}\n${code(errorSummary.description)}`).catch(() => {});
   }
 });
 
@@ -991,7 +1026,7 @@ bot.action(/^cleanup:processing:([a-zA-Z0-9_-]+)$/, async (ctx) => {
   try {
     await ctx.answerCbQuery(t("cleanupAlreadyProcessing"));
   } catch (error) {
-    console.warn("cleanup processing callback answer failed:", error instanceof Error ? error.message : String(error));
+    console.warn("cleanup processing callback answer failed:", summarizeTelegramError(error));
   }
 });
 
@@ -1227,7 +1262,8 @@ await bootstrapBot({
 async function handleCodexMessage(ctx, text, loadImages) {
   const chatKey = getChatKey(ctx);
   await pruneExpiredPendingTurns(chatKey, ctx);
-  if (isStatusQuestion(text) && (activeTurns.has(chatKey) || getPendingTurns(chatKey).length > 0)) {
+  const pendingDelivery = hasPendingFinalDelivery(chatKey);
+  if (isStatusQuestion(text) && (activeTurns.has(chatKey) || pendingDelivery || getPendingTurns(chatKey).length > 0)) {
     await replyHtml(ctx, formatStatusHtml(chatKey, await buildStatusDetails(chatKey)));
     return;
   }
@@ -1238,6 +1274,7 @@ async function handleCodexMessage(ctx, text, loadImages) {
 
   const incomingPlan = planIncomingTurn({
     active: activeTurns.has(chatKey),
+    pendingDelivery,
     paused: isQueuePaused(chatKey),
     pendingCount: getPendingTurns(chatKey).length,
     queueMode: getQueueMode(chatKey)
@@ -1433,7 +1470,7 @@ async function processPreparedTurn(chatKey, preparedTurn, active) {
   active.recoveryEligible = true;
   const liveProgress = createLiveProgressState(active);
   liveProgress.chatKey = chatKey;
-  let turnSucceeded = false;
+  let deliveryCompleted = false;
   await restoreRecoveryThreadForTurn(chatKey, preparedTurn);
   await recordActiveTurnStarted(chatKey, preparedTurn);
   await reactQuietly(ctx, config.telegramThinkingReaction);
@@ -1442,37 +1479,53 @@ async function processPreparedTurn(chatKey, preparedTurn, active) {
   }, 4500);
 
   try {
-    const { turn, threadId } = useWorkerSidecar()
-      ? await processPreparedTurnViaWorker(ctx, chatKey, preparedTurn, active, liveProgress)
-      : await processPreparedTurnInline(ctx, chatKey, preparedTurn, active, liveProgress);
-    const response = formatTurn(turn);
-    const replyText = response || "Codex completed without a final message.";
-    await recordTelegramReplyStarted(chatKey, replyText);
+    let execution;
     try {
-      await replyCodexAnswer(ctx, replyText);
-      await recordTelegramReplyCompleted(chatKey, replyText);
+      execution = useWorkerSidecar()
+        ? await processPreparedTurnViaWorker(ctx, chatKey, preparedTurn, active, liveProgress)
+        : await processPreparedTurnInline(ctx, chatKey, preparedTurn, active, liveProgress);
     } catch (error) {
-      await recordTelegramReplyFailed(chatKey, error);
-      throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      finalReaction = active.abortController?.signal?.aborted ? config.telegramStoppedReaction : config.telegramErrorReaction;
+      if (active.interruptRequested && active.abortController?.signal?.aborted) {
+        await replyHtml(ctx, `${b(t("codexTurnInterruptedTitle"))}\n${t("codexTurnInterruptedDetail")}`);
+        active.interruptRequested = false;
+      } else if (preparedTurn.kind === "recovery" && isStreamIdleTimeout(error)) {
+        await recordActiveTurnFailed(chatKey, STREAM_IDLE_TIMEOUT_MESSAGE);
+        await replyHtml(ctx, `${b(t("recoveryStreamIdleTimeoutTitle"))}\n${t("recoveryStreamIdleTimeoutDetail")}`);
+      } else {
+        await recordActiveTurnFailed(chatKey, message);
+        await replyHtml(ctx, `<b>Codex failed</b>\n${code(message)}`);
+      }
+      return;
     }
-    await recordActiveTurnCompleted(chatKey, threadId || getChatState(chatKey).threadId || "");
-    turnSucceeded = true;
+
+    const response = formatTurn(execution.turn);
+    const replyText = response || "Codex completed without a final message.";
+    const delivery = await runTelegramFinalDelivery({
+      onReady: () => recordTelegramReplyReady(chatKey, execution, replyText),
+      onStarted: () => recordTelegramReplyStarted(chatKey, execution, replyText),
+      send: () => replyCodexAnswer(ctx, replyText),
+      onCompleted: () => recordTelegramReplyCompleted(chatKey, execution, replyText),
+      onFailed: (error, context) => recordTelegramReplyFailed(chatKey, execution, error, {
+        ambiguous: context.requestStarted
+      })
+    });
+    if (!delivery.ok) {
+      active.stopRequested = true;
+      active.deliveryPending = true;
+      if (delivery.recordError) {
+        console.warn("Telegram final delivery failure could not be recorded:", summarizeTelegramError(delivery.recordError));
+      }
+      console.warn("Telegram final reply delivery failed:", delivery.errorSummary);
+      return;
+    }
+
+    await recordActiveTurnCompleted(chatKey, execution.threadId || getChatState(chatKey).threadId || "");
+    deliveryCompleted = true;
     finalReaction = config.telegramCompleteReaction;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    finalReaction = active.abortController.signal.aborted ? config.telegramStoppedReaction : config.telegramErrorReaction;
-    if (active.interruptRequested && active.abortController.signal.aborted) {
-      await replyHtml(ctx, `${b(t("codexTurnInterruptedTitle"))}\n${t("codexTurnInterruptedDetail")}`);
-      active.interruptRequested = false;
-    } else if (preparedTurn.kind === "recovery" && isStreamIdleTimeout(error)) {
-      await recordActiveTurnFailed(chatKey, STREAM_IDLE_TIMEOUT_MESSAGE);
-      await replyHtml(ctx, `${b(t("recoveryStreamIdleTimeoutTitle"))}\n${t("recoveryStreamIdleTimeoutDetail")}`);
-    } else {
-      await recordActiveTurnFailed(chatKey, message);
-      await replyHtml(ctx, `<b>Codex failed</b>\n${code(message)}`);
-    }
   } finally {
-    if (shouldDeleteLiveProgress(liveProgress, turnSucceeded)) await deleteTrackedProgressMessages(ctx, liveProgress);
+    if (shouldDeleteLiveProgress(liveProgress, deliveryCompleted)) await deleteTrackedProgressMessages(ctx, liveProgress);
     clearInterval(typingInterval);
     await reactQuietly(ctx, finalReaction, finalReaction === config.telegramCompleteReaction);
   }
@@ -1486,7 +1539,12 @@ async function processPreparedTurnInline(ctx, chatKey, preparedTurn, active, liv
     turnKind: preparedTurn.kind || "user"
   });
   await rememberThread(chatKey, thread);
-  return { turn, threadId: thread.id || getChatState(chatKey).threadId || "" };
+  return {
+    turn,
+    threadId: thread.id || getChatState(chatKey).threadId || "",
+    executionMode: "inline",
+    workerJobId: ""
+  };
 }
 
 async function processPreparedTurnViaWorker(ctx, chatKey, preparedTurn, active, liveProgress) {
@@ -1503,9 +1561,10 @@ async function processPreparedTurnViaWorker(ctx, chatKey, preparedTurn, active, 
   else active.abortController.signal.addEventListener("abort", cancelWorker, { once: true });
 
   try {
-    return await waitForWorkerJob(ctx, chatKey, started.jobId, active, liveProgress, {
+    const result = await waitForWorkerJob(ctx, chatKey, started.jobId, active, liveProgress, {
       turnKind: preparedTurn.kind || "user"
     });
+    return { ...result, executionMode: "sidecar", workerJobId: started.jobId };
   } finally {
     active.abortController.signal.removeEventListener("abort", cancelWorker);
   }
@@ -1622,7 +1681,7 @@ async function waitForWorkerJob(ctx, chatKey, jobId, active, liveProgress, optio
       streamOutcome = "cancelled";
       throw new Error(terminal.message || "Codex worker job was cancelled.");
     }
-    return { turn: codexStreamResult(streamState), threadId };
+    return { turn: codexStreamResult(streamState), threadId, workerLastSeq: cursor };
   } finally {
     await recordCodexStreamIteratorClosed(chatKey, {
       elapsedMs: Date.now() - streamStartedAt,
@@ -1633,22 +1692,20 @@ async function waitForWorkerJob(ctx, chatKey, jobId, active, liveProgress, optio
   }
 }
 
-function workerDeliveryKey(chatKey, jobId) {
-  return `${chatKey}:${jobId}`;
-}
-
 function workerDeliveryCursor(chatKey, jobId) {
-  const entry = state.worker?.deliveries?.[workerDeliveryKey(chatKey, jobId)];
+  const key = workerDeliveryKey(chatKey, jobId);
+  const entry = normalizeWorkerDeliveryEntry(key, state.worker?.deliveries?.[key]);
   return Number(entry?.seq || 0);
 }
 
 async function recordWorkerDeliveryCursor(chatKey, jobId, seq) {
   if (!state.worker || typeof state.worker !== "object") state.worker = { deliveries: {} };
   if (!state.worker.deliveries || typeof state.worker.deliveries !== "object") state.worker.deliveries = {};
-  state.worker.deliveries[workerDeliveryKey(chatKey, jobId)] = {
-    seq: Number(seq || 0),
-    updatedAt: new Date().toISOString()
-  };
+  const key = workerDeliveryKey(chatKey, jobId);
+  const current = normalizeWorkerDeliveryEntry(key, state.worker.deliveries[key]);
+  state.worker.deliveries[key] = current
+    ? mergeWorkerDeliveryCursor(current, { chatKey, jobId, seq })
+    : markWorkerDeliveryStreaming(null, { chatKey, jobId, seq });
   await saveState(config.stateFile, state);
   if (!config.botRestartRecoveryEnabled) return;
   await safeRecoveryWrite(async () => {
@@ -1659,16 +1716,6 @@ async function recordWorkerDeliveryCursor(chatKey, jobId, seq) {
       lastKnownStatus: "worker_event_delivered"
     });
   });
-}
-
-function isTerminalWorkerEvent(event) {
-  return event?.type === "worker.job.completed"
-    || event?.type === "worker.job.failed"
-    || event?.type === "worker.job.cancelled";
-}
-
-function isTerminalWorkerStatus(status) {
-  return status === "completed" || status === "failed" || status === "cancelled";
 }
 
 function cancelWorkerJobOnce(active, jobId) {
@@ -1970,7 +2017,7 @@ async function recordActiveTurnStarted(chatKey, turn) {
     recoveryReason: turn.kind === "recovery" ? "recovery_turn" : ""
   };
   await safeRecoveryWrite(async () => {
-    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, snapshot);
+    await replaceActiveTurnSnapshot(config.botRecoveryDir, chatKey, snapshot);
     await appendRecoveryEvent({ type: "turn_started", chatKey, queueItemId: turn.id || "", recoveryEligible: snapshot.recoveryEligible });
   });
 }
@@ -1981,8 +2028,17 @@ async function recordWorkerJobStarted(chatKey, job) {
   if (job.threadId) {
     chat.threadId = job.threadId;
     chat.updatedAt = now;
-    await saveState(config.stateFile, state);
   }
+  if (!state.worker || typeof state.worker !== "object") state.worker = { deliveries: {} };
+  if (!state.worker.deliveries || typeof state.worker.deliveries !== "object") state.worker.deliveries = {};
+  const deliveryKey = workerDeliveryKey(chatKey, job.id || "");
+  const currentDelivery = normalizeWorkerDeliveryEntry(deliveryKey, state.worker.deliveries[deliveryKey]);
+  state.worker.deliveries[deliveryKey] = markWorkerDeliveryStreaming(currentDelivery, {
+    chatKey,
+    jobId: job.id || "",
+    seq: currentDelivery?.seq || 0
+  });
+  await saveState(config.stateFile, state);
   if (!config.botRestartRecoveryEnabled) return;
   await safeRecoveryWrite(async () => {
     await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
@@ -2137,29 +2193,133 @@ async function recordStreamIdleTimeout(chatKey, idleMs) {
   });
 }
 
-async function recordTelegramReplyStarted(chatKey, text) {
+async function recordTelegramReplyReady(chatKey, execution, text) {
+  const metadata = telegramReplyMetadata(text);
+  await transitionWorkerDelivery(chatKey, execution, (entry) => (
+    markWorkerDeliveryResultReady(entry, {
+      seq: execution.workerLastSeq ?? entry.seq,
+      responseDigest: metadata.digest,
+      responseLength: metadata.length
+    })
+  ));
   if (!config.botRestartRecoveryEnabled) return;
   await safeRecoveryWrite(async () => {
-    await appendRecoveryEvent({ type: "telegram_reply_started", chatKey, length: String(text || "").length });
+    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
+      lastEventAt: new Date().toISOString(),
+      lastKnownStatus: "telegram_reply_ready",
+      recoveryEligible: true,
+      finalResponseDigest: metadata.digest,
+      finalResponseLength: metadata.length
+    });
+    await appendRecoveryEvent({ type: "telegram_reply_ready", chatKey, jobId: execution.workerJobId || "", ...metadata });
   });
 }
 
-async function recordTelegramReplyCompleted(chatKey, text) {
+async function recordTelegramReplyStarted(chatKey, execution, text) {
+  const metadata = telegramReplyMetadata(text);
+  await transitionWorkerDelivery(chatKey, execution, (entry) => markWorkerDeliverySending(entry));
   if (!config.botRestartRecoveryEnabled) return;
   await safeRecoveryWrite(async () => {
-    await appendRecoveryEvent({ type: "telegram_reply_completed", chatKey, length: String(text || "").length });
+    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
+      lastEventAt: new Date().toISOString(),
+      lastKnownStatus: "telegram_delivery_sending",
+      recoveryEligible: true,
+      finalResponseDigest: metadata.digest,
+      finalResponseLength: metadata.length
+    });
+    await appendRecoveryEvent({ type: "telegram_reply_started", chatKey, jobId: execution.workerJobId || "", ...metadata });
   });
 }
 
-async function recordTelegramReplyFailed(chatKey, error) {
+async function recordTelegramProgressFailed(progressState, event, errorSummary) {
+  if (!config.botRestartRecoveryEnabled) return;
+  await appendRecoveryEvent({
+    type: "telegram_progress_failed",
+    chatKey: progressState?.chatKey || "",
+    jobId: progressState?.active?.workerJobId || "",
+    workerEventSeq: Number(event?.seq || progressState?.active?.workerEventSeq || 0),
+    kind: errorSummary?.kind || "unknown",
+    code: errorSummary?.code ?? null,
+    errno: errorSummary?.errno ?? null
+  });
+}
+
+async function recordTelegramReplyCompleted(chatKey, execution, text) {
+  const metadata = telegramReplyMetadata(text);
+  await transitionWorkerDelivery(chatKey, execution, (entry) => markWorkerDeliverySent(entry));
   if (!config.botRestartRecoveryEnabled) return;
   await safeRecoveryWrite(async () => {
+    await appendRecoveryEvent({ type: "telegram_reply_completed", chatKey, jobId: execution.workerJobId || "", ...metadata });
+  });
+}
+
+async function recordTelegramReplyFailed(chatKey, execution, error, { ambiguous = true } = {}) {
+  const errorSummary = { ...summarizeTelegramError(error), ambiguous };
+  await transitionWorkerDelivery(chatKey, execution, (entry) => markWorkerDeliveryFailed(entry, errorSummary));
+  if (!config.botRestartRecoveryEnabled) return;
+  await safeRecoveryWrite(async () => {
+    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
+      lastEventAt: new Date().toISOString(),
+      lastKnownStatus: "telegram_delivery_failed",
+      recoveryEligible: true,
+      recoveryReason: "telegram_delivery_failed"
+    });
     await appendRecoveryEvent({
       type: "telegram_reply_failed",
       chatKey,
-      message: truncate(error instanceof Error ? error.message : String(error), 500)
+      jobId: execution.workerJobId || "",
+      error: errorSummary
     });
   });
+}
+
+async function recordTelegramReplyDigestMismatch(chatKey, execution, expectedDigest, actualDigest) {
+  await transitionWorkerDelivery(chatKey, execution, (entry) => markWorkerDeliveryFailed(entry, {
+    kind: "integrity",
+    code: "RESPONSE_DIGEST_MISMATCH",
+    description: "Reconstructed response digest did not match the persisted result.",
+    ambiguous: false
+  }));
+  if (!config.botRestartRecoveryEnabled) return;
+  await safeRecoveryWrite(async () => {
+    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
+      lastEventAt: new Date().toISOString(),
+      lastKnownStatus: "telegram_delivery_digest_mismatch",
+      recoveryEligible: true,
+      recoveryReason: "telegram_delivery_digest_mismatch"
+    });
+    await appendRecoveryEvent({
+      type: "telegram_reply_digest_mismatch",
+      chatKey,
+      jobId: execution.workerJobId || "",
+      expectedDigest,
+      actualDigest
+    });
+  });
+}
+
+async function transitionWorkerDelivery(chatKey, execution, transition) {
+  if (execution?.executionMode !== "sidecar" || !execution.workerJobId) return null;
+  if (!state.worker || typeof state.worker !== "object") state.worker = { deliveries: {} };
+  if (!state.worker.deliveries || typeof state.worker.deliveries !== "object") state.worker.deliveries = {};
+  const key = workerDeliveryKey(chatKey, execution.workerJobId);
+  const normalized = normalizeWorkerDeliveryEntry(key, state.worker.deliveries[key]);
+  const current = normalized ?? markWorkerDeliveryStreaming(null, {
+    chatKey,
+    jobId: execution.workerJobId,
+    seq: 0
+  });
+  const next = transition(current);
+  state.worker.deliveries[key] = next;
+  await saveState(config.stateFile, state);
+  return next;
+}
+
+function telegramReplyMetadata(text) {
+  return {
+    digest: digestText(text),
+    length: String(text || "").length
+  };
 }
 
 async function restoreRecoveryThreadForTurn(chatKey, turn) {
@@ -2596,6 +2756,10 @@ function isQueuePaused(chatKey) {
   return getChatState(chatKey).queuePaused === true;
 }
 
+function hasPendingFinalDelivery(chatKey) {
+  return hasPendingWorkerDelivery(state.worker?.deliveries, chatKey);
+}
+
 function getQueueMode(chatKey) {
   const mode = getChatState(chatKey).queueMode;
   return VALID.queueMode.has(mode) ? mode : "safe";
@@ -2651,7 +2815,7 @@ function countSideTurns() {
 }
 
 async function startQueueDrainIfIdle(chatKey, ctx = null) {
-  if (activeTurns.has(chatKey) || isQueuePaused(chatKey)) return false;
+  if (activeTurns.has(chatKey) || hasPendingFinalDelivery(chatKey) || isQueuePaused(chatKey)) return false;
   const runCtx = ctx ?? createSyntheticCtx(chatKey);
   const firstTurn = await dequeuePendingTurn(chatKey, runCtx);
   if (!firstTurn) return false;
@@ -2739,11 +2903,17 @@ async function scheduleStartupRecovery({ force = false, notifyCtx = null, source
   startupRecoveryRunning = true;
   let started = 0;
   try {
-    if (useWorkerSidecar()) started += await recoverActiveWorkerJobs({ source });
+    if (useWorkerSidecar()) {
+      started += await recoverActiveWorkerJobs({
+        source,
+        maxAgeSeconds: force ? 0 : config.botRecoveryStaleSeconds
+      });
+    }
     const plan = await buildStartupRecoveryPlan(config.botRecoveryDir, {
       maxAgeSeconds: force ? 0 : config.botRecoveryStaleSeconds,
       suspendAfter: force ? Number.POSITIVE_INFINITY : config.botRecoverySuspendAfter,
-      reason: source === "startup" ? "startup_recovery" : "manual_recovery"
+      reason: source === "startup" ? "startup_recovery" : "manual_recovery",
+      excludeWorkerJobs: useWorkerSidecar()
     });
     await appendRecoveryEvent({
       type: "startup_recovery_plan",
@@ -2801,53 +2971,178 @@ async function scheduleStartupRecovery({ force = false, notifyCtx = null, source
   return started > 0;
 }
 
-async function recoverActiveWorkerJobs({ source = "startup" } = {}) {
-  const snapshots = await readActiveTurnSnapshots(config.botRecoveryDir);
-  const entries = Object.entries(snapshots.turns ?? {})
-    .filter(([, snapshot]) => snapshot?.workerJobId && snapshot?.recoveryEligible !== false);
-  if (entries.length === 0) return 0;
+async function recoverActiveWorkerJobs({ source = "startup", maxAgeSeconds = config.botRecoveryStaleSeconds } = {}) {
+  const snapshotPayload = await readActiveTurnSnapshots(config.botRecoveryDir);
+  const snapshots = snapshotPayload.turns ?? {};
+  const deliveries = state.worker?.deliveries ?? {};
+  const importantJobIds = new Set(
+    Object.values(snapshots).map((snapshot) => String(snapshot?.workerJobId || "")).filter(Boolean)
+  );
+  for (const [key, rawEntry] of Object.entries(deliveries)) {
+    const entry = normalizeWorkerDeliveryEntry(key, rawEntry);
+    if (entry && entry.deliveryStatus !== "legacy_unknown") importantJobIds.add(entry.jobId);
+  }
+
+  const jobs = await readWorkerJobsForRecovery(deliveries, snapshots, importantJobIds, source);
+  const activeSnapshotJobIds = Object.values(snapshots)
+    .map((snapshot) => String(snapshot?.workerJobId || ""))
+    .filter(Boolean);
+  const pruned = pruneWorkerDeliveries(deliveries, {
+    jobs,
+    activeSnapshotJobIds,
+    maxAgeSeconds: config.botRecoveryTurnTtlSeconds
+  });
+  if (pruned.removed.length > 0) {
+    state.worker.deliveries = pruned.deliveries;
+    await saveState(config.stateFile, state);
+    await appendRecoveryEvent({ type: "worker_delivery_pruned", count: pruned.removed.length });
+  }
+
+  const selection = selectWorkerDeliveryCandidates(state.worker?.deliveries ?? {}, jobs, {
+    snapshots,
+    maxAgeSeconds
+  });
+  await appendRecoveryEvent({
+    type: "worker_delivery_recovery_plan",
+    source,
+    safe: selection.safe.length,
+    manual: selection.manual.length,
+    ignored: selection.ignored.length
+  });
+  for (const candidate of selection.manual) {
+    await appendRecoveryEvent({
+      type: "worker_delivery_manual_review",
+      chatKey: candidate.chatKey,
+      jobId: candidate.jobId,
+      reason: candidate.reason
+    });
+  }
+  for (const candidate of selection.ignored) {
+    if (candidate.reason !== "already_sent" || !candidate.snapshot) continue;
+    await removeActiveTurnSnapshot(config.botRecoveryDir, candidate.chatKey);
+    await appendRecoveryEvent({
+      type: "worker_delivery_snapshot_cleaned",
+      chatKey: candidate.chatKey,
+      jobId: candidate.jobId,
+      reason: candidate.reason
+    });
+  }
 
   let started = 0;
-  for (const [chatKey, snapshot] of entries) {
-    if (activeTurns.has(chatKey)) continue;
-    const jobId = String(snapshot.workerJobId || "");
-    try {
-      await getWorkerClient().getJobStatus(jobId);
-    } catch (error) {
+  for (const [chatKey, snapshot] of Object.entries(snapshots)) {
+    const jobId = String(snapshot?.workerJobId || "");
+    const job = jobs[jobId];
+    if (!jobId || !isWorkerSnapshotResumeEligible(snapshot, job) || activeTurns.has(chatKey)) continue;
+    if (startWorkerJobRecovery(chatKey, snapshot, job, {
+      source,
+      expectedDigest: "",
+      showProgress: true
+    })) started += 1;
+  }
+
+  for (const candidate of selection.safe) {
+    if (activeTurns.has(candidate.chatKey)) {
       await appendRecoveryEvent({
-        type: "worker_recovery_unavailable",
-        chatKey,
-        jobId,
-        source,
-        message: truncate(error instanceof Error ? error.message : String(error), 500)
+        type: "worker_delivery_recovery_skipped_active",
+        chatKey: candidate.chatKey,
+        jobId: candidate.jobId
       });
       continue;
     }
-
-    const turn = createWorkerRecoveryTurn(chatKey, snapshot);
-    const ctx = createSyntheticCtx(turn);
-    const active = {
-      abortController: new AbortController(),
-      currentPreparedTurn: turn,
-      currentQueueItemId: turn.id || "",
-      currentText: turn.text || "",
-      currentTurnStartedAt: snapshot.startedAt || new Date().toISOString(),
-      lastProgress: "",
-      lastProgressAt: "",
-      recoveryEligible: false,
-      workerJobId: jobId,
-      workerEventSeq: Number(snapshot.workerEventSeq || 0)
-    };
-    activeTurns.set(chatKey, active);
-    const liveProgress = createLiveProgressState(active);
-    liveProgress.chatKey = chatKey;
-    started += 1;
-
-    resumeWorkerJobRecovery(ctx, chatKey, jobId, active, liveProgress, source).catch((error) => {
-      console.warn("worker recovery failed:", error instanceof Error ? error.message : String(error));
-    });
+    const snapshot = candidate.snapshot ?? workerRecoverySnapshot(candidate.chatKey, candidate.job);
+    if (startWorkerJobRecovery(candidate.chatKey, snapshot, candidate.job, {
+      source,
+      expectedDigest: candidate.entry.responseDigest || "",
+      showProgress: false,
+      completedReplay: true,
+      reason: candidate.reason
+    })) started += 1;
   }
   return started;
+}
+
+async function readWorkerJobsForRecovery(deliveries, snapshots, importantJobIds, source) {
+  const jobIds = new Set(
+    Object.entries(deliveries)
+      .map(([key, rawEntry]) => normalizeWorkerDeliveryEntry(key, rawEntry)?.jobId || "")
+      .filter(Boolean)
+  );
+  for (const snapshot of Object.values(snapshots)) {
+    const jobId = String(snapshot?.workerJobId || "");
+    if (jobId) jobIds.add(jobId);
+  }
+
+  const jobs = {};
+  await Promise.all([...jobIds].map(async (jobId) => {
+    try {
+      const result = await getWorkerClient().getJobStatus(jobId);
+      if (result?.job) jobs[jobId] = result.job;
+    } catch (error) {
+      if (!importantJobIds.has(jobId)) return;
+      await appendRecoveryEvent({
+        type: "worker_recovery_unavailable",
+        jobId,
+        source,
+        error: summarizeTelegramError(error)
+      });
+    }
+  }));
+  return jobs;
+}
+
+function startWorkerJobRecovery(chatKey, snapshot, job, options = {}) {
+  if (!snapshot || !job?.id || activeTurns.has(chatKey)) return false;
+  const preparedSnapshot = {
+    ...snapshot,
+    chatKey,
+    workerJobId: job.id,
+    workerEventSeq: Number(snapshot.workerEventSeq || 0),
+    recoveryEligible: true,
+    recoveryReason: options.reason || snapshot.recoveryReason || "worker_recovery"
+  };
+  const turn = createWorkerRecoveryTurn(chatKey, preparedSnapshot);
+  const ctx = createSyntheticCtx(turn);
+  const active = {
+    abortController: new AbortController(),
+    currentPreparedTurn: turn,
+    currentQueueItemId: turn.id || "",
+    currentText: turn.text || "",
+    currentTurnStartedAt: snapshot.startedAt || new Date().toISOString(),
+    lastProgress: "",
+    lastProgressAt: "",
+    recoveryEligible: true,
+    workerJobId: job.id,
+    workerEventSeq: Number(snapshot.workerEventSeq || 0)
+  };
+  activeTurns.set(chatKey, active);
+  const liveProgress = options.showProgress ? createLiveProgressState(active) : null;
+  if (liveProgress) liveProgress.chatKey = chatKey;
+  resumeWorkerJobRecovery(ctx, chatKey, job.id, active, liveProgress, options).catch((error) => {
+    console.warn("worker recovery failed:", summarizeTelegramError(error));
+  });
+  return true;
+}
+
+function workerRecoverySnapshot(chatKey, job) {
+  return {
+    chatKey,
+    chatId: job?.chatId ?? chatKey,
+    chatType: job?.chatType,
+    messageThreadId: job?.messageThreadId,
+    replyToMessageId: job?.replyToMessageId,
+    originMessageId: job?.originMessageId,
+    originUpdateId: job?.originUpdateId,
+    queueItemId: job?.id || "",
+    threadId: job?.threadId || "",
+    inputPreview: "",
+    startedAt: job?.startedAt || job?.acceptedAt || "",
+    lastEventAt: job?.completedAt || job?.updatedAt || "",
+    workerJobId: job?.id || "",
+    workerEventSeq: Number(job?.lastSeq || 0),
+    workerMode: "sidecar",
+    workerTransport: job?.transport || codexTransport(),
+    recoveryEligible: true
+  };
 }
 
 async function checkWorkerStartupStatus() {
@@ -2866,46 +3161,91 @@ async function checkWorkerStartupStatus() {
   }
 }
 
-async function resumeWorkerJobRecovery(ctx, chatKey, jobId, active, liveProgress, source) {
-  await appendRecoveryEvent({ type: "worker_recovery_started", chatKey, jobId, source });
+async function resumeWorkerJobRecovery(ctx, chatKey, jobId, active, liveProgress, options = {}) {
+  const source = options.source || "startup";
+  await appendRecoveryEvent({ type: "worker_recovery_started", chatKey, jobId, source, reason: options.reason || "" });
   let finalReaction = "";
+  let deliveryCompleted = false;
   try {
-    const { turn, threadId } = await waitForWorkerJob(ctx, chatKey, jobId, active, liveProgress, {
-      afterSeq: 0,
-      turnKind: "recovery"
-    });
-    const response = formatTurn(turn);
-    if (response) {
-      await recordTelegramReplyStarted(chatKey, response);
-      try {
-        await replyCodexAnswer(ctx, response);
-        await recordTelegramReplyCompleted(chatKey, response);
-      } catch (error) {
-        await recordTelegramReplyFailed(chatKey, error);
-        throw error;
+    let workerResult;
+    try {
+      workerResult = options.completedReplay
+        ? await reconstructCompletedWorkerJob(getWorkerClient(), jobId)
+        : await waitForWorkerJob(ctx, chatKey, jobId, active, liveProgress, {
+          afterSeq: 0,
+          turnKind: "recovery"
+        });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (active.abortController.signal.aborted || isWorkerCancelledMessage(message)) {
+        await markActiveTurnStopped(chatKey);
+        await appendRecoveryEvent({ type: "worker_recovery_cancelled", chatKey, jobId, message: truncate(message, 500) });
+        finalReaction = config.telegramStoppedReaction;
+      } else {
+        await recordActiveTurnFailed(chatKey, message);
+        await replyHtml(ctx, `${b(t("recoveryStartFailedTitle"))}\n${t("recoveryStartFailedDetail")}\n${code(message)}`).catch(() => {});
+        await appendRecoveryEvent({ type: "worker_recovery_failed", chatKey, jobId, message: truncate(message, 500) });
+        finalReaction = config.telegramErrorReaction;
       }
+      return;
     }
-    await recordActiveTurnCompleted(chatKey, threadId || getChatState(chatKey).threadId || "");
-    await appendRecoveryEvent({ type: "worker_recovery_completed", chatKey, jobId, threadId: threadId || "" });
+
+    const execution = {
+      ...workerResult,
+      executionMode: "sidecar",
+      workerJobId: jobId
+    };
+    if (execution.threadId && getChatState(chatKey).threadId !== execution.threadId) {
+      const chat = getChatState(chatKey);
+      chat.threadId = execution.threadId;
+      chat.updatedAt = new Date().toISOString();
+      await saveState(config.stateFile, state);
+    }
+    const response = formatTurn(execution.turn);
+    const replyText = response || "Codex completed without a final message.";
+    const actualDigest = digestText(replyText);
+    if (!workerDeliveryDigestMatches(options.expectedDigest, actualDigest)) {
+      active.stopRequested = true;
+      active.deliveryPending = true;
+      await recordTelegramReplyDigestMismatch(chatKey, execution, options.expectedDigest, actualDigest);
+      return;
+    }
+
+    const delivery = await runTelegramFinalDelivery({
+      onReady: () => recordTelegramReplyReady(chatKey, execution, replyText),
+      onStarted: () => recordTelegramReplyStarted(chatKey, execution, replyText),
+      send: () => replyCodexAnswer(ctx, replyText),
+      onCompleted: () => recordTelegramReplyCompleted(chatKey, execution, replyText),
+      onFailed: (error, context) => recordTelegramReplyFailed(chatKey, execution, error, {
+        ambiguous: context.requestStarted
+      })
+    });
+    if (!delivery.ok) {
+      active.stopRequested = true;
+      active.deliveryPending = true;
+      if (delivery.recordError) {
+        console.warn("Worker recovery delivery failure could not be recorded:", summarizeTelegramError(delivery.recordError));
+      }
+      await appendRecoveryEvent({
+        type: "worker_recovery_delivery_failed",
+        chatKey,
+        jobId,
+        error: { ...delivery.errorSummary, ambiguous: delivery.requestStarted }
+      });
+      return;
+    }
+
+    await recordActiveTurnCompleted(chatKey, execution.threadId || getChatState(chatKey).threadId || "");
+    await appendRecoveryEvent({ type: "worker_recovery_completed", chatKey, jobId, threadId: execution.threadId || "" });
+    deliveryCompleted = true;
     finalReaction = config.telegramCompleteReaction;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (active.abortController.signal.aborted || isWorkerCancelledMessage(message)) {
-      await markActiveTurnStopped(chatKey);
-      await appendRecoveryEvent({ type: "worker_recovery_cancelled", chatKey, jobId, message: truncate(message, 500) });
-      finalReaction = config.telegramStoppedReaction;
-    } else {
-      await recordActiveTurnFailed(chatKey, message);
-      await replyHtml(ctx, `${b(t("recoveryStartFailedTitle"))}\n${t("recoveryStartFailedDetail")}\n${code(message)}`).catch(() => {});
-      await appendRecoveryEvent({ type: "worker_recovery_failed", chatKey, jobId, message: truncate(message, 500) });
-      finalReaction = config.telegramErrorReaction;
-    }
   } finally {
-    if (shouldDeleteLiveProgress(liveProgress, finalReaction === config.telegramCompleteReaction)) {
+    if (liveProgress && shouldDeleteLiveProgress(liveProgress, deliveryCompleted)) {
       await deleteTrackedProgressMessages(ctx, liveProgress);
     }
     await reactQuietly(ctx, finalReaction, finalReaction === config.telegramCompleteReaction);
     activeTurns.delete(chatKey);
+    if (deliveryCompleted) await startQueueDrainIfIdle(chatKey, ctx);
   }
 }
 
@@ -2962,13 +3302,32 @@ async function tryCompleteRecoveryFromBackfill(ctx, turn) {
     threadId,
     recoveryKey: candidate.recoveryKey || ""
   });
-  await recordTelegramReplyStarted(turn.chatKey, response);
-  try {
-    await replyCodexAnswer(ctx, response);
-    await recordTelegramReplyCompleted(turn.chatKey, response);
-  } catch (error) {
-    await recordTelegramReplyFailed(turn.chatKey, error);
-    throw error;
+  const execution = {
+    turn: codexStreamResult(streamState),
+    threadId,
+    executionMode: "inline",
+    workerJobId: ""
+  };
+  const delivery = await runTelegramFinalDelivery({
+    onReady: () => recordTelegramReplyReady(turn.chatKey, execution, response),
+    onStarted: () => recordTelegramReplyStarted(turn.chatKey, execution, response),
+    send: () => replyCodexAnswer(ctx, response),
+    onCompleted: () => recordTelegramReplyCompleted(turn.chatKey, execution, response),
+    onFailed: (error, context) => recordTelegramReplyFailed(turn.chatKey, execution, error, {
+      ambiguous: context.requestStarted
+    })
+  });
+  if (!delivery.ok) {
+    if (delivery.recordError) {
+      console.warn("Backfill delivery failure could not be recorded:", summarizeTelegramError(delivery.recordError));
+    }
+    await appendRecoveryEvent({
+      type: "recovery_backfill_delivery_failed",
+      chatKey: turn.chatKey,
+      threadId,
+      error: { ...delivery.errorSummary, ambiguous: delivery.requestStarted }
+    });
+    return true;
   }
   await recordActiveTurnCompleted(turn.chatKey, threadId);
   await markRecoveryAttempt(config.botRecoveryDir, candidate, { status: "completed" });
@@ -2997,7 +3356,7 @@ async function notifyRecoveryStarted(ctx, turn) {
       type: "recovery_started_notice_failed",
       chatKey: turn.chatKey,
       recoveryKey: candidate.recoveryKey || "",
-      message: truncate(error instanceof Error ? error.message : String(error), 500)
+      error: summarizeTelegramError(error)
     });
     return false;
   }
@@ -3025,14 +3384,15 @@ async function notifyRestartMarker(marker) {
       messageId: message?.message_id || ""
     });
   } catch (error) {
+    const errorSummary = summarizeTelegramError(error);
     await appendRecoveryEvent({
       type: "recovery_startup_notice_failed",
       restartId: marker.restartId || "",
       chatKey: String(notify.chatId),
       messageThreadId: notify.messageThreadId || "",
-      message: error instanceof Error ? error.message : String(error)
+      error: errorSummary
     });
-    console.warn("restart recovery notification failed:", error instanceof Error ? error.message : String(error));
+    console.warn("restart recovery notification failed:", errorSummary);
   }
 }
 
@@ -3680,7 +4040,7 @@ async function answerCleanupCallback(ctx, action) {
   try {
     await ctx.answerCbQuery(cleanupCallbackText(action));
   } catch (error) {
-    console.warn("cleanup callback answer failed:", error instanceof Error ? error.message : String(error));
+    console.warn("cleanup callback answer failed:", summarizeTelegramError(error));
   }
 }
 
@@ -3695,7 +4055,7 @@ async function answerUploadCleanupCallback(ctx, status) {
   try {
     await ctx.answerCbQuery(text);
   } catch (error) {
-    console.warn("upload cleanup callback answer failed:", error instanceof Error ? error.message : String(error));
+    console.warn("upload cleanup callback answer failed:", summarizeTelegramError(error));
   }
 }
 
@@ -4261,17 +4621,17 @@ function shouldDeleteLiveProgress(progressState, turnSucceeded) {
 }
 
 async function maybeSendLiveProgress(ctx, progressState, event, items) {
-  if (!progressState) return;
+  if (!progressState) return false;
   const options = getEffectiveOptions(progressState.chatKey || getChatKey(ctx));
-  if (!options.liveProgressEnabled) return;
-  if (!["brief", "korean-brief"].includes(runtimeValue("telegramLiveProgressMode"))) return;
+  if (!options.liveProgressEnabled) return false;
+  if (!["brief", "korean-brief"].includes(runtimeValue("telegramLiveProgressMode"))) return false;
   const progress = buildLiveProgressMessage(event, items, options.liveProgressSource, uiLanguage());
-  if (!progress) return;
-  if (progress.key === progressState.lastKey) return;
+  if (!progress) return false;
+  if (progress.key === progressState.lastKey) return false;
 
   const now = Date.now();
   const intervalMs = Math.max(0, runtimeValue("telegramLiveProgressIntervalMs"));
-  if (!progress.important && progressState.lastSentAt > 0 && now - progressState.lastSentAt < intervalMs) return;
+  if (!progress.important && progressState.lastSentAt > 0 && now - progressState.lastSentAt < intervalMs) return false;
 
   progressState.lastSentAt = now;
   progressState.lastKey = progress.key;
@@ -4279,7 +4639,14 @@ async function maybeSendLiveProgress(ctx, progressState, event, items) {
     progressState.active.lastProgress = stripHtml(progress.html);
     progressState.active.lastProgressAt = new Date(now).toISOString();
   }
-  await replyTrackedProgressHtml(ctx, progressState, progress.html);
+  const result = await runTelegramProgressBestEffort(
+    () => replyTrackedProgressHtml(ctx, progressState, progress.html),
+    {
+      onError: (errorSummary) => recordTelegramProgressFailed(progressState, event, errorSummary),
+      logger: console
+    }
+  );
+  return result.ok;
 }
 
 function buildLiveProgressMessage(event, items, source = "agent", language = "en") {
@@ -5287,7 +5654,7 @@ async function handleSettingButton(ctx, key, value) {
       state.ui.language = parseLanguage(value);
       await saveState(config.stateFile, state);
       await editOrReplyHtml(ctx, `${b(t("languageUpdated"))}\n\n${settingsPanelHtml(chatKey)}`, settingsKeyboard());
-      await registerTelegramCommands().catch((error) => console.warn("setMyCommands after language update failed:", error instanceof Error ? error.message : String(error)));
+      await registerTelegramCommands().catch((error) => console.warn("setMyCommands after language update failed:", summarizeTelegramError(error)));
       return;
     }
     else if (key === "timezone") {
@@ -5936,6 +6303,7 @@ async function buildStatusDetails(chatKey) {
     queued: getPendingTurns(chatKey).length,
     queuePaused: isQueuePaused(chatKey),
     queueMode: getQueueMode(chatKey),
+    deliverySummary: summarizeWorkerDeliveryStatus(state.worker?.deliveries, chatKey),
     fallbackSession,
     usageSummary
   };
@@ -5952,6 +6320,7 @@ function formatStatusHtml(chatKey, details) {
     `Queue paused: ${code(details.queuePaused ? "yes" : "no")}`,
     `Queued turns: ${code(details.queued ?? getPendingTurns(chatKey).length)}`
   ];
+  lines.push(...formatPendingDeliveryLines(details.deliverySummary));
   if (details.activeInfo?.currentTurnStartedAt) {
     const elapsed = Math.max(0, (Date.now() - Date.parse(details.activeInfo.currentTurnStartedAt)) / 1000);
     lines.push(
@@ -6013,6 +6382,9 @@ function formatRestartRecoveredHtml(marker) {
 
 function formatQueueHtml(chatKey) {
   const queue = getPendingTurns(chatKey);
+  const deliveryLines = formatPendingDeliveryLines(
+    summarizeWorkerDeliveryStatus(state.worker?.deliveries, chatKey)
+  );
   if (queue.length === 0) {
     return [
       b("Codex queue"),
@@ -6020,6 +6392,7 @@ function formatQueueHtml(chatKey) {
       `Side turns: ${code(getSideTurnCount(chatKey))}`,
       `Mode: ${code(getQueueMode(chatKey))}`,
       `Paused: ${code(isQueuePaused(chatKey) ? "yes" : "no")}`,
+      ...deliveryLines,
       t("queueNoTurns")
     ].join("\n");
   }
@@ -6031,6 +6404,7 @@ function formatQueueHtml(chatKey) {
     `Mode: ${code(getQueueMode(chatKey))}`,
     `Paused: ${code(isQueuePaused(chatKey) ? "yes" : "no")}`,
     `Queued turns: ${code(queue.length)} / ${code(runtimeValue("telegramPendingTurnsMax"))}`,
+    ...deliveryLines,
     `Auto expiry: ${code(runtimeValue("telegramPendingTurnMaxAgeSeconds") <= 0 ? "off" : formatDurationSeconds(runtimeValue("telegramPendingTurnMaxAgeSeconds")))}`,
     ""
   ];
@@ -6042,6 +6416,23 @@ function formatQueueHtml(chatKey) {
   }
   lines.push("", t("queueButtonsHelp"));
   return lines.join("\n");
+}
+
+function formatPendingDeliveryLines(summary) {
+  if (!summary || summary.count <= 0) return [];
+  const deliveryKey = summary.status === "uncertain"
+    ? "telegramDeliveryUncertain"
+    : "telegramDeliveryPending";
+  const recoveryKey = summary.recovery === "automatic_replay_disabled"
+    ? "telegramDeliveryReplayDisabled"
+    : summary.recovery === "manual_review_required"
+      ? "telegramDeliveryManualReview"
+      : "telegramDeliverySafeReplay";
+  return [
+    t("deliveryCodexExecutionCompleted"),
+    tf(deliveryKey, { count: summary.count }),
+    t(recoveryKey)
+  ];
 }
 
 function formatQueueModeHtml(chatKey) {
@@ -6369,8 +6760,7 @@ async function registerTelegramCommands() {
       if (attempt > 1) console.log(`Telegram command menu registered after retry (${attempt}/3).`);
       return;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`Telegram command menu registration failed (${attempt}/3):`, message);
+      console.warn(`Telegram command menu registration failed (${attempt}/3):`, summarizeTelegramError(error));
       if (attempt < 3) await sleep(attempt * 1500);
     }
   }
@@ -6407,27 +6797,11 @@ async function replyCodexAnswer(ctx, text) {
 }
 
 async function replyHtml(ctx, html, extra = {}) {
-  try {
-    return await ctx.reply(html, { parse_mode: "HTML", ...extra });
-  } catch (error) {
-    console.warn("Telegram HTML reply failed:", error instanceof Error ? error.message : String(error));
-    return ctx.reply(stripHtml(html), extra);
-  }
+  return replyTelegramHtml(ctx, html, extra, { logger: console });
 }
 
 async function editOrReplyHtml(ctx, html, extra = {}) {
-  try {
-    return await ctx.editMessageText(html, { parse_mode: "HTML", ...extra });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("message is not modified")) return undefined;
-    console.warn("Telegram HTML edit failed:", message);
-  }
-  try {
-    return await ctx.editMessageText(stripHtml(html), extra);
-  } catch {
-    return replyHtml(ctx, html, extra);
-  }
+  return editOrReplyTelegramHtml(ctx, html, extra, { logger: console });
 }
 
 async function replyTrackedProgressHtml(ctx, progressState, html) {
@@ -6455,17 +6829,12 @@ async function replyDocumentQuietly(ctx, filePath, caption) {
   try {
     await ctx.replyWithDocument({ source: filePath, filename: path.basename(filePath) }, { caption });
   } catch (error) {
-    await replyHtml(ctx, `Document upload failed. File remains on disk:\n${code(filePath)}\n${code(error instanceof Error ? error.message : String(error))}`);
+    await replyHtml(ctx, `Document upload failed. File remains on disk:\n${code(filePath)}\n${code(summarizeTelegramError(error).description)}`);
   }
 }
 
 async function sendHtmlMessage(chatId, html, extra = {}) {
-  try {
-    return await bot.telegram.sendMessage(chatId, html, { parse_mode: "HTML", ...extra });
-  } catch (error) {
-    console.warn("Telegram HTML send failed:", error instanceof Error ? error.message : String(error));
-    return bot.telegram.sendMessage(chatId, stripHtml(html), extra);
-  }
+  return sendTelegramHtml(bot.telegram, chatId, html, extra, { logger: console });
 }
 
 function helpTextHtml() {
@@ -6506,7 +6875,7 @@ async function reactQuietly(ctx, emoji, isBig = false) {
   try {
     await ctx.react(emoji, isBig);
   } catch (error) {
-    console.warn("Telegram reaction failed:", error instanceof Error ? error.message : String(error));
+    console.warn("Telegram reaction failed:", summarizeTelegramError(error));
   }
 }
 
