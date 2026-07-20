@@ -2,6 +2,78 @@
 
 All notable public changes are documented here.
 
+## 1.2.7 - 2026-07-20
+
+### Reliability
+
+- Added an application-scoped Telegram HTTPS agent with keep-alive and a
+  one-second address-family attempt timeout. The bot can move on to another
+  viable address without pinning IPv4, IPv6, DNS answers, or Telegram IPs.
+- Made typing, reaction, and live-progress delivery best-effort. A transient
+  Telegram failure can no longer close the worker event iterator, cancel the
+  Codex job, or turn a successful Codex execution into `turn_failed`.
+- Separated completed Codex execution from final Telegram delivery with a
+  durable worker-delivery ledger. Results now move through `result_ready`,
+  `delivery_sending`, `delivery_failed`, and `delivery_sent` independently of
+  the worker job's terminal status.
+- Added read-only replay of completed worker event logs after a bot restart.
+  A safely identified missing result can be reconstructed and delivered
+  without starting a second Codex turn or mutating the original worker job.
+- Preserved uncertain delivery state instead of retrying automatically when a
+  transport error leaves Telegram receipt ambiguous. This deliberately favors
+  duplicate prevention over speculative final-answer retries.
+
+### Fixed
+
+- Limited HTML-to-plain-text fallback to Telegram entity parsing failures.
+  Network, authentication, flood-control, and server errors now remain single
+  requests instead of accidentally issuing a second send.
+- Treated `message is not modified` as a successful edit no-op and created a
+  replacement reply only when Telegram explicitly reports that the original
+  edit target is unavailable.
+- Narrowed rich-message fallback to capability, parsing, and length
+  rejections, while allowing transient network errors to propagate into the
+  delivery state machine without duplicate fallback sends.
+- Replaced active-turn snapshots when a new turn starts so stale worker job
+  identifiers and recovery cursors cannot leak into later work.
+- Queued new same-chat turns while a completed result is still pending final
+  delivery, and exposed pending versus uncertain delivery counts in status
+  output.
+
+### Security and recovery safety
+
+- Redacted Telegram bot-token segments from structured errors and journals.
+  Delivery records store only sanitized error fields plus the final response
+  digest and length, never the response body.
+- Added chat, topic, job, snapshot, cursor, age, and response-digest guards to
+  startup recovery. Stale, mismatched, user-stopped, incomplete, already-sent,
+  and ambiguous candidates require manual review and are never auto-replayed.
+- Pruned only old sent or safely orphaned legacy records. Pending and
+  ambiguous entries remain durable across restarts.
+
+### Dependencies and CI
+
+- Updated `@openai/codex-sdk` and the package-local `@openai/codex` CLI from
+  `0.144.1` to `0.144.6`, keeping the SDK and CLI versions aligned.
+- Updated ESLint from `10.6.0` to `10.7.0`.
+- Updated `actions/setup-node` from v6 to v7 across CI, release, dependency
+  update, PR review, and CI diagnosis workflows.
+
+### Verification
+
+- Added deterministic coverage for Telegram transport classification,
+  parse-only fallback, token redaction, progress fail-open behavior, delivery
+  lifecycle transitions, recovery candidate selection, event-log replay,
+  queue gating, snapshot replacement, and ledger pruning.
+- Verified the progress fault-injection path consumes worker events through
+  the terminal cursor after an injected timeout without a worker cancel or
+  `turn_failed` transition.
+- Exercised the core delivery suite on Node.js 18, 20, and 22, and completed a
+  bot-only live rollout with the worker process left running.
+- Confirmed one current legacy cursor gap was recovered exactly once without a
+  new Codex job, older gaps were not sent, and a controlled sidecar turn showed
+  both live progress and its final Telegram answer.
+
 ## 1.2.6 - 2026-07-10
 
 ### Fixed
