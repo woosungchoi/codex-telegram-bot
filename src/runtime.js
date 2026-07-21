@@ -95,7 +95,6 @@ import { formatCodexAnswerMarkdownHtml, formatCodexAnswerSafeHtml } from "./tele
 import { splitText } from "./telegram/split.js";
 import { isRegisteredTelegramCommandText } from "./telegram_commands.js";
 import { formatCodexUsageSummary } from "./status_usage.js";
-import { handleRestartCommandCore } from "./restart_command.js";
 import {
   buildUploadCleanupPlanFromDisk,
   confirmUploadCleanupPlan,
@@ -106,27 +105,17 @@ import {
   shouldRunUploadCleanup
 } from "./uploads.js";
 import { appendRecoveryJournal, summarizeStreamEvent } from "./recovery/journal.js";
-import { createRestartController } from "./recovery/controller.js";
-import { createRestartMarkerFromActiveTurns } from "./recovery/restart.js";
-import { handleDirectShutdownSignal } from "./recovery/shutdown.js";
+import { createRuntimeRecoveryController } from "./recovery/runtime_controller.js";
 import {
   applyRecoveryThreadToChatState,
-  buildStartupRecoveryPlan,
-  buildStartupRecoveryActions,
   clearCompletedRecovery,
-  clearEmptyRestartMarker,
-  clearStaleRestartMarker,
-  hasRecoveryStartNoticeBeenSent,
-  markRecoveryStartNoticeSent,
   markRecoveryAttempt
 } from "./recovery/startup.js";
 import {
   ensureRecoveryDir,
-  isDuplicateRestartUpdate,
-  rememberRestartUpdate,
   readActiveTurnSnapshots,
-  readRestartMarker,
   readRecoveryDedupe,
+  readRestartMarker,
   replaceActiveTurnSnapshot,
   removeActiveTurnSnapshot,
   upsertActiveTurnSnapshot
@@ -155,7 +144,6 @@ import {
 import { createWorkerClient } from "./worker/client.js";
 import {
   hasPendingWorkerDelivery,
-  isWorkerSnapshotResumeEligible,
   markWorkerDeliveryFailed,
   markWorkerDeliveryResultReady,
   markWorkerDeliverySending,
@@ -163,16 +151,12 @@ import {
   markWorkerDeliveryStreaming,
   mergeWorkerDeliveryCursor,
   normalizeWorkerDeliveryEntry,
-  pruneWorkerDeliveries,
-  selectWorkerDeliveryCandidates,
   summarizeWorkerDeliveryStatus,
-  workerDeliveryDigestMatches,
   workerDeliveryKey
 } from "./worker/delivery.js";
 import {
   isTerminalWorkerEvent,
-  isTerminalWorkerStatus,
-  reconstructCompletedWorkerJob
+  isTerminalWorkerStatus
 } from "./worker/replay.js";
 
 const execFileAsync = promisify(execFile);
@@ -357,17 +341,87 @@ const {
   }
 });
 let workerClient = null;
-let startupRecoveryRunning = false;
-const restartController = createRestartController({
-  activeTurns,
-  exitCode: config.botRestartExitCode,
-  drainTimeoutSeconds: config.botRestartDrainTimeoutSeconds,
-  delaySeconds: config.botRestartDelaySeconds,
-  createMarker: (options) => createRestartMarkerFromActiveTurns(config.botRecoveryDir, options),
-  appendEvent: appendRecoveryEvent,
-  sleep,
-  exit: (codeValue) => process.exit(codeValue),
-  logger: console
+const {
+  handleProcessSignal,
+  handleRestartCommand,
+  isRestartScheduled,
+  scheduleStartupRecovery,
+  startRecoveryScheduler
+} = createRuntimeRecoveryController({
+  settings: {
+    enabled: config.botRestartRecoveryEnabled,
+    recoveryDir: config.botRecoveryDir,
+    recoveryStaleSeconds: config.botRecoveryStaleSeconds,
+    recoverySuspendAfter: config.botRecoverySuspendAfter,
+    recoveryTurnTtlSeconds: config.botRecoveryTurnTtlSeconds,
+    workingDirectory: config.codexWorkdir,
+    restartExitCode: config.botRestartExitCode,
+    restartDrainTimeoutSeconds: config.botRestartDrainTimeoutSeconds,
+    restartDelaySeconds: config.botRestartDelaySeconds,
+    stoppedReaction: config.telegramStoppedReaction,
+    errorReaction: config.telegramErrorReaction,
+    completeReaction: config.telegramCompleteReaction
+  },
+  stateStore: {
+    activeTurns,
+    getWorkerDeliveries: () => state.worker?.deliveries ?? {},
+    replaceWorkerDeliveries: (deliveries) => {
+      state.worker.deliveries = deliveries;
+    },
+    getChat: getChatState,
+    save: () => saveState(config.stateFile, state)
+  },
+  queue: {
+    enqueueFrontForced: async (chatKey, preparedTurn) => {
+      pendingTurns.set(chatKey, [preparedTurn, ...getPendingTurns(chatKey)]);
+      await persistPendingTurns(chatKey);
+    },
+    dequeue: dequeuePendingTurn,
+    startPrepared: startPreparedTurnQueue,
+    startDrain: startQueueDrainIfIdle
+  },
+  worker: {
+    enabled: useWorkerSidecar,
+    getClient: getWorkerClient,
+    waitForJob: waitForWorkerJob,
+    transport: codexTransport
+  },
+  turn: {
+    appendRecoveryEvent,
+    createCodexThread,
+    createLiveProgressState,
+    createSyntheticCtx,
+    deleteTrackedProgressMessages,
+    digestText,
+    formatTurn,
+    markActiveTurnStopped,
+    recordActiveTurnCompleted,
+    recordActiveTurnFailed,
+    recordTelegramReplyCompleted,
+    recordTelegramReplyDigestMismatch,
+    recordTelegramReplyFailed,
+    recordTelegramReplyReady,
+    recordTelegramReplyStarted,
+    shouldDeleteLiveProgress,
+    tryBackfillCompletedStream
+  },
+  telegram: {
+    notifyExtra: telegramNotifyExtra,
+    reactQuietly,
+    replyCodexAnswer,
+    replyHtml,
+    sendHtmlMessage
+  },
+  formatting: {
+    restartRecovered: formatRestartRecoveredHtml,
+    restartScheduled: formatRestartScheduledHtml
+  },
+  lifecycle: {
+    stopBot: (signalName) => bot.stop(signalName),
+    exit: (codeValue) => process.exit(codeValue)
+  },
+  text: t,
+  sleep
 });
 
 hydratePendingTurnsFromState();
@@ -1254,7 +1308,7 @@ async function handleCodexMessage(ctx, text, loadImages) {
     await replyHtml(ctx, formatStatusHtml(chatKey, await buildStatusDetails(chatKey)));
     return;
   }
-  if (restartController.isScheduled() || isRecoveryActive(chatKey)) {
+  if (isRestartScheduled() || isRecoveryActive(chatKey)) {
     await handleSafeQueuedMessage(ctx, chatKey, text, loadImages);
     return;
   }
@@ -2824,563 +2878,6 @@ function startPersistedQueues() {
       });
     }
   }, 3000);
-}
-
-async function startRecoveryScheduler() {
-  if (!config.botRestartRecoveryEnabled) return;
-  await ensureRecoveryDir(config.botRecoveryDir);
-  if (useWorkerSidecar()) await checkWorkerStartupStatus();
-  await scheduleStartupRecovery({ source: "startup" });
-}
-
-async function handleProcessSignal(signal) {
-  if (signal === "SIGUSR2") {
-    await requestRestart({ mode: "sigusr2", requestedBy: "signal", reason: "self_restart" });
-    return;
-  }
-  await handleDirectShutdownSignal({
-    signal,
-    activeTurns,
-    recoveryEnabled: config.botRestartRecoveryEnabled,
-    recoveryDir: config.botRecoveryDir,
-    createMarker: createRestartMarkerFromActiveTurns,
-    hasRecoverySnapshots: hasPersistedRecoverySnapshots,
-    stopBot: (signalName) => bot.stop(signalName),
-    exit: (codeValue) => process.exit(codeValue),
-    logger: console
-  });
-}
-
-async function hasPersistedRecoverySnapshots() {
-  const snapshots = await readActiveTurnSnapshots(config.botRecoveryDir);
-  return Object.values(snapshots.turns ?? {}).some((snapshot) => snapshot?.recoveryEligible !== false);
-}
-
-async function handleRestartCommand(ctx) {
-  await handleRestartCommandCore(ctx, {
-    recoveryEnabled: config.botRestartRecoveryEnabled,
-    recoveryDisabledText: () => t("recoveryDisabled"),
-    isDuplicate: isDuplicateRestartCommandUpdate,
-    requestRestart,
-    rememberUpdate: (updateId) => rememberRestartUpdate(config.botRecoveryDir, updateId),
-    reply: replyHtml,
-    formatScheduled: formatRestartScheduledHtml
-  });
-}
-
-async function isDuplicateRestartCommandUpdate(ctx) {
-  const updateId = ctx.update?.update_id;
-  const dedupe = await readRecoveryDedupe(config.botRecoveryDir);
-  if (!isDuplicateRestartUpdate(dedupe, updateId)) return false;
-  await appendRecoveryEvent({ type: "restart_duplicate_update_ignored", updateId });
-  return true;
-}
-
-async function requestRestart({ mode, requestedBy, reason, notify = null }) {
-  return restartController.requestRestart({
-    mode,
-    requestedBy,
-    reason,
-    notify
-  });
-}
-
-async function scheduleStartupRecovery({ force = false, notifyCtx = null, source = "manual" } = {}) {
-  if (!config.botRestartRecoveryEnabled || startupRecoveryRunning) return false;
-  startupRecoveryRunning = true;
-  let started = 0;
-  try {
-    if (useWorkerSidecar()) {
-      started += await recoverActiveWorkerJobs({
-        source,
-        maxAgeSeconds: force ? 0 : config.botRecoveryStaleSeconds
-      });
-    }
-    const plan = await buildStartupRecoveryPlan(config.botRecoveryDir, {
-      maxAgeSeconds: force ? 0 : config.botRecoveryStaleSeconds,
-      suspendAfter: force ? Number.POSITIVE_INFINITY : config.botRecoverySuspendAfter,
-      reason: source === "startup" ? "startup_recovery" : "manual_recovery",
-      excludeWorkerJobs: useWorkerSidecar()
-    });
-    await appendRecoveryEvent({
-      type: "startup_recovery_plan",
-      source,
-      candidates: plan.candidates.length,
-      stale: plan.stale.length,
-      suspended: plan.suspended.length
-    });
-    await notifyRestartMarker(plan.marker);
-    await clearEmptyRestartMarker(config.botRecoveryDir, plan);
-    await clearStaleRestartMarker(config.botRecoveryDir, plan);
-    for (const candidate of plan.stale) {
-      await appendRecoveryEvent({ type: "recovery_skipped_stale", chatKey: candidate.chatKey, recoveryKey: candidate.recoveryKey });
-    }
-    for (const candidate of plan.suspended) {
-      await appendRecoveryEvent({ type: "recovery_skipped_suspended", chatKey: candidate.chatKey, recoveryKey: candidate.recoveryKey, attempt: candidate.attempt });
-    }
-    const actions = buildStartupRecoveryActions(plan, {
-      activeChatKeys: activeTurns.keys(),
-      ttlSeconds: config.botRecoveryTurnTtlSeconds,
-      workingDirectory: config.codexWorkdir
-    });
-    for (const candidate of actions.skippedActive) {
-      await appendRecoveryEvent({ type: "recovery_skipped_active", chatKey: candidate.chatKey, recoveryKey: candidate.recoveryKey });
-    }
-    for (const turn of actions.turns) {
-      const candidate = turn.recovery;
-      const recoveryCtx = createSyntheticCtx(turn);
-      try {
-        if (await tryCompleteRecoveryFromBackfill(recoveryCtx, turn)) {
-          started += 1;
-          continue;
-        }
-        await markRecoveryAttempt(config.botRecoveryDir, candidate, { status: "started" });
-        await notifyRecoveryStarted(recoveryCtx, turn);
-        await enqueuePendingTurnFrontForced(turn.chatKey, turn);
-        const firstTurn = await dequeuePendingTurn(turn.chatKey, recoveryCtx);
-        if (!firstTurn) throw new Error("Recovery turn could not be dequeued.");
-        await startPreparedTurnQueue(turn.chatKey, firstTurn);
-        started += 1;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await appendRecoveryEvent({ type: "recovery_start_failed", chatKey: turn.chatKey, recoveryKey: candidate.recoveryKey || "", message: truncate(message, 500) });
-        await markRecoveryAttempt(config.botRecoveryDir, candidate, { status: "failed" });
-        await notifyRecoveryStartFailed(recoveryCtx, turn, message);
-      }
-    }
-    if (notifyCtx && started === 0) await appendRecoveryEvent({ type: "manual_recovery_no_candidates" });
-  } catch (error) {
-    console.warn("startup recovery failed:", error instanceof Error ? error.message : String(error));
-    if (notifyCtx) await replyHtml(notifyCtx, `${b(t("recoveryFailed"))}\n${code(error instanceof Error ? error.message : String(error))}`);
-  } finally {
-    startupRecoveryRunning = false;
-  }
-  return started > 0;
-}
-
-async function recoverActiveWorkerJobs({ source = "startup", maxAgeSeconds = config.botRecoveryStaleSeconds } = {}) {
-  const snapshotPayload = await readActiveTurnSnapshots(config.botRecoveryDir);
-  const snapshots = snapshotPayload.turns ?? {};
-  const deliveries = state.worker?.deliveries ?? {};
-  const importantJobIds = new Set(
-    Object.values(snapshots).map((snapshot) => String(snapshot?.workerJobId || "")).filter(Boolean)
-  );
-  for (const [key, rawEntry] of Object.entries(deliveries)) {
-    const entry = normalizeWorkerDeliveryEntry(key, rawEntry);
-    if (entry && entry.deliveryStatus !== "legacy_unknown") importantJobIds.add(entry.jobId);
-  }
-
-  const jobs = await readWorkerJobsForRecovery(deliveries, snapshots, importantJobIds, source);
-  const activeSnapshotJobIds = Object.values(snapshots)
-    .map((snapshot) => String(snapshot?.workerJobId || ""))
-    .filter(Boolean);
-  const pruned = pruneWorkerDeliveries(deliveries, {
-    jobs,
-    activeSnapshotJobIds,
-    maxAgeSeconds: config.botRecoveryTurnTtlSeconds
-  });
-  if (pruned.removed.length > 0) {
-    state.worker.deliveries = pruned.deliveries;
-    await saveState(config.stateFile, state);
-    await appendRecoveryEvent({ type: "worker_delivery_pruned", count: pruned.removed.length });
-  }
-
-  const selection = selectWorkerDeliveryCandidates(state.worker?.deliveries ?? {}, jobs, {
-    snapshots,
-    maxAgeSeconds
-  });
-  await appendRecoveryEvent({
-    type: "worker_delivery_recovery_plan",
-    source,
-    safe: selection.safe.length,
-    manual: selection.manual.length,
-    ignored: selection.ignored.length
-  });
-  for (const candidate of selection.manual) {
-    await appendRecoveryEvent({
-      type: "worker_delivery_manual_review",
-      chatKey: candidate.chatKey,
-      jobId: candidate.jobId,
-      reason: candidate.reason
-    });
-  }
-  for (const candidate of selection.ignored) {
-    if (candidate.reason !== "already_sent" || !candidate.snapshot) continue;
-    await removeActiveTurnSnapshot(config.botRecoveryDir, candidate.chatKey);
-    await appendRecoveryEvent({
-      type: "worker_delivery_snapshot_cleaned",
-      chatKey: candidate.chatKey,
-      jobId: candidate.jobId,
-      reason: candidate.reason
-    });
-  }
-
-  let started = 0;
-  for (const [chatKey, snapshot] of Object.entries(snapshots)) {
-    const jobId = String(snapshot?.workerJobId || "");
-    const job = jobs[jobId];
-    if (!jobId || !isWorkerSnapshotResumeEligible(snapshot, job) || activeTurns.has(chatKey)) continue;
-    if (startWorkerJobRecovery(chatKey, snapshot, job, {
-      source,
-      expectedDigest: "",
-      showProgress: true
-    })) started += 1;
-  }
-
-  for (const candidate of selection.safe) {
-    if (activeTurns.has(candidate.chatKey)) {
-      await appendRecoveryEvent({
-        type: "worker_delivery_recovery_skipped_active",
-        chatKey: candidate.chatKey,
-        jobId: candidate.jobId
-      });
-      continue;
-    }
-    const snapshot = candidate.snapshot ?? workerRecoverySnapshot(candidate.chatKey, candidate.job);
-    if (startWorkerJobRecovery(candidate.chatKey, snapshot, candidate.job, {
-      source,
-      expectedDigest: candidate.entry.responseDigest || "",
-      showProgress: false,
-      completedReplay: true,
-      reason: candidate.reason
-    })) started += 1;
-  }
-  return started;
-}
-
-async function readWorkerJobsForRecovery(deliveries, snapshots, importantJobIds, source) {
-  const jobIds = new Set(
-    Object.entries(deliveries)
-      .map(([key, rawEntry]) => normalizeWorkerDeliveryEntry(key, rawEntry)?.jobId || "")
-      .filter(Boolean)
-  );
-  for (const snapshot of Object.values(snapshots)) {
-    const jobId = String(snapshot?.workerJobId || "");
-    if (jobId) jobIds.add(jobId);
-  }
-
-  const jobs = {};
-  await Promise.all([...jobIds].map(async (jobId) => {
-    try {
-      const result = await getWorkerClient().getJobStatus(jobId);
-      if (result?.job) jobs[jobId] = result.job;
-    } catch (error) {
-      if (!importantJobIds.has(jobId)) return;
-      await appendRecoveryEvent({
-        type: "worker_recovery_unavailable",
-        jobId,
-        source,
-        error: summarizeTelegramError(error)
-      });
-    }
-  }));
-  return jobs;
-}
-
-function startWorkerJobRecovery(chatKey, snapshot, job, options = {}) {
-  if (!snapshot || !job?.id || activeTurns.has(chatKey)) return false;
-  const preparedSnapshot = {
-    ...snapshot,
-    chatKey,
-    workerJobId: job.id,
-    workerEventSeq: Number(snapshot.workerEventSeq || 0),
-    recoveryEligible: true,
-    recoveryReason: options.reason || snapshot.recoveryReason || "worker_recovery"
-  };
-  const turn = createWorkerRecoveryTurn(chatKey, preparedSnapshot);
-  const ctx = createSyntheticCtx(turn);
-  const active = {
-    abortController: new AbortController(),
-    currentPreparedTurn: turn,
-    currentQueueItemId: turn.id || "",
-    currentText: turn.text || "",
-    currentTurnStartedAt: snapshot.startedAt || new Date().toISOString(),
-    lastProgress: "",
-    lastProgressAt: "",
-    recoveryEligible: true,
-    workerJobId: job.id,
-    workerEventSeq: Number(snapshot.workerEventSeq || 0)
-  };
-  activeTurns.set(chatKey, active);
-  const liveProgress = options.showProgress ? createLiveProgressState(active) : null;
-  if (liveProgress) liveProgress.chatKey = chatKey;
-  resumeWorkerJobRecovery(ctx, chatKey, job.id, active, liveProgress, options).catch((error) => {
-    console.warn("worker recovery failed:", summarizeTelegramError(error));
-  });
-  return true;
-}
-
-function workerRecoverySnapshot(chatKey, job) {
-  return {
-    chatKey,
-    chatId: job?.chatId ?? chatKey,
-    chatType: job?.chatType,
-    messageThreadId: job?.messageThreadId,
-    replyToMessageId: job?.replyToMessageId,
-    originMessageId: job?.originMessageId,
-    originUpdateId: job?.originUpdateId,
-    queueItemId: job?.id || "",
-    threadId: job?.threadId || "",
-    inputPreview: "",
-    startedAt: job?.startedAt || job?.acceptedAt || "",
-    lastEventAt: job?.completedAt || job?.updatedAt || "",
-    workerJobId: job?.id || "",
-    workerEventSeq: Number(job?.lastSeq || 0),
-    workerMode: "sidecar",
-    workerTransport: job?.transport || codexTransport(),
-    recoveryEligible: true
-  };
-}
-
-async function checkWorkerStartupStatus() {
-  try {
-    const status = await getWorkerClient().status();
-    await appendRecoveryEvent({
-      type: "worker_startup_status",
-      status: status.status || "ok",
-      activeJobs: status.activeJobs?.length ?? 0,
-      runningJobs: status.runningJobIds?.length ?? 0
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await appendRecoveryEvent({ type: "worker_startup_status_failed", message: truncate(message, 500) });
-    console.warn("worker startup status check failed:", message);
-  }
-}
-
-async function resumeWorkerJobRecovery(ctx, chatKey, jobId, active, liveProgress, options = {}) {
-  const source = options.source || "startup";
-  await appendRecoveryEvent({ type: "worker_recovery_started", chatKey, jobId, source, reason: options.reason || "" });
-  let finalReaction = "";
-  let deliveryCompleted = false;
-  try {
-    let workerResult;
-    try {
-      workerResult = options.completedReplay
-        ? await reconstructCompletedWorkerJob(getWorkerClient(), jobId)
-        : await waitForWorkerJob(ctx, chatKey, jobId, active, liveProgress, {
-          afterSeq: 0,
-          turnKind: "recovery"
-        });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (active.abortController.signal.aborted || isWorkerCancelledMessage(message)) {
-        await markActiveTurnStopped(chatKey);
-        await appendRecoveryEvent({ type: "worker_recovery_cancelled", chatKey, jobId, message: truncate(message, 500) });
-        finalReaction = config.telegramStoppedReaction;
-      } else {
-        await recordActiveTurnFailed(chatKey, message);
-        await replyHtml(ctx, `${b(t("recoveryStartFailedTitle"))}\n${t("recoveryStartFailedDetail")}\n${code(message)}`).catch(() => {});
-        await appendRecoveryEvent({ type: "worker_recovery_failed", chatKey, jobId, message: truncate(message, 500) });
-        finalReaction = config.telegramErrorReaction;
-      }
-      return;
-    }
-
-    const execution = {
-      ...workerResult,
-      executionMode: "sidecar",
-      workerJobId: jobId
-    };
-    if (execution.threadId && getChatState(chatKey).threadId !== execution.threadId) {
-      const chat = getChatState(chatKey);
-      chat.threadId = execution.threadId;
-      chat.updatedAt = new Date().toISOString();
-      await saveState(config.stateFile, state);
-    }
-    const response = formatTurn(execution.turn);
-    const replyText = response || "Codex completed without a final message.";
-    const actualDigest = digestText(replyText);
-    if (!workerDeliveryDigestMatches(options.expectedDigest, actualDigest)) {
-      active.stopRequested = true;
-      active.deliveryPending = true;
-      await recordTelegramReplyDigestMismatch(chatKey, execution, options.expectedDigest, actualDigest);
-      return;
-    }
-
-    const delivery = await runTelegramFinalDelivery({
-      onReady: () => recordTelegramReplyReady(chatKey, execution, replyText),
-      onStarted: () => recordTelegramReplyStarted(chatKey, execution, replyText),
-      send: () => replyCodexAnswer(ctx, replyText),
-      onCompleted: () => recordTelegramReplyCompleted(chatKey, execution, replyText),
-      onFailed: (error, context) => recordTelegramReplyFailed(chatKey, execution, error, {
-        ambiguous: context.requestStarted
-      })
-    });
-    if (!delivery.ok) {
-      active.stopRequested = true;
-      active.deliveryPending = true;
-      if (delivery.recordError) {
-        console.warn("Worker recovery delivery failure could not be recorded:", summarizeTelegramError(delivery.recordError));
-      }
-      await appendRecoveryEvent({
-        type: "worker_recovery_delivery_failed",
-        chatKey,
-        jobId,
-        error: { ...delivery.errorSummary, ambiguous: delivery.requestStarted }
-      });
-      return;
-    }
-
-    await recordActiveTurnCompleted(chatKey, execution.threadId || getChatState(chatKey).threadId || "");
-    await appendRecoveryEvent({ type: "worker_recovery_completed", chatKey, jobId, threadId: execution.threadId || "" });
-    deliveryCompleted = true;
-    finalReaction = config.telegramCompleteReaction;
-  } finally {
-    if (liveProgress && shouldDeleteLiveProgress(liveProgress, deliveryCompleted)) {
-      await deleteTrackedProgressMessages(ctx, liveProgress);
-    }
-    await reactQuietly(ctx, finalReaction, finalReaction === config.telegramCompleteReaction);
-    activeTurns.delete(chatKey);
-    if (deliveryCompleted) await startQueueDrainIfIdle(chatKey, ctx);
-  }
-}
-
-function createWorkerRecoveryTurn(chatKey, snapshot) {
-  return {
-    id: snapshot.queueItemId || `worker-recovery-${snapshot.workerJobId || Date.now()}`,
-    chatKey,
-    chatId: snapshot.chatId ?? chatKey,
-    chatType: snapshot.chatType,
-    messageThreadId: snapshot.messageThreadId,
-    replyToMessageId: snapshot.replyToMessageId,
-    originMessageId: snapshot.originMessageId,
-    originUpdateId: snapshot.originUpdateId,
-    kind: "recovery",
-    text: snapshot.inputPreview || "",
-    inputText: "",
-    imagePaths: [],
-    recovery: {
-      chatKey,
-      threadId: snapshot.threadId || "",
-      recoveryKey: snapshot.recoveryKey || "",
-      startedAt: snapshot.startedAt || "",
-      lastEventAt: snapshot.lastEventAt || "",
-      workerJobId: snapshot.workerJobId || "",
-      workerEventSeq: Number(snapshot.workerEventSeq || 0)
-    }
-  };
-}
-
-function isWorkerCancelledMessage(message) {
-  const normalized = String(message || "").toLowerCase();
-  return normalized.includes("operation was aborted")
-    || normalized.includes("worker job was cancelled")
-    || normalized.includes("cancelled by telegram bot");
-}
-
-async function tryCompleteRecoveryFromBackfill(ctx, turn) {
-  const candidate = turn.recovery || {};
-  const threadId = String(candidate.threadId || "").trim();
-  if (!threadId) return false;
-  const streamState = createCodexStreamState();
-  const thread = createCodexThread(turn.chatKey, threadId);
-  const recovered = await tryBackfillCompletedStream(turn.chatKey, thread, streamState, {
-    sinceMs: Date.parse(candidate.startedAt || candidate.lastEventAt || "") || 0,
-    reason: "startup_recovery_preflight"
-  });
-  if (!recovered) return false;
-
-  const response = formatTurn(codexStreamResult(streamState));
-  if (!response) return false;
-  await appendRecoveryEvent({
-    type: "recovery_completed_from_backfill",
-    chatKey: turn.chatKey,
-    threadId,
-    recoveryKey: candidate.recoveryKey || ""
-  });
-  const execution = {
-    turn: codexStreamResult(streamState),
-    threadId,
-    executionMode: "inline",
-    workerJobId: ""
-  };
-  const delivery = await runTelegramFinalDelivery({
-    onReady: () => recordTelegramReplyReady(turn.chatKey, execution, response),
-    onStarted: () => recordTelegramReplyStarted(turn.chatKey, execution, response),
-    send: () => replyCodexAnswer(ctx, response),
-    onCompleted: () => recordTelegramReplyCompleted(turn.chatKey, execution, response),
-    onFailed: (error, context) => recordTelegramReplyFailed(turn.chatKey, execution, error, {
-      ambiguous: context.requestStarted
-    })
-  });
-  if (!delivery.ok) {
-    if (delivery.recordError) {
-      console.warn("Backfill delivery failure could not be recorded:", summarizeTelegramError(delivery.recordError));
-    }
-    await appendRecoveryEvent({
-      type: "recovery_backfill_delivery_failed",
-      chatKey: turn.chatKey,
-      threadId,
-      error: { ...delivery.errorSummary, ambiguous: delivery.requestStarted }
-    });
-    return true;
-  }
-  await recordActiveTurnCompleted(turn.chatKey, threadId);
-  await markRecoveryAttempt(config.botRecoveryDir, candidate, { status: "completed" });
-  await clearCompletedRecovery(config.botRecoveryDir);
-  return true;
-}
-
-async function notifyRecoveryStarted(ctx, turn) {
-  const candidate = turn.recovery || { chatKey: turn.chatKey };
-  if (await hasRecoveryStartNoticeBeenSent(config.botRecoveryDir, candidate)) {
-    await appendRecoveryEvent({ type: "recovery_started_notice_skipped", chatKey: turn.chatKey, recoveryKey: candidate.recoveryKey || "" });
-    return false;
-  }
-  try {
-    const message = await replyHtml(ctx, `${b(t("recoveryStartedTitle"))}\n${t("recoveryStartedDetail")}`);
-    await markRecoveryStartNoticeSent(config.botRecoveryDir, candidate);
-    await appendRecoveryEvent({
-      type: "recovery_started_notice_sent",
-      chatKey: turn.chatKey,
-      recoveryKey: candidate.recoveryKey || "",
-      messageId: message?.message_id || ""
-    });
-    return true;
-  } catch (error) {
-    await appendRecoveryEvent({
-      type: "recovery_started_notice_failed",
-      chatKey: turn.chatKey,
-      recoveryKey: candidate.recoveryKey || "",
-      error: summarizeTelegramError(error)
-    });
-    return false;
-  }
-}
-
-async function notifyRecoveryStartFailed(ctx, turn, message) {
-  await replyHtml(ctx, `${b(t("recoveryStartFailedTitle"))}\n${t("recoveryStartFailedDetail")}\n${code(message)}`).catch(() => {});
-}
-
-async function enqueuePendingTurnFrontForced(chatKey, preparedTurn) {
-  pendingTurns.set(chatKey, [preparedTurn, ...getPendingTurns(chatKey)]);
-  await persistPendingTurns(chatKey);
-}
-
-async function notifyRestartMarker(marker) {
-  const notify = marker?.notify;
-  if (!notify?.chatId) return;
-  try {
-    const message = await sendHtmlMessage(notify.chatId, formatRestartRecoveredHtml(marker), telegramNotifyExtra(notify));
-    await appendRecoveryEvent({
-      type: "recovery_startup_notice_sent",
-      restartId: marker.restartId || "",
-      chatKey: String(notify.chatId),
-      messageThreadId: notify.messageThreadId || "",
-      messageId: message?.message_id || ""
-    });
-  } catch (error) {
-    const errorSummary = summarizeTelegramError(error);
-    await appendRecoveryEvent({
-      type: "recovery_startup_notice_failed",
-      restartId: marker.restartId || "",
-      chatKey: String(notify.chatId),
-      messageThreadId: notify.messageThreadId || "",
-      error: errorSummary
-    });
-    console.warn("restart recovery notification failed:", errorSummary);
-  }
 }
 
 function telegramNotifyExtra(meta = {}) {
