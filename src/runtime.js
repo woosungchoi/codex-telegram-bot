@@ -2,14 +2,11 @@ import "dotenv/config";
 
 // Importing this module initializes state and starts the Telegram polling loop.
 
-import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import { Telegraf } from "telegraf";
 import { bootstrapBot } from "./app/bootstrap.js";
 import {
@@ -32,16 +29,11 @@ import {
   threadTransport as detectThreadTransport
 } from "./codex/thread_factory.js";
 import { readConfig as readRuntimeConfig } from "./config.js";
-import { renderHandoffMarkdown, sanitizeHandoffFilename, sessionHighlightFromItem } from "./handoff.js";
 import { TELEGRAM_LANGUAGE_CODES, VALID_LANGUAGES, textFor } from "./i18n.js";
-import {
-  appendPrivateFile,
-  ensurePrivateDirectory,
-  writePrivateFile
-} from "./fs/private.js";
-import { parseCodexMaintenanceOutput } from "./maintenance/codex.js";
 import { createCleanupController } from "./maintenance/cleanup_controller.js";
-import { serializePendingTurn } from "./queue.js";
+import { createBackupController } from "./maintenance/backup_controller.js";
+import { createCleanupRuntime } from "./maintenance/cleanup_runtime.js";
+import { createCodexMaintenanceController } from "./maintenance/runtime_controller.js";
 import { createQueueRuntimeController } from "./queue/runtime_controller.js";
 import { authorizeTelegramUpdate } from "./security.js";
 import {
@@ -159,6 +151,7 @@ const codexClients = new Map();
 const sideTurns = new Map();
 const usageRefreshes = new Map();
 const selectionFlows = createSelectionFlowStore();
+let maintenanceController = null;
 const {
   applyPersonaPrompt,
   buildReplyContext,
@@ -297,8 +290,8 @@ const {
   currentLocale: uiLocale,
   isQueuePaused,
   pendingTurnsFor: getPendingTurns,
-  maintenanceAutoHandoffEnabled,
-  maintenanceAutoSqliteRepairEnabled
+  maintenanceAutoHandoffEnabled: () => maintenanceController?.autoHandoffEnabled() ?? false,
+  maintenanceAutoSqliteRepairEnabled: () => maintenanceController?.autoSqliteRepairEnabled() ?? false
 });
 const {
   renderFastPanelHtml,
@@ -469,6 +462,76 @@ const {
   packages: {
     readJson: readJsonFile,
     readPackage: (...args) => readPackageJson(appRoot, ...args)
+  }
+});
+maintenanceController = createCodexMaintenanceController({
+  settings: {
+    config
+  },
+  state,
+  threadCache,
+  chats: {
+    get: getChatState
+  },
+  sessions: {
+    findFile: findCodexSessionFile,
+    listRecent: listRecentCodexSessions,
+    readMeta: readSessionMeta
+  },
+  localization: {
+    text: t,
+    formatText: tf
+  },
+  formatting: {
+    bytes: formatBytes,
+    count: cleanupCount,
+    keyValue: formatKeyValueHtml,
+    localDateKey: getLocalDateKey
+  }
+});
+const {
+  autoHandoffEnabled: maintenanceAutoHandoffEnabled,
+  autoSqliteRepairEnabled: maintenanceAutoSqliteRepairEnabled,
+  createCurrentHandoff: createCurrentThreadHandoff,
+  createThreadHandoff,
+  formatHandoff: formatHandoffResultHtml,
+  formatReport: formatCodexMaintenanceReportHtml,
+  formatResult: formatCodexMaintenanceResultHtml,
+  menuHtml: codexMaintenanceMenuHtml,
+  readReport: readCodexMaintenanceReport,
+  run: runCodexMaintenance,
+  sqliteRepairConfirmHtml: codexMaintenanceSqliteRepairConfirmHtml
+} = maintenanceController;
+const {
+  createChatExport,
+  createStateBackup,
+  startStateSnapshotScheduler
+} = createBackupController({
+  settings: {
+    config,
+    runtimeValue
+  },
+  state,
+  activeTurns,
+  threadCache,
+  chats: {
+    get: getChatState,
+    getEffectiveOptions
+  },
+  queue: {
+    countPending: countPendingTurns,
+    pending: getPendingTurns
+  },
+  app: {
+    buildConfigSummary,
+    buildSummary: buildAppSummary,
+    redactValue
+  },
+  persistence: {
+    save: () => saveState(config.stateFile, state)
+  },
+  clock: {
+    getLocalClock
   }
 });
 
@@ -703,7 +766,6 @@ const { handleToolButton } = createToolCallbackController({
   }
 });
 
-const execFileAsync = promisify(execFile);
 const replaceChatOptions = createAtomicChatOptionsReplacer({
   getChat: getChatState,
   save: () => saveState(config.stateFile, state),
@@ -755,6 +817,63 @@ const {
     standaloneReasoningSelectionKeyboard
   },
   text: t
+});
+const {
+  answerCleanupCallback,
+  answerUploadCleanupCallback,
+  appendCleanupLog,
+  collectProtectedThreadIds,
+  createUploadCleanupPlan,
+  editCleanupMessage,
+  editCleanupProcessingMessage,
+  editUploadCleanupMessage,
+  formatCleanupIgnoredHtml,
+  formatCleanupResultHtml,
+  listCleanupSessionFiles,
+  listQuarantineDeleteCandidates,
+  pruneExpiredCleanupPlans,
+  startCleanupScheduler
+} = createCleanupRuntime({
+  settings: {
+    config,
+    runtimeValue
+  },
+  state,
+  activeTurns,
+  threadCache,
+  sessions: {
+    listFiles,
+    readMeta: readSessionMeta
+  },
+  cleanup: {
+    sendDailyPlan: (...args) => sendDailyCleanupPlan(...args)
+  },
+  maintenance: {
+    autoHandoffEnabled: maintenanceAutoHandoffEnabled,
+    autoSqliteRepairEnabled: maintenanceAutoSqliteRepairEnabled,
+    createThreadHandoff,
+    run: runCodexMaintenance
+  },
+  telegram: {
+    editOrReplyHtml,
+    summarizeError: summarizeTelegramError
+  },
+  localization: {
+    text: t,
+    formatText: tf
+  },
+  formatting: {
+    count: cleanupCount,
+    localClock: getLocalClock
+  },
+  persistence: {
+    save: () => saveState(config.stateFile, state)
+  },
+  uploads: {
+    buildPlan: buildUploadCleanupPlanFromDisk,
+    createPlanLogEntry: createUploadCleanupPlanLogEntry,
+    shouldRun: shouldRunUploadCleanup
+  }
 });
 const {
   applyCleanupPlan,
@@ -2195,395 +2314,6 @@ async function findCodexSessionFile(threadId) {
   return null;
 }
 
-async function editCleanupMessage(ctx, html) {
-  return editOrReplyHtml(ctx, html, { reply_markup: { inline_keyboard: [] } });
-}
-
-async function editUploadCleanupMessage(ctx, html) {
-  return editOrReplyHtml(ctx, html, { reply_markup: { inline_keyboard: [] } });
-}
-
-async function editCleanupProcessingMessage(ctx, action, plan) {
-  return editOrReplyHtml(ctx, formatCleanupProcessingHtml(action, plan), {
-    reply_markup: {
-      inline_keyboard: [[{ text: t("cleanupProcessingButton"), callback_data: `cleanup:processing:${plan.id}` }]]
-    }
-  });
-}
-
-function cleanupActionLabel(action) {
-  if (action === "quarantine") return t("cleanupActionQuarantine");
-  if (action === "delete") return t("cleanupActionDelete");
-  if (action === "both") return t("cleanupActionBoth");
-  if (action === "ignore") return t("cleanupActionIgnore");
-  return action;
-}
-
-function cleanupCallbackText(action) {
-  if (action === "quarantine") return t("cleanupCallbackQuarantine");
-  if (action === "delete") return t("cleanupCallbackDelete");
-  if (action === "both") return t("cleanupCallbackBoth");
-  if (action === "ignore") return t("cleanupCallbackIgnore");
-  if (action === "missing") return t("cleanupCallbackMissing");
-  if (action === "expired") return t("cleanupCallbackExpired");
-  return "";
-}
-
-async function answerCleanupCallback(ctx, action) {
-  try {
-    await ctx.answerCbQuery(cleanupCallbackText(action));
-  } catch (error) {
-    console.warn("cleanup callback answer failed:", summarizeTelegramError(error));
-  }
-}
-
-async function answerUploadCleanupCallback(ctx, status) {
-  const text = status === "confirm"
-    ? "Deleting selected upload cleanup candidates..."
-    : status === "expired_plan"
-      ? "Upload cleanup plan expired."
-      : status === "processing"
-        ? "Upload cleanup is already processing."
-        : "Upload cleanup plan not found.";
-  try {
-    await ctx.answerCbQuery(text);
-  } catch (error) {
-    console.warn("upload cleanup callback answer failed:", summarizeTelegramError(error));
-  }
-}
-
-function formatCleanupProcessingHtml(action, plan) {
-  const lines = [
-    b(tf("cleanupProcessingTitle", { action: cleanupActionLabel(action) })),
-    "",
-    t("cleanupProcessingBody"),
-    "",
-    b(t("cleanupTargets")),
-    `- ${t("cleanupQuarantineCandidates")}: ${code(cleanupCount(plan.quarantineCandidates.length))}`,
-    `- ${t("cleanupPermanentDeleteCandidates")}: ${code(cleanupCount(plan.deleteCandidates.length))}`,
-    "",
-    t("cleanupFinishReplace")
-  ];
-  return lines.join("\n");
-}
-
-function formatCleanupIgnoredHtml(plan) {
-  return [
-    b(t("cleanupIgnoredTitle")),
-    "",
-    `${t("cleanupQuarantineCandidates")}: ${code(cleanupCount(plan.quarantineCandidates.length))}`,
-    `${t("cleanupPermanentDeleteCandidates")}: ${code(cleanupCount(plan.deleteCandidates.length))}`,
-    "",
-    t("cleanupNoFilesMoved")
-  ].join("\n");
-}
-
-function formatCleanupResultHtml(action, result, plan = null) {
-  const lines = [
-    b(tf("cleanupResultTitle", { action: cleanupActionLabel(action) })),
-    "",
-    `${t("cleanupResultQuarantined")}: ${code(result.quarantined)}`,
-    `${t("cleanupResultDeleted")}: ${code(result.deleted)}`,
-    `${t("cleanupResultSkipped")}: ${code(result.skipped)}`,
-    `${t("cleanupResultErrors")}: ${code(result.errors.length)}`,
-    `manifest: ${code(result.manifest || "none")}`,
-    `restore: ${code(result.restoreScript || "none")}`
-  ];
-  if (plan) {
-    lines.push(
-      "",
-      b(t("cleanupTargetSummary")),
-      `- ${t("cleanupQuarantineCandidates")}: ${code(cleanupCount(plan.quarantineCandidates.length))}`,
-      `- ${t("cleanupPermanentDeleteCandidates")}: ${code(cleanupCount(plan.deleteCandidates.length))}`
-    );
-  }
-  if (result.errors.length > 0) {
-    lines.push("", ...result.errors.slice(0, 3).map((error) => `- ${code(error)}`));
-  }
-  return lines.join("\n");
-}
-async function listCleanupSessionFiles(protectedThreadIds) {
-  let files = [];
-  try {
-    files = await listFiles(config.codexSessionsDir);
-  } catch (error) {
-    if (error?.code === "ENOENT") return { protectedCount: protectedThreadIds.size, recentCount: 0, candidates: [] };
-    throw error;
-  }
-
-  const cutoff = Date.now() - runtimeValue("cleanupRetentionDays") * 24 * 60 * 60 * 1000;
-  const candidates = [];
-  let recentCount = 0;
-
-  for (const file of files.filter((entry) => entry.endsWith(".jsonl"))) {
-    const meta = await readSessionMeta(file);
-    if (!meta?.id) continue;
-    const stat = await fs.stat(file);
-    if (protectedThreadIds.has(meta.id)) continue;
-    if (stat.mtimeMs >= cutoff) {
-      recentCount += 1;
-      continue;
-    }
-    candidates.push({
-      threadId: meta.id,
-      path: file,
-      modifiedAt: stat.mtime.toISOString(),
-      ageDays: Math.floor((Date.now() - stat.mtimeMs) / 86_400_000),
-      bytes: stat.size
-    });
-  }
-
-  candidates.sort((left, right) => left.modifiedAt.localeCompare(right.modifiedAt));
-  return { protectedCount: protectedThreadIds.size, recentCount, candidates };
-}
-
-async function listQuarantineDeleteCandidates() {
-  let files = [];
-  try {
-    files = await listFiles(config.cleanupQuarantineDir);
-  } catch (error) {
-    if (error?.code === "ENOENT") return [];
-    throw error;
-  }
-
-  const cutoff = Date.now() - runtimeValue("cleanupQuarantineDays") * 24 * 60 * 60 * 1000;
-  const candidates = [];
-  for (const file of files.filter((entry) => entry.endsWith(".jsonl"))) {
-    const stat = await fs.stat(file);
-    const metadata = await readCleanupMetadata(file);
-    const quarantinedAt = metadata?.quarantinedAt ? Date.parse(metadata.quarantinedAt) : stat.mtimeMs;
-    if (Number.isNaN(quarantinedAt) || quarantinedAt >= cutoff) continue;
-    const meta = await readSessionMeta(file);
-    candidates.push({
-      threadId: metadata?.threadId || meta?.id || path.basename(file, ".jsonl"),
-      path: file,
-      originalPath: metadata?.originalPath || "",
-      quarantinedAt: new Date(quarantinedAt).toISOString(),
-      quarantineAgeDays: Math.floor((Date.now() - quarantinedAt) / 86_400_000),
-      bytes: stat.size
-    });
-  }
-
-  candidates.sort((left, right) => left.quarantinedAt.localeCompare(right.quarantinedAt));
-  return candidates;
-}
-
-async function readCleanupMetadata(file) {
-  try {
-    return JSON.parse(await fs.readFile(`${file}.cleanup.json`, "utf8"));
-  } catch {
-    return null;
-  }
-}
-
-async function collectProtectedThreadIds() {
-  const protectedThreadIds = new Set();
-  for (const chat of Object.values(state.chats)) {
-    if (chat?.threadId) protectedThreadIds.add(chat.threadId);
-  }
-  for (const thread of threadCache.values()) {
-    if (thread?.id) protectedThreadIds.add(thread.id);
-  }
-  for (const threadId of await listRunningCodexThreadIds()) {
-    protectedThreadIds.add(threadId);
-  }
-  return protectedThreadIds;
-}
-
-async function listRunningCodexThreadIds() {
-  try {
-    const { stdout } = await execFileAsync("ps", ["-eo", "args="], { maxBuffer: 2 * 1024 * 1024 });
-    const ids = new Set();
-    const idPattern = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
-    for (const line of stdout.split("\n")) {
-      if (!line.toLowerCase().includes("codex")) continue;
-      for (const match of line.matchAll(idPattern)) ids.add(match[0]);
-    }
-    return [...ids];
-  } catch {
-    return [];
-  }
-}
-
-function startCleanupScheduler() {
-  setTimeout(() => {
-    runDailyCleanupCheck().catch((error) => {
-      console.error("cleanup scheduler failed", error);
-    });
-  }, 5000);
-  setInterval(() => {
-    runDailyCleanupCheck().catch((error) => {
-      console.error("cleanup scheduler failed", error);
-    });
-  }, 60_000);
-}
-
-async function runDailyCleanupCheck() {
-  if (!runtimeValue("cleanupEnabled")) return;
-  const clock = getLocalClock();
-  if (state.cleanup.lastDailyDate === clock.dateKey) return;
-  if (clock.time < runtimeValue("cleanupNotifyTime")) return;
-
-  await sendDailyCleanupPlan();
-  await runAutomaticCodexMaintenanceIfEnabled();
-  await runDailyUploadCleanupIfEnabled();
-  state.cleanup.lastDailyDate = clock.dateKey;
-  pruneExpiredCleanupPlans();
-  pruneExpiredUploadCleanupPlans();
-  await saveState(config.stateFile, state);
-}
-
-async function runDailyUploadCleanupIfEnabled() {
-  if (!shouldRunUploadCleanup({
-    cleanupEnabled: runtimeValue("cleanupEnabled"),
-    uploadCleanupEnabled: config.uploadCleanupEnabled
-  })) return;
-  const plan = await createUploadCleanupPlan({ dryRun: true });
-  await appendCleanupLog(createUploadCleanupPlanLogEntry(plan));
-}
-
-async function runAutomaticCodexMaintenanceIfEnabled() {
-  if (maintenanceAutoHandoffEnabled()) {
-    const results = [];
-    const seen = new Set();
-    for (const chat of Object.values(state.chats)) {
-      const threadId = chat?.threadId;
-      if (!threadId || seen.has(threadId)) continue;
-      seen.add(threadId);
-      try {
-        results.push(await createThreadHandoff(threadId));
-      } catch (error) {
-        results.push({ ok: false, threadId, error: error instanceof Error ? error.message : String(error) });
-      }
-    }
-    await appendCleanupLog({ type: "auto_handoff", count: results.length, results, at: new Date().toISOString() });
-  }
-
-  if (maintenanceAutoSqliteRepairEnabled()) {
-    if (activeTurns.size > 0) {
-      await appendCleanupLog({ type: "auto_sqlite_repair_skipped", reason: "active_turns", count: activeTurns.size, at: new Date().toISOString() });
-      return;
-    }
-    try {
-      const result = await runCodexMaintenance("sqlite-metadata-repair");
-      await appendCleanupLog({ type: "auto_sqlite_repair", result, at: new Date().toISOString() });
-    } catch (error) {
-      await appendCleanupLog({ type: "auto_sqlite_repair_error", message: error instanceof Error ? error.message : String(error), at: new Date().toISOString() });
-    }
-  }
-}
-
-function pruneExpiredCleanupPlans() {
-  const now = Date.now();
-  for (const [planId, plan] of Object.entries(state.cleanup.plans)) {
-    if (!plan?.expiresAt || Date.parse(plan.expiresAt) < now) delete state.cleanup.plans[planId];
-  }
-}
-
-function pruneExpiredUploadCleanupPlans() {
-  const now = Date.now();
-  for (const [planId, record] of Object.entries(state.uploadCleanup.plans)) {
-    if (!record?.expiresAt || Date.parse(record.expiresAt) < now) delete state.uploadCleanup.plans[planId];
-  }
-}
-
-async function appendCleanupLog(entry) {
-  await appendPrivateFile(config.cleanupLogFile, `${JSON.stringify(entry)}\n`, "utf8");
-}
-
-async function createUploadCleanupPlan(options = {}) {
-  return buildUploadCleanupPlanFromDisk(config.uploadDir, {
-    retentionDays: config.uploadRetentionDays,
-    maxBytes: config.uploadMaxBytes,
-    dryRun: options.dryRun !== false
-  });
-}
-
-function startStateSnapshotScheduler() {
-  setTimeout(() => {
-    runDailyStateSnapshotCheck().catch((error) => {
-      console.error("snapshot scheduler failed", error);
-    });
-  }, 10_000);
-  setInterval(() => {
-    runDailyStateSnapshotCheck().catch((error) => {
-      console.error("snapshot scheduler failed", error);
-    });
-  }, 60_000);
-}
-
-async function runDailyStateSnapshotCheck() {
-  if (!runtimeValue("snapshotEnabled")) return;
-  const clock = getLocalClock();
-  if (state.snapshots.lastDailyDate === clock.dateKey) return;
-  if (clock.time < runtimeValue("snapshotNotifyTime")) return;
-
-  await createStateBackup("daily-snapshot");
-  state.snapshots.lastDailyDate = clock.dateKey;
-  await saveState(config.stateFile, state);
-}
-
-async function createStateBackup(source) {
-  await ensurePrivateDirectory(config.backupDir);
-  const createdAt = new Date().toISOString();
-  const payload = {
-    createdAt,
-    source,
-    app: await buildAppSummary(),
-    config: buildConfigSummary(),
-    stats: {
-      chats: Object.keys(state.chats).length,
-      cleanupPlans: Object.keys(state.cleanup.plans).length,
-      activeTurns: activeTurns.size,
-      pendingTurns: countPendingTurns(),
-      cachedThreads: threadCache.size
-    },
-    state,
-    cleanupLog: await readOptionalText(config.cleanupLogFile)
-  };
-  const filePath = path.join(config.backupDir, `${timestampForFilename(createdAt)}-${source}.json`);
-  await writePrivateFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-  await pruneOldBackups();
-  const stat = await fs.stat(filePath);
-  return { path: filePath, bytes: stat.size, chatCount: payload.stats.chats };
-}
-
-async function createChatExport(chatKey) {
-  await ensurePrivateDirectory(config.backupDir);
-  const createdAt = new Date().toISOString();
-  const chat = getChatState(chatKey);
-  const payload = {
-    createdAt,
-    chatKey,
-    chat,
-    effectiveOptions: redactValue(getEffectiveOptions(chatKey)),
-    activeTurn: activeTurns.has(chatKey),
-    queuedTurns: getPendingTurns(chatKey).map(serializePendingTurn),
-    cachedThreadId: threadCache.get(chatKey)?.id || ""
-  };
-  const filePath = path.join(config.backupDir, `${timestampForFilename(createdAt)}-chat-${safeFilename(chatKey)}.json`);
-  await writePrivateFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-  const stat = await fs.stat(filePath);
-  return { path: filePath, bytes: stat.size };
-}
-
-async function pruneOldBackups() {
-  let entries = [];
-  try {
-    entries = await fs.readdir(config.backupDir, { withFileTypes: true });
-  } catch (error) {
-    if (error?.code === "ENOENT") return;
-    throw error;
-  }
-  const cutoff = Date.now() - runtimeValue("snapshotRetentionDays") * 24 * 60 * 60 * 1000;
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    const filePath = path.join(config.backupDir, entry.name);
-    const stat = await fs.stat(filePath);
-    if (stat.mtimeMs < cutoff) await fs.rm(filePath, { force: true });
-  }
-}
-
 function readFirstLine(file) {
   return new Promise((resolve, reject) => {
     const stream = createReadStream(file, { encoding: "utf8" });
@@ -2603,210 +2333,6 @@ function readFirstLine(file) {
       if (!settled) resolve(buffer);
     });
   });
-}
-
-function codexMaintenanceMenuHtml() {
-  return [
-    b(t("codexMaintenance")),
-    "",
-    t("maintenanceIntro"),
-    t("maintenanceScope"),
-    `${t("autoSqliteRepair")}: ${code(maintenanceAutoSqliteRepairEnabled() ? "on" : "off")}`,
-    `${t("autoHandoff")}: ${code(maintenanceAutoHandoffEnabled() ? "on" : "off")}`,
-    "",
-    `- Report: ${t("maintenanceReportDesc")}`,
-    `- Backup: ${t("maintenanceBackupDesc")}`,
-    `- Config prune: ${t("maintenanceConfigDesc")}`,
-    `- Worktrees: ${t("maintenanceWorktreesDesc")}`,
-    `- Logs: ${t("maintenanceLogsDesc")}`,
-    `- SQLite repair: ${t("maintenanceRepairDesc")}`,
-    `- Handoff: ${t("maintenanceHandoffDesc")}`
-  ].join("\n");
-}
-
-function codexMaintenanceSqliteRepairConfirmHtml() {
-  return [
-    b(t("sqliteConfirmTitle")),
-    "",
-    t("sqliteConfirmBody"),
-    `title limit: ${code(config.codexMaintenanceThreadTitleLimit)}`,
-    `preview limit: ${code(config.codexMaintenanceThreadPreviewLimit)}`,
-    "",
-    `- ${t("sqliteNoTranscript")}`,
-    `- ${t("sqliteRestore")}`,
-    `- ${t("sqliteAutoOff")}`,
-    "",
-    t("sqliteContinue")
-  ].join("\n");
-}
-
-function maintenanceAutoSqliteRepairEnabled() {
-  return state.maintenance?.autoSqliteRepairEnabled === true;
-}
-
-function maintenanceAutoHandoffEnabled() {
-  return state.maintenance?.autoHandoffEnabled === true;
-}
-
-async function readCodexMaintenanceReport() {
-  return runCodexMaintenance("report");
-}
-
-async function runCodexMaintenance(action) {
-  const args = [
-    config.codexMaintenanceScript,
-    action,
-    "--codex-home",
-    config.codexHome,
-    "--worktree-older-than-days",
-    String(config.codexMaintenanceWorktreeDays),
-    "--rotate-logs-above-mb",
-    String(config.codexMaintenanceLogRotateMb),
-    "--thread-title-limit",
-    String(config.codexMaintenanceThreadTitleLimit),
-    "--thread-preview-limit",
-    String(config.codexMaintenanceThreadPreviewLimit)
-  ];
-  if (action !== "report") {
-    args.push("--backup-root", path.join(config.codexMaintenanceBackupDir, `${getLocalDateKey()}-${action}-${Date.now()}`));
-  }
-  const { stdout } = await execFileAsync("python3", args, { timeout: 300000, maxBuffer: 4 * 1024 * 1024 });
-  return parseCodexMaintenanceOutput(stdout);
-}
-
-function formatCodexMaintenanceReportHtml(report) {
-  const sessions = report.sessions || {};
-  const archived = report.archivedSessions || {};
-  const worktrees = report.worktrees || {};
-  const stale = report.staleWorktrees || {};
-  const logs = report.logs || {};
-  const configPrune = report.configPrune || {};
-  const metadata = report.metadataBloat || {};
-  const nodeRows = Array.isArray(report.topNodeProcesses) ? report.topNodeProcesses : [];
-  const lines = [
-    b(t("maintenanceReportTitle")),
-    "",
-    `codexHome: ${code(report.codexHome || config.codexHome)}`,
-    `sessions: ${code(cleanupCount(sessions.files ?? 0))} / ${code(formatBytes(sessions.bytes ?? 0))}`,
-    `archived sessions: ${code(cleanupCount(archived.files ?? 0))} / ${code(formatBytes(archived.bytes ?? 0))}`,
-    `worktrees: ${code(cleanupCount(worktrees.count ?? 0))} / ${code(formatBytes(worktrees.bytes ?? 0))}`,
-    `stale worktrees: ${code(cleanupCount(stale.candidates ?? 0))} / ${code(formatBytes(stale.bytes ?? 0))}`,
-    `logs: ${code(formatBytes(logs.bytes ?? 0))} / rotate ${code(`${logs.rotateThresholdMb ?? config.codexMaintenanceLogRotateMb}MB`)}`,
-    `${t("cleanupMaintenanceConfigPruneCandidates")}: ${code(cleanupCount(configPrune.candidates ?? 0))}`,
-    `metadata bloat: title ${code(metadata.titlesOverLimit ?? 0)} / preview ${code(metadata.previewsOverLimit ?? 0)} / 10k+ ${code(metadata.previewsOver10k ?? 0)}`
-  ];
-  if (nodeRows.length > 0) {
-    lines.push("", b(t("nodeTop")));
-    for (const item of nodeRows.slice(0, 3)) {
-      lines.push(`- pid ${code(item.pid)} / ${code(`${item.mb}MB`)}`);
-    }
-  }
-  return lines.join("\n");
-}
-
-function formatCodexMaintenanceResultHtml(result) {
-  const lines = [
-    b(`${t("maintenanceDone")}: ${result.action || "unknown"}`),
-    "",
-    `backupRoot: ${code(result.backupRoot || "none")}`,
-    `backedUp: ${code(cleanupCount(Array.isArray(result.backedUp) ? result.backedUp.length : 0))}`
-  ];
-  if (result.configPrune) {
-    lines.push(`config prune: ${t("maintenanceCandidates")}: ${code(result.configPrune.candidates)} / applied ${code(result.configPrune.applied)}`);
-  }
-  if (result.worktreeArchive) {
-    lines.push(`worktrees: ${t("maintenanceCandidates")}: ${code(result.worktreeArchive.candidates)} / moved ${code(result.worktreeArchive.moved)} / ${code(formatBytes(result.worktreeArchive.bytes || 0))}`);
-    lines.push(`manifest: ${code(result.worktreeArchive.manifest || "none")}`);
-  }
-  if (result.logRotate) {
-    lines.push(`logs: files ${code(result.logRotate.files)} / rotated ${code(result.logRotate.rotated)} / ${code(formatBytes(result.logRotate.bytes || 0))}`);
-    if (result.logRotate.skipped) lines.push(`skipped: ${code(result.logRotate.skipped)}`);
-    if (result.logRotate.manifest) lines.push(`manifest: ${code(result.logRotate.manifest)}`);
-  }
-  if (result.sqliteMetadataRepair) {
-    const repair = result.sqliteMetadataRepair;
-    lines.push(`sqlite repair: ${t("maintenanceCandidates")}: ${code(repair.candidates ?? 0)} / repaired ${code(repair.repaired ?? 0)}`);
-    lines.push(`limits: title ${code(repair.titleLimit ?? config.codexMaintenanceThreadTitleLimit)} / preview ${code(repair.previewLimit ?? config.codexMaintenanceThreadPreviewLimit)}`);
-    if (repair.manifest) lines.push(`manifest: ${code(repair.manifest)}`);
-    if (repair.restoreScript) lines.push(`restore: ${code(repair.restoreScript)}`);
-    if (repair.reason) lines.push(`reason: ${code(repair.reason)}`);
-  }
-  return lines.join("\n");
-}
-
-async function createCurrentThreadHandoff(chatKey) {
-  const chat = getChatState(chatKey);
-  const cached = threadCache.get(chatKey);
-  const fallbackSession = chat.threadId || cached?.id ? null : (await listRecentCodexSessions(1))[0] ?? null;
-  const threadId = chat.threadId || cached?.id || fallbackSession?.id || "";
-  if (!threadId) {
-    throw new Error(t("handoffNoThreadError"));
-  }
-  return createThreadHandoff(threadId);
-}
-
-async function createThreadHandoff(threadId) {
-  const sessionFile = await findCodexSessionFile(threadId);
-  if (!sessionFile) {
-    throw new Error(tf("handoffSessionFileNotFound", { threadId }));
-  }
-  const meta = await readSessionMeta(sessionFile);
-  const highlights = await readSessionHighlights(sessionFile, config.codexHandoffRecentEvents);
-  const targetDir = await resolveHandoffDir(meta?.cwd);
-  await fs.mkdir(targetDir, { recursive: true });
-  const file = path.join(targetDir, `${getLocalDateKey()}-${sanitizeHandoffFilename((meta?.cwd || "codex").split(path.sep).filter(Boolean).pop() || "codex")}-${threadId.slice(0, 8)}.md`);
-  const body = renderHandoffMarkdown({
-    threadId,
-    sessionFile,
-    meta,
-    highlights,
-    generatedAt: new Date().toISOString()
-  });
-  await fs.writeFile(file, body, "utf8");
-  return { ok: true, file, threadId, cwd: meta?.cwd || "", highlights: highlights.length };
-}
-
-async function resolveHandoffDir(cwd) {
-  const configured = config.codexHandoffDir;
-  if (cwd && path.isAbsolute(cwd)) {
-    try {
-      const stat = await fs.stat(cwd);
-      if (stat.isDirectory()) return path.join(cwd, "docs", "codex-handoffs");
-    } catch {
-      // Fall through to configured handoff dir.
-    }
-  }
-  return configured;
-}
-
-async function readSessionHighlights(file, limit) {
-  const highlights = [];
-  const rl = createInterface({
-    input: createReadStream(file, { encoding: "utf8" }),
-    crlfDelay: Infinity
-  });
-  for await (const line of rl) {
-    let item;
-    try {
-      item = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    const highlight = sessionHighlightFromItem(item);
-    if (!highlight) continue;
-    highlights.push(highlight);
-    while (highlights.length > limit) highlights.shift();
-  }
-  return highlights;
-}
-
-function formatHandoffResultHtml(result) {
-  return formatKeyValueHtml(t("handoffResultTitle"), [
-    ["thread", result.threadId],
-    ["file", result.file],
-    ["cwd", result.cwd || "unknown"],
-    ["highlights", cleanupCount(result.highlights)]
-  ]);
 }
 
 function formatConfigHtml() {
@@ -3355,15 +2881,6 @@ function truncate(value, max) {
   return value.length > max ? `${value.slice(0, max - 3)}...` : value;
 }
 
-async function readOptionalText(file) {
-  try {
-    return redactText(await fs.readFile(file, "utf8"));
-  } catch (error) {
-    if (error?.code === "ENOENT") return "";
-    return `unreadable: ${error instanceof Error ? error.message : String(error)}`;
-  }
-}
-
 function redactValue(value) {
   return JSON.parse(redactText(JSON.stringify(value)));
 }
@@ -3376,14 +2893,6 @@ function redactText(value) {
   text = text.replace(/\b\d{7,}:[A-Za-z0-9_-]{20,}\b/g, "[REDACTED_TELEGRAM_TOKEN]");
   text = text.replace(/\b(?:sk|sess|proj)-[A-Za-z0-9_-]{20,}\b/g, "[REDACTED_SECRET]");
   return text;
-}
-
-function timestampForFilename(value) {
-  return new Date(value).toISOString().replace(/[:.]/g, "-");
-}
-
-function safeFilename(value) {
-  return String(value).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "unknown";
 }
 
 function formatDurationSeconds(seconds) {
