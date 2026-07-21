@@ -2,6 +2,79 @@
 
 All notable public changes are documented here.
 
+## 1.2.8 - 2026-07-21
+
+### Selection flows
+
+- Reworked standalone `/model` into a single-message, cancellable selection
+  flow. The bot now edits one prompt through model, model-aware reasoning, and
+  optional Fast selection instead of sending a new message for every step.
+- Added the same isolated, single-message behavior to standalone `/reasoning`,
+  while keeping it independent from the Settings control panel.
+- Kept a localized Cancel button visible at every standalone selection stage.
+  Cancelling edits the existing prompt to a cancellation result, removes every
+  button, and leaves the previously saved chat options unchanged.
+- Deferred standalone model changes until the final required choice succeeds.
+  Fast is requested only for models that advertise support, and a non-Fast
+  model clears an incompatible stale Fast override during the atomic commit.
+- Updated Settings -> Model to edit the existing control-panel message through
+  reasoning and optional Fast selection while preserving Settings, Main, Back,
+  and Close navigation. Settings selections retain their immediate-save
+  behavior, so Close dismisses the panel without rolling back applied choices.
+
+### Control panel navigation
+
+- Added one localized Close row to every stable `/menu` panel and nested
+  control-panel view, including Status, Queue, Settings, Runtime, Tools,
+  Skills, maintenance results, model/reasoning/Fast choices, and confirmation
+  screens.
+- Applied the same Close affordance to the direct `/status`, `/queue`,
+  `/settings`, and `/tools` panel commands for consistent control-panel
+  behavior regardless of entry point.
+- Made Close edit the current message to the localized menu-closed result and
+  remove the entire inline keyboard without stopping an active Codex turn or
+  creating a replacement Telegram message.
+- Kept actual Busy/Processing states and separate cleanup or export result
+  messages outside the Close decorator. This avoids presenting Close as task
+  cancellation and prevents an in-flight result update from reopening a
+  message the user just dismissed.
+
+### Safety and correctness
+
+- Added chat-bound, expiring selection tokens and phase claims so stale,
+  superseded, duplicate, and out-of-order callbacks cannot commit a different
+  selection or report a false cancellation.
+- Preserved the previous options when Telegram message edits or durable state
+  saves fail, leaving the active selection in a retryable and cancellable
+  phase.
+- Reconciled model and reasoning capabilities before mutation, including
+  unsupported defaults, custom models, incompatible explicit reasoning, and
+  catalog-advertised Fast support.
+- Used strict edit-only behavior for selection completion, cancellation,
+  expiry, and menu closing. Telegram parse fallback remains available, but an
+  unavailable edit target never creates a second selection or closure message.
+- Added complete English, Korean, and Traditional Chinese copy for selection
+  prompts, completion, cancellation, expiry, processing, and menu closure.
+
+### Dependencies and release hygiene
+
+- Updated the audited transitive `brace-expansion` lock resolution from 5.0.6
+  to 5.0.7, clearing the published denial-of-service advisory without changing
+  the package's direct dependency surface.
+- Kept the public `@openai/codex-sdk` and package-local `@openai/codex` CLI
+  aligned at 0.144.6.
+
+### Verification
+
+- Added deterministic state-machine and runtime-harness coverage for atomic
+  commit, cancel at every phase, expiry, duplicate callbacks, Fast capability,
+  edit failure, save rollback, and active-turn rejection.
+- Added keyboard coverage proving Close is immutable, idempotent, unique, and
+  always placed last on stable panels while standalone Cancel and processing
+  screens remain isolated.
+- Confirmed the full syntax, locale, lint, format, test, package-audit, graph,
+  and live service checks pass with the new interaction model.
+
 ## 1.2.7 - 2026-07-20
 
 ### Reliability
