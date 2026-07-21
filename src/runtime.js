@@ -23,7 +23,6 @@ import {
   readCodexModelCatalog,
   reasoningOptionsForModel
 } from "./codex/models.js";
-import { buildStyleInstructionPrompt } from "./codex/prompts.js";
 import { createChatOptionsController } from "./codex/chat_options_controller.js";
 import { readCodexSessionBackfill } from "./codex/session_backfill.js";
 import { isCodexSkillsView, replyCodexSkillsStatus } from "./codex/skills_status.js";
@@ -47,16 +46,8 @@ import {
 } from "./fs/private.js";
 import { parseCodexMaintenanceOutput } from "./maintenance/codex.js";
 import { createCleanupController } from "./maintenance/cleanup_controller.js";
-import {
-  dequeueNextTurn,
-  enqueueTurn,
-  hydratePendingQueues,
-  moveTurn,
-  pruneExpiredTurns,
-  removeRecoveryTurns,
-  removeTurn,
-  serializePendingTurn
-} from "./queue.js";
+import { serializePendingTurn } from "./queue.js";
+import { createQueueRuntimeController } from "./queue/runtime_controller.js";
 import { authorizeTelegramUpdate } from "./security.js";
 import {
   createRuntimeSettingsController,
@@ -64,12 +55,6 @@ import {
   parseRequiredBoolean,
   saveRuntimeState
 } from "./runtime/state_store.js";
-import {
-  normalizeTelegramId,
-  telegramChatActionExtraFromMeta,
-  telegramReplyExtraFromMeta,
-  telegramSyntheticMessageFromMeta
-} from "./telegram/context.js";
 import { b, code, pre, stripHtml } from "./telegram/html.js";
 import {
   createTelegramApiAgent,
@@ -80,11 +65,6 @@ import {
   summarizeTelegramError
 } from "./telegram/api.js";
 import {
-  createUploadedPdfRecord,
-  formatPdfReferenceText,
-  formatUploadedPdfHtml,
-  isFreshPdfUpload,
-  isPdfDocument,
   mergePdfReferences,
   planTelegramDocumentInput,
   shouldUseRecentPdfUpload
@@ -92,6 +72,7 @@ import {
 import { replyFormattedCodexAnswer } from "./telegram/codex_answer.js";
 import { formatCodexAnswerMarkdownHtml, formatCodexAnswerSafeHtml } from "./telegram/markdown.js";
 import { splitText } from "./telegram/split.js";
+import { createTelegramRuntimeContext } from "./telegram/runtime_context.js";
 import { isRegisteredTelegramCommandText } from "./telegram_commands.js";
 import { formatCodexUsageSummary } from "./status_usage.js";
 import {
@@ -143,7 +124,6 @@ import {
 import { createWorkerClient } from "./worker/client.js";
 import { createWorkerRuntimeController } from "./worker/runtime_controller.js";
 import {
-  hasPendingWorkerDelivery,
   markWorkerDeliveryFailed,
   markWorkerDeliveryResultReady,
   markWorkerDeliverySending,
@@ -203,6 +183,97 @@ const codexClients = new Map();
 const sideTurns = new Map();
 const usageRefreshes = new Map();
 const selectionFlows = createSelectionFlowStore();
+const {
+  applyPersonaPrompt,
+  buildReplyContext,
+  commandName,
+  createSyntheticCtx,
+  downloadTelegramFile,
+  downloadTelegramPdf,
+  ensureTurnContext,
+  extensionFromMime,
+  formatUploadedPdfUploadHtml,
+  getChatKey,
+  getCommandArgs,
+  getFreshLastPdfUpload,
+  rememberLastPdfUpload,
+  telegramMessageMeta,
+  telegramNotifyExtra
+} = createTelegramRuntimeContext({
+  bot,
+  settings: {
+    personaPrompt: config.codexPersonaPrompt,
+    uploadMaxBytes: config.uploadMaxBytes,
+    uploadDir: config.uploadDir
+  },
+  chats: {
+    get: (...args) => getChatState(...args)
+  },
+  persistence: {
+    save: () => saveState(config.stateFile, state)
+  },
+  localization: {
+    language: uiLanguage,
+    text: t
+  },
+  formatting: {
+    bytes: formatBytes
+  }
+});
+const {
+  clearPendingTurns,
+  clearRecoveryPendingTurns,
+  countPendingTurns,
+  countSideTurns,
+  createQueueItemId,
+  dequeuePendingTurn,
+  enqueuePendingTurn,
+  enqueuePendingTurnFront,
+  getPendingTurns,
+  getQueueMode,
+  getSideTurnCount,
+  hasPendingFinalDelivery,
+  hydratePendingTurnsFromState,
+  isQueuePaused,
+  isRecoveryActive,
+  movePendingTurn,
+  persistPendingTurns,
+  pruneExpiredPendingTurns,
+  removePendingTurn,
+  setQueueMode,
+  setQueuePaused,
+  startPersistedQueues,
+  startQueueDrainIfIdle,
+  stopSideTurns,
+  trackSideTurn,
+  untrackSideTurn
+} = createQueueRuntimeController({
+  state,
+  activeTurns,
+  pendingTurns,
+  sideTurns,
+  settings: {
+    maxPendingTurns: () => runtimeValue("telegramPendingTurnsMax"),
+    maxPendingAgeSeconds: () => runtimeValue("telegramPendingTurnMaxAgeSeconds")
+  },
+  chats: {
+    get: (...args) => getChatState(...args)
+  },
+  persistence: {
+    save: () => saveState(config.stateFile, state)
+  },
+  telegram: {
+    notifyExpired: (ctx, count) => replyHtml(
+      ctx,
+      tf("expiredQueuedTurnsCleaned", { count: code(cleanupCount(count)) })
+    ),
+    createSyntheticContext: (...args) => createSyntheticCtx(...args),
+    replyHtml
+  },
+  turns: {
+    runPreparedQueue: (...args) => runPreparedTurnQueue(...args)
+  }
+});
 const {
   approvalKeyboard,
   backToMainKeyboard,
@@ -2210,365 +2281,6 @@ async function rejectIfActive(ctx, chatKey) {
   if (!activeTurns.has(chatKey)) return false;
   await replyHtml(ctx, `Codex turn is already running. Use ${code("/stop")} first. Plain messages can still be queued.`);
   return true;
-}
-
-function getPendingTurns(chatKey) {
-  return pendingTurns.get(chatKey) ?? [];
-}
-
-async function enqueuePendingTurn(chatKey, preparedTurn) {
-  const queue = getPendingTurns(chatKey);
-  const result = enqueueTurn(queue, preparedTurn, { max: runtimeValue("telegramPendingTurnsMax") });
-  if (!result.ok) return { ok: false, position: queue.length };
-  pendingTurns.set(chatKey, result.queue);
-  await persistPendingTurns(chatKey);
-  return { ok: true, position: result.position };
-}
-
-async function enqueuePendingTurnFront(chatKey, preparedTurn) {
-  const queue = getPendingTurns(chatKey);
-  const result = enqueueTurn(queue, preparedTurn, { max: runtimeValue("telegramPendingTurnsMax"), front: true });
-  if (!result.ok) return { ok: false, position: queue.length };
-  pendingTurns.set(chatKey, result.queue);
-  await persistPendingTurns(chatKey);
-  return { ok: true, position: result.position };
-}
-
-async function dequeuePendingTurn(chatKey, ctx = null) {
-  const result = dequeueNextTurn(getPendingTurns(chatKey), queueExpiryOptions());
-  if (result.queue.length > 0) pendingTurns.set(chatKey, result.queue);
-  else pendingTurns.delete(chatKey);
-  await persistPendingTurns(chatKey);
-  if (result.expired > 0 && ctx) await notifyExpiredPendingTurns(ctx, result.expired);
-  return result.turn;
-}
-
-async function clearPendingTurns(chatKey) {
-  const count = getPendingTurns(chatKey).length;
-  pendingTurns.delete(chatKey);
-  await persistPendingTurns(chatKey);
-  return count;
-}
-
-async function clearRecoveryPendingTurns() {
-  let cleared = 0;
-  for (const [chatKey, queue] of [...pendingTurns.entries()]) {
-    const result = removeRecoveryTurns(queue);
-    if (result.changed === 0) continue;
-    cleared += result.changed;
-    if (result.queue.length > 0) pendingTurns.set(chatKey, result.queue);
-    else pendingTurns.delete(chatKey);
-    await persistPendingTurns(chatKey);
-  }
-  return cleared;
-}
-
-async function removePendingTurn(chatKey, selector) {
-  const result = removeTurn(getPendingTurns(chatKey), selector);
-  if (result.changed === 0) return 0;
-  if (result.queue.length > 0) pendingTurns.set(chatKey, result.queue);
-  else pendingTurns.delete(chatKey);
-  await persistPendingTurns(chatKey);
-  return result.changed;
-}
-
-async function movePendingTurn(chatKey, turnId, direction) {
-  const result = moveTurn(getPendingTurns(chatKey), turnId, direction);
-  if (result.changed === 0) return 0;
-  pendingTurns.set(chatKey, result.queue);
-  await persistPendingTurns(chatKey);
-  return result.changed;
-}
-
-function countPendingTurns() {
-  let count = 0;
-  for (const queue of pendingTurns.values()) count += queue.length;
-  return count;
-}
-
-function hydratePendingTurnsFromState() {
-  const hydrated = hydratePendingQueues(state.queues, {
-    ...queueExpiryOptions(),
-    createId: createQueueItemId
-  });
-  pendingTurns.clear();
-  for (const [chatKey, queue] of hydrated.pending.entries()) pendingTurns.set(chatKey, queue);
-  state.queues = hydrated.queues;
-}
-
-async function persistPendingTurns(chatKey) {
-  const queue = getPendingTurns(chatKey).map(serializePendingTurn);
-  if (queue.length > 0) state.queues[chatKey] = queue;
-  else delete state.queues[chatKey];
-  await saveState(config.stateFile, state);
-}
-
-async function pruneExpiredPendingTurns(chatKey, ctx = null) {
-  const result = pruneExpiredTurns(getPendingTurns(chatKey), queueExpiryOptions());
-  if (result.expired === 0) return 0;
-  if (result.queue.length > 0) pendingTurns.set(chatKey, result.queue);
-  else pendingTurns.delete(chatKey);
-  await persistPendingTurns(chatKey);
-  if (ctx) await notifyExpiredPendingTurns(ctx, result.expired);
-  return result.expired;
-}
-
-function queueExpiryOptions() {
-  return { maxAgeSeconds: runtimeValue("telegramPendingTurnMaxAgeSeconds") };
-}
-
-async function notifyExpiredPendingTurns(ctx, count) {
-  await replyHtml(ctx, tf("expiredQueuedTurnsCleaned", { count: code(cleanupCount(count)) }));
-}
-
-function createQueueItemId() {
-  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function isQueuePaused(chatKey) {
-  return getChatState(chatKey).queuePaused === true;
-}
-
-function hasPendingFinalDelivery(chatKey) {
-  return hasPendingWorkerDelivery(state.worker?.deliveries, chatKey);
-}
-
-function getQueueMode(chatKey) {
-  const mode = getChatState(chatKey).queueMode;
-  return VALID.queueMode.has(mode) ? mode : "safe";
-}
-
-async function setQueuePaused(chatKey, paused) {
-  const chat = getChatState(chatKey);
-  chat.queuePaused = paused;
-  chat.updatedAt = new Date().toISOString();
-  await saveState(config.stateFile, state);
-}
-
-async function setQueueMode(chatKey, mode) {
-  const chat = getChatState(chatKey);
-  chat.queueMode = mode;
-  chat.updatedAt = new Date().toISOString();
-  await saveState(config.stateFile, state);
-}
-
-function trackSideTurn(chatKey, abortController) {
-  const controllers = sideTurns.get(chatKey) ?? new Set();
-  controllers.add(abortController);
-  sideTurns.set(chatKey, controllers);
-}
-
-function untrackSideTurn(chatKey, abortController) {
-  const controllers = sideTurns.get(chatKey);
-  if (!controllers) return;
-  controllers.delete(abortController);
-  if (controllers.size === 0) sideTurns.delete(chatKey);
-}
-
-function stopSideTurns(chatKey) {
-  const controllers = sideTurns.get(chatKey);
-  if (!controllers) return 0;
-  const count = controllers.size;
-  for (const controller of controllers) controller.abort();
-  return count;
-}
-
-function getSideTurnCount(chatKey) {
-  return sideTurns.get(chatKey)?.size ?? 0;
-}
-
-function isRecoveryActive(chatKey) {
-  return activeTurns.get(chatKey)?.currentPreparedTurn?.kind === "recovery";
-}
-
-function countSideTurns() {
-  let count = 0;
-  for (const controllers of sideTurns.values()) count += controllers.size;
-  return count;
-}
-
-async function startQueueDrainIfIdle(chatKey, ctx = null) {
-  if (activeTurns.has(chatKey) || hasPendingFinalDelivery(chatKey) || isQueuePaused(chatKey)) return false;
-  const runCtx = ctx ?? createSyntheticCtx(chatKey);
-  const firstTurn = await dequeuePendingTurn(chatKey, runCtx);
-  if (!firstTurn) return false;
-
-  const active = { abortController: null, stopRequested: false };
-  activeTurns.set(chatKey, active);
-  runPreparedTurnQueue(chatKey, firstTurn, active).catch(async (error) => {
-    activeTurns.delete(chatKey);
-    await replyHtml(runCtx, `<b>Queued Codex turn failed</b>\n${code(error instanceof Error ? error.message : String(error))}`).catch(() => {});
-  });
-  return true;
-}
-
-function startPersistedQueues() {
-  setTimeout(() => {
-    for (const chatKey of pendingTurns.keys()) {
-      startQueueDrainIfIdle(chatKey).catch((error) => {
-        console.warn("persisted queue start failed:", error instanceof Error ? error.message : String(error));
-      });
-    }
-  }, 3000);
-}
-
-function telegramNotifyExtra(meta = {}) {
-  return telegramReplyExtraFromMeta(meta);
-}
-
-function createSyntheticCtx(turnOrChatKey) {
-  const meta = typeof turnOrChatKey === "object" && turnOrChatKey
-    ? turnOrChatKey
-    : { chatKey: String(turnOrChatKey), chatId: turnOrChatKey };
-  const rawChatId = meta.chatId ?? meta.chatKey;
-  const chatId = Number.isNaN(Number(rawChatId)) ? rawChatId : Number(rawChatId);
-  const message = telegramSyntheticMessageFromMeta(meta);
-  return {
-    chat: { id: chatId, type: meta.chatType },
-    from: { id: chatId },
-    message,
-    msg: message,
-    telegram: bot.telegram,
-    reply: (text, extra = {}) => bot.telegram.sendMessage(chatId, text, telegramReplyExtraFromMeta(meta, extra)),
-    sendChatAction: (action) => bot.telegram.sendChatAction(chatId, action, telegramChatActionExtraFromMeta(meta))
-  };
-}
-
-function ensureTurnContext(turn) {
-  if (turn.ctx) return turn.ctx;
-  turn.ctx = createSyntheticCtx(turn);
-  return turn.ctx;
-}
-
-function telegramMessageMeta(ctx) {
-  const message = ctx.message ?? ctx.msg ?? {};
-  return {
-    chatType: ctx.chat?.type,
-    messageThreadId: normalizeTelegramId(message.message_thread_id),
-    replyToMessageId: normalizeTelegramId(message.reply_to_message?.message_id),
-    originMessageId: normalizeTelegramId(message.message_id),
-    originUpdateId: normalizeTelegramId(ctx.update?.update_id)
-  };
-}
-
-async function buildReplyContext(ctx) {
-  const message = ctx.message?.reply_to_message;
-  if (!message) return { text: "", imagePaths: [] };
-
-  const parts = [];
-  const author = message.from?.username ? `@${message.from.username}` : message.from?.first_name || "unknown";
-  const body = message.text || message.caption || "";
-  parts.push(`Replied-to Telegram message from ${author}:`);
-  if (body) parts.push(body);
-  else parts.push("[no text or caption]");
-
-  const imagePaths = [];
-  const photo = message.photo?.at(-1);
-  if (photo) imagePaths.push(await downloadTelegramFile(ctx, photo.file_id, ".jpg"));
-  const document = message.document;
-  if (isPdfDocument(document)) {
-    const record = await downloadTelegramPdf(ctx, document, message);
-    parts.push("[attached replied-to PDF file]");
-    parts.push(formatPdfReferenceText(record));
-  } else if (document?.mime_type?.startsWith("image/")) {
-    const ext = path.extname(document.file_name ?? "") || extensionFromMime(document.mime_type);
-    imagePaths.push(await downloadTelegramFile(ctx, document.file_id, ext));
-  }
-
-  if (imagePaths.length > 0) parts.push(`[attached ${imagePaths.length} replied-to image(s)]`);
-  return { text: parts.join("\n"), imagePaths };
-}
-
-function applyPersonaPrompt(text) {
-  const personaPrompt = effectivePersonaPrompt();
-  if (!personaPrompt) return text;
-  return [
-    "<style_instruction>",
-    personaPrompt,
-    "</style_instruction>",
-    "",
-    text
-  ].join("\n");
-}
-
-function effectivePersonaPrompt() {
-  return buildStyleInstructionPrompt({
-    language: uiLanguage(),
-    personaPrompt: config.codexPersonaPrompt
-  });
-}
-
-async function downloadTelegramFileRecord(ctx, fileId, ext) {
-  const link = await ctx.telegram.getFileLink(fileId);
-  const response = await fetch(link.href);
-  if (!response.ok) throw new Error(`Telegram file download failed: ${response.status}`);
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (config.uploadMaxBytes > 0 && bytes.length > config.uploadMaxBytes) {
-    throw new Error(`Telegram file exceeds UPLOAD_MAX_BYTES (${formatBytes(bytes.length)} > ${formatBytes(config.uploadMaxBytes)}).`);
-  }
-  await ensurePrivateDirectory(config.uploadDir);
-  const filename = `${Date.now()}-${fileId.replace(/[^a-zA-Z0-9_-]/g, "")}${ext}`;
-  const filePath = path.join(config.uploadDir, filename);
-  await writePrivateFile(filePath, bytes);
-  return { path: filePath, bytes: bytes.length };
-}
-
-async function downloadTelegramFile(ctx, fileId, ext) {
-  const record = await downloadTelegramFileRecord(ctx, fileId, ext);
-  return record.path;
-}
-
-async function downloadTelegramPdf(ctx, document, sourceMessage) {
-  const downloaded = await downloadTelegramFileRecord(ctx, document.file_id, ".pdf");
-  return createUploadedPdfRecord(document, downloaded, {
-    messageId: normalizeTelegramId(sourceMessage?.message_id)
-  });
-}
-
-async function rememberLastPdfUpload(ctx, record) {
-  const chat = getChatState(getChatKey(ctx));
-  chat.lastPdfUpload = record;
-  chat.updatedAt = new Date().toISOString();
-  await saveState(config.stateFile, state);
-}
-
-function getFreshLastPdfUpload(chatKey) {
-  const record = getChatState(chatKey).lastPdfUpload;
-  return isFreshPdfUpload(record) ? record : null;
-}
-
-function formatUploadedPdfUploadHtml(record) {
-  return formatUploadedPdfHtml(record, {
-    title: t("pdfUploadedTitle"),
-    detail: t("pdfUploadedDetail"),
-    labels: {
-      file: t("pdfUploadedFile"),
-      size: t("pdfUploadedSize"),
-      path: t("pdfUploadedPath")
-    },
-    formatBytes
-  });
-}
-
-function extensionFromMime(mime) {
-  if (mime === "image/png") return ".png";
-  if (mime === "image/webp") return ".webp";
-  if (mime === "image/gif") return ".gif";
-  return ".jpg";
-}
-
-function getChatKey(ctx) {
-  return String(ctx.chat?.id ?? ctx.from?.id);
-}
-
-function commandName(ctx) {
-  return (ctx.message?.text ?? "").trimStart().split(/\s+/, 1)[0]?.replace(/^\//, "") || "command";
-}
-
-function getCommandArgs(ctx) {
-  const text = ctx.message?.text ?? "";
-  const commandLength = text.trimStart().split(/\s+/, 1)[0]?.length ?? 0;
-  return text.trimStart().slice(commandLength).trim();
 }
 
 function isStatusQuestion(text) {
