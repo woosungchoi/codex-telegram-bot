@@ -45,18 +45,13 @@ import { readConfig as readRuntimeConfig } from "./config.js";
 import { renderHandoffMarkdown, sanitizeHandoffFilename, sessionHighlightFromItem } from "./handoff.js";
 import { TELEGRAM_LANGUAGE_CODES, VALID_LANGUAGES, textFor } from "./i18n.js";
 import {
-  copyCleanupBackup,
-  createCleanupArtifact,
-  finalizeCleanupArtifact
-} from "./maintenance/cleanup.js";
-import {
   appendPrivateFile,
   ensurePrivateDirectory,
-  hardenPrivateTree,
   writePrivateFile,
   writePrivateFileAtomic
 } from "./fs/private.js";
 import { parseCodexMaintenanceOutput } from "./maintenance/codex.js";
+import { createCleanupController } from "./maintenance/cleanup_controller.js";
 import {
   dequeueNextTurn,
   enqueueTurn,
@@ -319,6 +314,47 @@ const {
     standaloneReasoningSelectionKeyboard
   },
   text: t
+});
+const {
+  applyCleanupPlan,
+  createCleanupPlan,
+  sendCleanupPlan,
+  sendDailyCleanupPlan
+} = createCleanupController({
+  stateStore: {
+    plans: state.cleanup.plans,
+    prunePlans: pruneExpiredCleanupPlans,
+    save: () => saveState(config.stateFile, state),
+    appendLog: appendCleanupLog
+  },
+  policy: {
+    planTtlHours: () => runtimeValue("cleanupPlanTtlHours"),
+    retentionDays: () => runtimeValue("cleanupRetentionDays"),
+    quarantineDays: () => runtimeValue("cleanupQuarantineDays"),
+    artifactDir: config.cleanupArtifactDir,
+    sessionsDir: config.codexSessionsDir,
+    quarantineDir: config.cleanupQuarantineDir,
+    notifyChatIds: config.cleanupNotifyChatIds,
+    maintenanceLogRotateMb: config.codexMaintenanceLogRotateMb,
+    dateKey: getLocalDateKey
+  },
+  inventory: {
+    collectProtectedThreadIds,
+    listSessionFiles: listCleanupSessionFiles,
+    listDeleteCandidates: listQuarantineDeleteCandidates,
+    readMaintenanceReport: readCodexMaintenanceReport
+  },
+  telegram: {
+    replyHtml,
+    sendHtmlMessage
+  },
+  formatting: {
+    text: t,
+    formatText: tf,
+    formatBytes,
+    formatDateTime,
+    formatCount: cleanupCount
+  }
 });
 let workerClient = null;
 let startupRecoveryRunning = false;
@@ -3727,232 +3763,6 @@ async function findCodexSessionFile(threadId) {
   return null;
 }
 
-async function createCleanupPlan(source) {
-  pruneExpiredCleanupPlans();
-  const sessionScan = await listCleanupSessionFiles(await collectProtectedThreadIds());
-  const deleteCandidates = await listQuarantineDeleteCandidates();
-  const maintenance = await readCodexMaintenanceReport().catch((error) => ({
-    ok: false,
-    error: error instanceof Error ? error.message : String(error)
-  }));
-  const createdAt = new Date();
-  const plan = {
-    id: `${createdAt.getTime().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    source,
-    createdAt: createdAt.toISOString(),
-    expiresAt: new Date(createdAt.getTime() + runtimeValue("cleanupPlanTtlHours") * 60 * 60 * 1000).toISOString(),
-    retentionDays: runtimeValue("cleanupRetentionDays"),
-    quarantineDays: runtimeValue("cleanupQuarantineDays"),
-    protectedCount: sessionScan.protectedCount,
-    recentCount: sessionScan.recentCount,
-    quarantineCandidates: sessionScan.candidates,
-    deleteCandidates,
-    maintenance
-  };
-  state.cleanup.plans[plan.id] = plan;
-  await appendCleanupLog({
-    type: "plan",
-    source,
-    planId: plan.id,
-    summary: summarizeCleanupPlan(plan),
-    at: createdAt.toISOString()
-  });
-  return plan;
-}
-
-async function sendCleanupPlan(ctx, plan) {
-  await replyHtml(ctx, formatCleanupPlanHtml(plan), cleanupKeyboard(plan.id));
-}
-
-async function sendDailyCleanupPlan() {
-  const plan = await createCleanupPlan("daily");
-  await saveState(config.stateFile, state);
-  if (plan.quarantineCandidates.length === 0 && plan.deleteCandidates.length === 0) return;
-
-  for (const chatId of config.cleanupNotifyChatIds) {
-    try {
-      await sendHtmlMessage(chatId, formatCleanupPlanHtml(plan), cleanupKeyboard(plan.id));
-    } catch (error) {
-      await appendCleanupLog({
-        type: "notify_error",
-        chatId,
-        message: error instanceof Error ? error.message : String(error),
-        at: new Date().toISOString()
-      });
-    }
-  }
-}
-
-function cleanupKeyboard(planId) {
-  const plan = state.cleanup?.plans?.[planId];
-  const quarantineCount = plan?.quarantineCandidates?.length ?? 0;
-  const deleteCount = plan?.deleteCandidates?.length ?? 0;
-  return {
-    reply_markup: {
-      inline_keyboard: [
-        [
-          cleanupButton(`${t("cleanupButtonQuarantineOnly")} (${quarantineCount})`, `cleanup:quarantine:${planId}`, "primary"),
-          cleanupButton(`${t("cleanupButtonDeletePermanently")} (${deleteCount})`, `cleanup:delete:${planId}`, "danger")
-        ],
-        [
-          cleanupButton(t("cleanupButtonRunBoth"), `cleanup:both:${planId}`, "danger"),
-          cleanupButton(t("cleanupButtonIgnore"), `cleanup:ignore:${planId}`, "primary")
-        ]
-      ]
-    }
-  };
-}
-
-function cleanupButton(text, callbackData, style) {
-  return { text, callback_data: callbackData, style };
-}
-
-function formatCleanupPlanHtml(plan) {
-  const quarantineBytes = sum(plan.quarantineCandidates.map((candidate) => candidate.bytes));
-  const deleteBytes = sum(plan.deleteCandidates.map((candidate) => candidate.bytes));
-  const lines = [
-    b(t("cleanupPlanTitle")),
-    "",
-    `${t("cleanupToQuarantine")}: ${code(cleanupCount(plan.quarantineCandidates.length))} (${code(formatBytes(quarantineBytes))})`,
-    `${t("cleanupToDeletePermanently")}: ${code(cleanupCount(plan.deleteCandidates.length))} (${code(formatBytes(deleteBytes))})`,
-    "",
-    b(t("cleanupProtected")),
-    `- ${t("cleanupConnectedRunningThreads")}: ${code(cleanupCount(plan.protectedCount))}`,
-    `- ${tf("cleanupRecentThreadsLogs", { days: plan.retentionDays })}: ${code(cleanupCount(plan.recentCount))}`,
-    "",
-    `${t("cleanupQuarantineRule")}: ${code(tf("cleanupOlderThanDays", { days: plan.retentionDays }))}`,
-    `${t("cleanupDeleteRule")}: ${code(tf("cleanupDeleteAfterQuarantineDays", { days: plan.quarantineDays }))}`,
-    `${t("cleanupApprovalExpires")}: ${code(formatDateTime(plan.expiresAt))}`
-  ];
-  lines.push(...formatCleanupMaintenanceSummaryLines(plan.maintenance));
-
-  if (plan.quarantineCandidates.length > 0) {
-    lines.push("", b(t("cleanupQuarantineSample")));
-    for (const candidate of plan.quarantineCandidates.slice(0, 5)) {
-      lines.push(`- ${code(candidate.threadId)} (${code(`${candidate.ageDays}d`)}, ${code(formatBytes(candidate.bytes))})`);
-    }
-  }
-
-  if (plan.deleteCandidates.length > 0) {
-    lines.push("", b(t("cleanupPermanentDeleteSample")));
-    for (const candidate of plan.deleteCandidates.slice(0, 5)) {
-      lines.push(`- ${code(candidate.threadId)} (${code(`${candidate.quarantineAgeDays}d quarantined`)}, ${code(formatBytes(candidate.bytes))})`);
-    }
-  }
-
-  lines.push("", t("cleanupImportantHandoffWarning"));
-  lines.push(t("cleanupNoFilesUntilButton"));
-  return lines.join("\n");
-}
-
-function summarizeCleanupPlan(plan) {
-  return {
-    quarantineCount: plan.quarantineCandidates.length,
-    quarantineBytes: sum(plan.quarantineCandidates.map((candidate) => candidate.bytes)),
-    deleteCount: plan.deleteCandidates.length,
-    deleteBytes: sum(plan.deleteCandidates.map((candidate) => candidate.bytes)),
-    protectedCount: plan.protectedCount,
-    recentCount: plan.recentCount
-  };
-}
-
-async function applyCleanupPlan(plan, action) {
-  const result = { quarantined: 0, deleted: 0, skipped: 0, errors: [] };
-  const artifact = await createCleanupArtifact({
-    plan,
-    action,
-    cleanupArtifactDir: config.cleanupArtifactDir,
-    dateKey: getLocalDateKey()
-  });
-  result.artifactDir = artifact.dir;
-  result.manifest = artifact.manifest;
-  result.restoreScript = artifact.restoreScript;
-  const operations = [];
-  const protectedThreadIds = await collectProtectedThreadIds();
-  const sessionsRoot = path.resolve(config.codexSessionsDir);
-
-  if (action === "quarantine" || action === "both") {
-    for (const candidate of plan.quarantineCandidates) {
-      try {
-        if (protectedThreadIds.has(candidate.threadId)) {
-          result.skipped += 1;
-          continue;
-        }
-        const sourcePath = path.resolve(candidate.path);
-        if (!isPathInside(sourcePath, sessionsRoot)) {
-          throw new Error(`Refusing to quarantine outside sessions dir: ${candidate.path}`);
-        }
-        const relativePath = path.relative(sessionsRoot, sourcePath);
-        const targetPath = path.join(config.cleanupQuarantineDir, getLocalDateKey(), "sessions", relativePath);
-        await ensurePrivateDirectory(path.dirname(targetPath));
-        await fs.rename(sourcePath, targetPath);
-        await hardenPrivateTree(targetPath);
-        await writePrivateFile(
-          `${targetPath}.cleanup.json`,
-          `${JSON.stringify({
-            threadId: candidate.threadId,
-            originalPath: candidate.path,
-            quarantinedAt: new Date().toISOString()
-          }, null, 2)}\n`,
-          "utf8"
-        );
-        operations.push({ type: "quarantine", threadId: candidate.threadId, from: sourcePath, to: targetPath });
-        result.quarantined += 1;
-      } catch (error) {
-        result.errors.push(`${candidate.threadId}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-  }
-
-  if (action === "delete" || action === "both") {
-    const quarantineRoot = path.resolve(config.cleanupQuarantineDir);
-    for (const candidate of plan.deleteCandidates) {
-      try {
-        const deletePath = path.resolve(candidate.path);
-        if (!isPathInside(deletePath, quarantineRoot)) {
-          throw new Error(`Refusing to delete outside quarantine dir: ${candidate.path}`);
-        }
-        const relativePath = path.relative(quarantineRoot, deletePath);
-        const backupPath = path.join(artifact.deleteBackupDir, relativePath);
-        await copyCleanupBackup(deletePath, backupPath);
-        await copyCleanupBackup(`${deletePath}.cleanup.json`, `${backupPath}.cleanup.json`).catch((error) => {
-          if (error?.code !== "ENOENT") throw error;
-        });
-        await fs.rm(deletePath, { force: true });
-        await fs.rm(`${deletePath}.cleanup.json`, { force: true });
-        operations.push({ type: "delete", threadId: candidate.threadId, from: deletePath, backup: backupPath });
-        result.deleted += 1;
-      } catch (error) {
-        result.errors.push(`${candidate.threadId}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-  }
-
-  await finalizeCleanupArtifact(artifact, operations, result);
-  return result;
-}
-
-function formatCleanupMaintenanceSummaryLines(report) {
-  if (!report) return [];
-  if (!report.ok) {
-    return ["", b(t("cleanupMaintenanceCheck")), `- report: ${code(report.error || "unavailable")}`];
-  }
-  const sessions = report.sessions || {};
-  const logs = report.logs || {};
-  const metadata = report.metadataBloat || {};
-  const staleWorktrees = report.staleWorktrees || {};
-  const configPrune = report.configPrune || {};
-  return [
-    "",
-    b(t("cleanupMaintenanceCheck")),
-    `- sessions: ${code(cleanupCount(sessions.files ?? 0))} / ${code(formatBytes(sessions.bytes ?? 0))}`,
-    `- logs: ${code(formatBytes(logs.bytes ?? 0))} / rotate ${code(`${logs.rotateThresholdMb ?? config.codexMaintenanceLogRotateMb}MB`)}`,
-    `- stale worktrees: ${code(cleanupCount(staleWorktrees.candidates ?? 0))}`,
-    `- ${t("cleanupMaintenanceConfigPruneCandidates")}: ${code(cleanupCount(configPrune.candidates ?? 0))}`,
-    `- metadata bloat: title ${code(metadata.titlesOverLimit ?? 0)} / preview ${code(metadata.previewsOverLimit ?? 0)}`
-  ];
-}
-
 async function editCleanupMessage(ctx, html) {
   return editOrReplyHtml(ctx, html, { reply_markup: { inline_keyboard: [] } });
 }
@@ -4450,15 +4260,6 @@ function formatBytes(bytes) {
   if (bytes >= 1024 * 1024) return `${Math.round(bytes / 1024 / 102.4) / 10} MB`;
   if (bytes >= 1024) return `${Math.round(bytes / 102.4) / 10} KB`;
   return `${bytes} B`;
-}
-
-function sum(values) {
-  return values.reduce((total, value) => total + value, 0);
-}
-
-function isPathInside(candidatePath, rootPath) {
-  const relative = path.relative(rootPath, candidatePath);
-  return relative && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 async function readLatestTokenCount(threadId) {
