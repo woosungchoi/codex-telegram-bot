@@ -12,30 +12,42 @@ import {
 } from "./parsers.js";
 
 export function readCodexConfig(env, paths) {
-  const codexApprovalPolicy = env.CODEX_APPROVAL_POLICY?.trim() || "never";
-  const codexSandboxMode = env.CODEX_SANDBOX_MODE?.trim() || "workspace-write";
-  const codexReasoningEffort = env.CODEX_REASONING_EFFORT?.trim() || "medium";
-  const codexWebSearch = env.CODEX_WEB_SEARCH?.trim() || "disabled";
-  const codexTransport = env.CODEX_TRANSPORT?.trim() || "sdk";
-  const codexWorkerMode = env.CODEX_WORKER_MODE?.trim() || "sidecar";
-  assertEnum(codexApprovalPolicy, CONFIG_VALID.approval, "CODEX_APPROVAL_POLICY");
-  assertEnum(codexSandboxMode, CONFIG_VALID.sandbox, "CODEX_SANDBOX_MODE");
-  assertEnum(codexReasoningEffort, CONFIG_VALID.reasoning, "CODEX_REASONING_EFFORT");
-  assertEnum(codexWebSearch, CONFIG_VALID.webSearch, "CODEX_WEB_SEARCH");
-  assertEnum(codexTransport, CONFIG_VALID.codexTransport, "CODEX_TRANSPORT");
-  assertEnum(codexWorkerMode, CONFIG_VALID.codexWorkerMode, "CODEX_WORKER_MODE");
+  const selections = readCodexSelections(env);
+  return {
+    ...readCodexRuntimeConfig(env, paths, selections),
+    ...readCodexModelConfig(env, selections),
+    ...readCodexContextConfig(env, paths)
+  };
+}
 
+function readCodexSelections(env) {
+  const approvalPolicy = env.CODEX_APPROVAL_POLICY?.trim() || "never";
+  const sandboxMode = env.CODEX_SANDBOX_MODE?.trim() || "workspace-write";
+  const reasoningEffort = env.CODEX_REASONING_EFFORT?.trim() || "medium";
+  const webSearch = env.CODEX_WEB_SEARCH?.trim() || "disabled";
+  const transport = env.CODEX_TRANSPORT?.trim() || "sdk";
+  const workerMode = env.CODEX_WORKER_MODE?.trim() || "sidecar";
+  assertEnum(approvalPolicy, CONFIG_VALID.approval, "CODEX_APPROVAL_POLICY");
+  assertEnum(sandboxMode, CONFIG_VALID.sandbox, "CODEX_SANDBOX_MODE");
+  assertEnum(reasoningEffort, CONFIG_VALID.reasoning, "CODEX_REASONING_EFFORT");
+  assertEnum(webSearch, CONFIG_VALID.webSearch, "CODEX_WEB_SEARCH");
+  assertEnum(transport, CONFIG_VALID.codexTransport, "CODEX_TRANSPORT");
+  assertEnum(workerMode, CONFIG_VALID.codexWorkerMode, "CODEX_WORKER_MODE");
+  return { approvalPolicy, reasoningEffort, sandboxMode, transport, webSearch, workerMode };
+}
+
+function readCodexRuntimeConfig(env, paths, selections) {
   const workerStateDir = env.CODEX_WORKER_STATE_DIR?.trim() || path.join(paths.stateRoot, "worker");
   return {
     codexWorkdir: env.CODEX_WORKDIR?.trim() || paths.homeDir,
     codexPath: env.CODEX_PATH?.trim() || "codex",
-    codexTransport,
+    codexTransport: selections.transport,
     codexAppServerDirectTimeoutMs: parseNonnegativeInteger(
       env.CODEX_APP_SERVER_DIRECT_TIMEOUT_MS,
       5000,
       "CODEX_APP_SERVER_DIRECT_TIMEOUT_MS"
     ),
-    codexWorkerMode,
+    codexWorkerMode: selections.workerMode,
     codexWorkerStateDir: workerStateDir,
     codexWorkerSocket: env.CODEX_WORKER_SOCKET?.trim() || path.join(workerStateDir, "worker.sock"),
     codexWorkerConnectTimeoutMs: parseNonnegativeInteger(
@@ -47,12 +59,17 @@ export function readCodexConfig(env, paths) {
       env.CODEX_WORKER_EVENT_POLL_MS,
       1000,
       "CODEX_WORKER_EVENT_POLL_MS"
-    ),
+    )
+  };
+}
+
+function readCodexModelConfig(env, selections) {
+  return {
     codexModel: env.CODEX_MODEL?.trim() || "",
-    codexApprovalPolicy,
-    codexSandboxMode,
-    codexReasoningEffort,
-    codexWebSearch,
+    codexApprovalPolicy: selections.approvalPolicy,
+    codexSandboxMode: selections.sandboxMode,
+    codexReasoningEffort: selections.reasoningEffort,
+    codexWebSearch: selections.webSearch,
     codexPersonaPrompt: normalizeMultilineEnv(env.CODEX_PERSONA_PROMPT),
     codexNetworkAccess: parseOptionalBoolean(env.CODEX_NETWORK_ACCESS),
     codexWebSearchEnabled: parseOptionalBoolean(env.CODEX_WEB_SEARCH_ENABLED),
@@ -61,7 +78,12 @@ export function readCodexConfig(env, paths) {
     codexBaseUrl: env.CODEX_BASE_URL?.trim() || "",
     codexApiKey: env.CODEX_API_KEY?.trim() || "",
     codexConfig: parseOptionalJson(env, "CODEX_CONFIG_JSON"),
-    codexEnv: parseOptionalJson(env, "CODEX_ENV_JSON"),
+    codexEnv: parseOptionalJson(env, "CODEX_ENV_JSON")
+  };
+}
+
+function readCodexContextConfig(env, paths) {
+  return {
     codexModelContextWindow: parseNonnegativeInteger(
       env.CODEX_MODEL_CONTEXT_WINDOW,
       0,

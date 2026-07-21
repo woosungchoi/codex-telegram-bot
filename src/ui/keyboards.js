@@ -3,6 +3,7 @@ import {
   inlineKeyboard
 } from "./keyboard_helpers.js";
 import { createOperationsKeyboardViews } from "./operations_keyboards.js";
+import { createRuntimeSettingsKeyboardViews } from "./runtime_settings_keyboards.js";
 import {
   booleanOptionKeyboardRows,
   createSelectionKeyboardViews,
@@ -52,11 +53,16 @@ export function createRuntimeKeyboardViews({
     maintenanceAutoSqliteRepairEnabled,
     withMenuCloseButton: navigation.withMenuCloseButton
   });
+  const runtimeSettings = createRuntimeSettingsKeyboardViews({
+    text,
+    withMenuCloseButton: navigation.withMenuCloseButton
+  });
 
   return {
     ...navigation,
     ...selection,
     ...settings,
+    ...runtimeSettings,
     ...operations,
     inlineKeyboard
   };
