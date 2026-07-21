@@ -142,6 +142,7 @@ import {
   formatKeyValueHtml
 } from "./ui/panels.js";
 import { createWorkerClient } from "./worker/client.js";
+import { createWorkerRuntimeController } from "./worker/runtime_controller.js";
 import {
   hasPendingWorkerDelivery,
   markWorkerDeliveryFailed,
@@ -149,15 +150,10 @@ import {
   markWorkerDeliverySending,
   markWorkerDeliverySent,
   markWorkerDeliveryStreaming,
-  mergeWorkerDeliveryCursor,
   normalizeWorkerDeliveryEntry,
   summarizeWorkerDeliveryStatus,
   workerDeliveryKey
 } from "./worker/delivery.js";
-import {
-  isTerminalWorkerEvent,
-  isTerminalWorkerStatus
-} from "./worker/replay.js";
 
 const execFileAsync = promisify(execFile);
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -341,6 +337,57 @@ const {
   }
 });
 let workerClient = null;
+const {
+  cancelWorkerJobOnce,
+  processPreparedTurnViaWorker,
+  waitForWorkerJob
+} = createWorkerRuntimeController({
+  settings: {
+    recoveryEnabled: config.botRestartRecoveryEnabled,
+    recoveryDir: config.botRecoveryDir,
+    eventPollMs: () => runtimeValue("codexWorkerEventPollMs")
+  },
+  deliveryStore: {
+    get: (key) => state.worker?.deliveries?.[key],
+    set: (key, value) => {
+      if (!state.worker || typeof state.worker !== "object") {
+        state.worker = { deliveries: {} };
+      }
+      if (!state.worker.deliveries || typeof state.worker.deliveries !== "object") {
+        state.worker.deliveries = {};
+      }
+      state.worker.deliveries[key] = value;
+    },
+    save: () => saveState(config.stateFile, state)
+  },
+  chatStore: {
+    get: getChatState,
+    getEffectiveOptions
+  },
+  worker: {
+    getClient: getWorkerClient,
+    mode: codexWorkerMode,
+    transport: codexTransport
+  },
+  turn: {
+    createQueueItemId,
+    maybeNotifyContextPressure,
+    maybeSendLiveProgress,
+    recordActiveTurnFailed,
+    recordCodexStreamFinalResponseSeen,
+    recordCodexStreamFirstItem,
+    recordCodexStreamIteratorClosed,
+    recordCodexStreamStarted,
+    recordCodexStreamUnknownEvent,
+    recordStreamItemEvent,
+    recordThreadStarted
+  },
+  recovery: {
+    appendEvent: appendRecoveryEvent,
+    write: safeRecoveryWrite
+  },
+  sleep
+});
 const {
   handleProcessSignal,
   handleRestartCommand,
@@ -1588,185 +1635,6 @@ async function processPreparedTurnInline(ctx, chatKey, preparedTurn, active, liv
   };
 }
 
-async function processPreparedTurnViaWorker(ctx, chatKey, preparedTurn, active, liveProgress) {
-  const client = getWorkerClient();
-  const job = createWorkerJobPayload(chatKey, preparedTurn);
-  await maybeNotifyContextPressure(ctx, chatKey, { id: job.threadId });
-  const started = await client.startJob(job);
-  active.workerJobId = started.jobId;
-  active.workerEventSeq = workerDeliveryCursor(chatKey, started.jobId);
-  await recordWorkerJobStarted(chatKey, { ...job, id: started.jobId });
-
-  const cancelWorker = () => cancelWorkerJobOnce(active, started.jobId);
-  if (active.abortController.signal.aborted) cancelWorker();
-  else active.abortController.signal.addEventListener("abort", cancelWorker, { once: true });
-
-  try {
-    const result = await waitForWorkerJob(ctx, chatKey, started.jobId, active, liveProgress, {
-      turnKind: preparedTurn.kind || "user"
-    });
-    return { ...result, executionMode: "sidecar", workerJobId: started.jobId };
-  } finally {
-    active.abortController.signal.removeEventListener("abort", cancelWorker);
-  }
-}
-
-function createWorkerJobPayload(chatKey, preparedTurn) {
-  const chat = getChatState(chatKey);
-  const effectiveOptions = getEffectiveOptions(chatKey);
-  return {
-    id: preparedTurn.id || createQueueItemId(),
-    chatKey,
-    chatId: preparedTurn.chatId ?? chatKey,
-    chatType: preparedTurn.chatType,
-    messageThreadId: preparedTurn.messageThreadId,
-    replyToMessageId: preparedTurn.replyToMessageId,
-    originMessageId: preparedTurn.originMessageId,
-    originUpdateId: preparedTurn.originUpdateId,
-    kind: preparedTurn.kind || "user",
-    text: preparedTurn.text || "",
-    inputText: preparedTurn.inputText || preparedTurn.text || "",
-    imagePaths: preparedTurn.imagePaths || [],
-    threadId: preparedTurn.recovery?.threadId || chat.threadId || "",
-    effectiveOptions,
-    outputSchema: chat.outputSchema || null,
-    transport: codexTransport(),
-    enqueuedAt: preparedTurn.enqueuedAt || new Date().toISOString(),
-    recovery: preparedTurn.recovery || null
-  };
-}
-
-async function waitForWorkerJob(ctx, chatKey, jobId, active, liveProgress, options = {}) {
-  const client = getWorkerClient();
-  const streamStartedAt = Date.now();
-  const streamState = createCodexStreamState();
-  const progressState = liveProgress;
-  let cursor = Number.isFinite(Number(options.afterSeq)) ? Number(options.afterSeq) : workerDeliveryCursor(chatKey, jobId);
-  let firstItemSeen = false;
-  let terminal = null;
-  let threadId = getChatState(chatKey).threadId || "";
-  let streamOutcome = "completed";
-  await recordCodexStreamStarted(chatKey, options.turnKind || "user");
-
-  try {
-    while (!terminal) {
-      if (active.abortController?.signal?.aborted) {
-        cancelWorkerJobOnce(active, jobId);
-      }
-
-      const response = await client.readJobEvents(jobId, cursor);
-      const events = response.events || [];
-      if (events.length === 0) {
-        const status = await client.getJobStatus(jobId).catch(() => null);
-        const job = status?.job || null;
-        if (isTerminalWorkerStatus(job?.status)) {
-          if (cursor > 0 && codexStreamItems(streamState).length === 0) {
-            cursor = 0;
-            continue;
-          }
-          terminal = { type: `worker.job.${job.status}`, status: job.status, message: job.error || "" };
-          break;
-        }
-        await sleep(runtimeValue("codexWorkerEventPollMs"));
-        continue;
-      }
-
-      for (const event of events) {
-        const seq = Number(event.seq || cursor);
-        cursor = Number.isFinite(seq) ? Math.max(cursor, seq) : cursor;
-        active.workerEventSeq = cursor;
-        await recordWorkerDeliveryCursor(chatKey, jobId, cursor);
-
-        const eventType = String(event.type || "");
-        if (event.threadId) threadId = event.threadId;
-        if (eventType.startsWith("worker.job.")) {
-          if (isTerminalWorkerEvent(event)) terminal = event;
-          continue;
-        }
-
-        const update = applyCodexStreamEvent(streamState, event);
-        if (update.type === "thread_started") {
-          threadId = update.threadId || threadId;
-          const chat = getChatState(chatKey);
-          chat.threadId = threadId;
-          chat.updatedAt = new Date().toISOString();
-          await saveState(config.stateFile, state);
-          await recordThreadStarted(chatKey, threadId);
-        } else if (update.type === "item") {
-          await recordStreamItemEvent(chatKey, event, update);
-          if (!firstItemSeen) {
-            firstItemSeen = true;
-            await recordCodexStreamFirstItem(chatKey, event, update, Date.now() - streamStartedAt);
-          }
-          if (update.finalResponseChanged) {
-            await recordCodexStreamFinalResponseSeen(chatKey, streamState.finalResponse.length, Date.now() - streamStartedAt);
-          }
-        } else if (update.type === "error") {
-          streamOutcome = "error";
-          await recordActiveTurnFailed(chatKey, update.message);
-          throw new Error(update.message);
-        } else if (update.type === "turn_completed") {
-          await appendRecoveryEvent({ type: "turn_completed", chatKey, threadId });
-        } else if (update.type === "unknown") {
-          await recordCodexStreamUnknownEvent(chatKey, event, Date.now() - streamStartedAt);
-        }
-        await maybeSendLiveProgress(ctx, progressState, event, codexStreamItems(streamState));
-      }
-    }
-
-    if (terminal?.type === "worker.job.failed") {
-      streamOutcome = "error";
-      throw new Error(terminal.message || "Codex worker job failed.");
-    }
-    if (terminal?.type === "worker.job.cancelled") {
-      streamOutcome = "cancelled";
-      throw new Error(terminal.message || "Codex worker job was cancelled.");
-    }
-    return { turn: codexStreamResult(streamState), threadId, workerLastSeq: cursor };
-  } finally {
-    await recordCodexStreamIteratorClosed(chatKey, {
-      elapsedMs: Date.now() - streamStartedAt,
-      outcome: streamOutcome,
-      itemCount: codexStreamItems(streamState).length,
-      finalResponseLength: streamState.finalResponse.length
-    });
-  }
-}
-
-function workerDeliveryCursor(chatKey, jobId) {
-  const key = workerDeliveryKey(chatKey, jobId);
-  const entry = normalizeWorkerDeliveryEntry(key, state.worker?.deliveries?.[key]);
-  return Number(entry?.seq || 0);
-}
-
-async function recordWorkerDeliveryCursor(chatKey, jobId, seq) {
-  if (!state.worker || typeof state.worker !== "object") state.worker = { deliveries: {} };
-  if (!state.worker.deliveries || typeof state.worker.deliveries !== "object") state.worker.deliveries = {};
-  const key = workerDeliveryKey(chatKey, jobId);
-  const current = normalizeWorkerDeliveryEntry(key, state.worker.deliveries[key]);
-  state.worker.deliveries[key] = current
-    ? mergeWorkerDeliveryCursor(current, { chatKey, jobId, seq })
-    : markWorkerDeliveryStreaming(null, { chatKey, jobId, seq });
-  await saveState(config.stateFile, state);
-  if (!config.botRestartRecoveryEnabled) return;
-  await safeRecoveryWrite(async () => {
-    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
-      workerJobId: jobId,
-      workerEventSeq: Number(seq || 0),
-      lastEventAt: new Date().toISOString(),
-      lastKnownStatus: "worker_event_delivered"
-    });
-  });
-}
-
-function cancelWorkerJobOnce(active, jobId) {
-  if (!active || !jobId || active.workerCancelRequested) return;
-  active.workerCancelRequested = true;
-  getWorkerClient().cancelJob(jobId).catch((error) => {
-    console.warn("worker cancel failed:", error instanceof Error ? error.message : String(error));
-  });
-}
-
 async function runCodexTurn(ctx, chatKey, thread, input, signal, workingMessageId, liveProgress = null, options = {}) {
   const linkedAbort = createLinkedAbortController(signal);
   const turnOptions = buildTurnOptions(chatKey, linkedAbort.controller.signal);
@@ -2060,44 +1928,6 @@ async function recordActiveTurnStarted(chatKey, turn) {
   await safeRecoveryWrite(async () => {
     await replaceActiveTurnSnapshot(config.botRecoveryDir, chatKey, snapshot);
     await appendRecoveryEvent({ type: "turn_started", chatKey, queueItemId: turn.id || "", recoveryEligible: snapshot.recoveryEligible });
-  });
-}
-
-async function recordWorkerJobStarted(chatKey, job) {
-  const now = new Date().toISOString();
-  const chat = getChatState(chatKey);
-  if (job.threadId) {
-    chat.threadId = job.threadId;
-    chat.updatedAt = now;
-  }
-  if (!state.worker || typeof state.worker !== "object") state.worker = { deliveries: {} };
-  if (!state.worker.deliveries || typeof state.worker.deliveries !== "object") state.worker.deliveries = {};
-  const deliveryKey = workerDeliveryKey(chatKey, job.id || "");
-  const currentDelivery = normalizeWorkerDeliveryEntry(deliveryKey, state.worker.deliveries[deliveryKey]);
-  state.worker.deliveries[deliveryKey] = markWorkerDeliveryStreaming(currentDelivery, {
-    chatKey,
-    jobId: job.id || "",
-    seq: currentDelivery?.seq || 0
-  });
-  await saveState(config.stateFile, state);
-  if (!config.botRestartRecoveryEnabled) return;
-  await safeRecoveryWrite(async () => {
-    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
-      threadId: job.threadId || chat.threadId || "",
-      workerJobId: job.id || "",
-      workerEventSeq: workerDeliveryCursor(chatKey, job.id || ""),
-      workerMode: codexWorkerMode(),
-      workerTransport: job.transport || codexTransport(),
-      lastEventAt: now,
-      lastKnownStatus: "worker_job_started"
-    });
-    await appendRecoveryEvent({
-      type: "worker_job_started",
-      chatKey,
-      jobId: job.id || "",
-      threadId: job.threadId || chat.threadId || "",
-      transport: job.transport || codexTransport()
-    });
   });
 }
 
