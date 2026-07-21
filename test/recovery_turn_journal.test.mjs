@@ -55,3 +55,37 @@ test("non-sidecar replies do not create worker delivery records", async () => {
   assert.deepEqual(state.worker.deliveries, {});
   assert.equal(saves(), 0);
 });
+
+test("worker delivery failures preserve ambiguity and compact transport evidence", async () => {
+  const { journal, state, saves } = createFixture();
+  const error = Object.assign(new Error("timed out"), { code: "ETIMEDOUT" });
+  await journal.recordTelegramReplyFailed(
+    "chat",
+    { executionMode: "sidecar", workerJobId: "job" },
+    error,
+    { ambiguous: false }
+  );
+
+  const [entry] = Object.values(state.worker.deliveries);
+  assert.equal(entry.deliveryStatus, "delivery_failed");
+  assert.equal(entry.ambiguous, false);
+  assert.equal(entry.lastError.code, "ETIMEDOUT");
+  assert.equal(saves(), 1);
+});
+
+test("worker response digest mismatches become non-ambiguous integrity failures", async () => {
+  const { journal, state, saves } = createFixture();
+  await journal.recordTelegramReplyDigestMismatch(
+    "chat",
+    { executionMode: "sidecar", workerJobId: "job" },
+    "sha256:expected",
+    "sha256:actual"
+  );
+
+  const [entry] = Object.values(state.worker.deliveries);
+  assert.equal(entry.deliveryStatus, "delivery_failed");
+  assert.equal(entry.ambiguous, false);
+  assert.equal(entry.lastError.kind, "integrity");
+  assert.equal(entry.lastError.code, "RESPONSE_DIGEST_MISMATCH");
+  assert.equal(saves(), 1);
+});

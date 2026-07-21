@@ -9,8 +9,14 @@ import {
   createWorkerRecoveryTurn,
   isWorkerCancelledMessage
 } from "../src/recovery/runtime_controller.js";
+import { replaceActiveTurnSnapshot } from "../src/recovery/state.js";
 
-async function createHarness(t, { enabled = true, workerEnabled = false } = {}) {
+async function createHarness(t, {
+  enabled = true,
+  workerEnabled = false,
+  workerJob = null,
+  workerResult = null
+} = {}) {
   const recoveryDir = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-recovery-"));
   t.after(() => fs.rm(recoveryDir, { recursive: true, force: true }));
   const activeTurns = new Map();
@@ -20,6 +26,12 @@ async function createHarness(t, { enabled = true, workerEnabled = false } = {}) 
   const stops = [];
   const warnings = [];
   const deliveries = {};
+  const deliveryTransitions = [];
+  const drains = [];
+  const answerReplies = [];
+  const completed = [];
+  const reactions = [];
+  const chat = { threadId: "" };
   const controller = createRuntimeRecoveryController({
     settings: {
       enabled,
@@ -39,14 +51,14 @@ async function createHarness(t, { enabled = true, workerEnabled = false } = {}) 
       activeTurns,
       getWorkerDeliveries: () => deliveries,
       replaceWorkerDeliveries: (next) => Object.assign(deliveries, next),
-      getChat: () => ({ threadId: "" }),
+      getChat: () => chat,
       save: async () => {}
     },
     queue: {
       enqueueFrontForced: async () => {},
       dequeue: async () => null,
       startPrepared: async () => {},
-      startDrain: async () => {}
+      startDrain: async (...args) => drains.push(args)
     },
     worker: {
       enabled: () => workerEnabled,
@@ -54,9 +66,10 @@ async function createHarness(t, { enabled = true, workerEnabled = false } = {}) 
         status: async () => {
           throw new Error("worker unavailable");
         },
-        getJobStatus: async () => ({ job: null })
+        getJobStatus: async () => ({ job: workerJob })
       }),
       waitForJob: async () => {
+        if (workerResult) return workerResult;
         throw new Error("unused");
       },
       transport: () => "sdk"
@@ -68,22 +81,22 @@ async function createHarness(t, { enabled = true, workerEnabled = false } = {}) 
       createSyntheticCtx: () => ({}),
       deleteTrackedProgressMessages: async () => {},
       digestText: () => "digest",
-      formatTurn: () => "",
+      formatTurn: (result) => result?.response || "",
       markActiveTurnStopped: async () => {},
-      recordActiveTurnCompleted: async () => {},
+      recordActiveTurnCompleted: async (...args) => completed.push(args),
       recordActiveTurnFailed: async () => {},
-      recordTelegramReplyCompleted: async () => {},
+      recordTelegramReplyCompleted: async () => deliveryTransitions.push("completed"),
       recordTelegramReplyDigestMismatch: async () => {},
-      recordTelegramReplyFailed: async () => {},
-      recordTelegramReplyReady: async () => {},
-      recordTelegramReplyStarted: async () => {},
+      recordTelegramReplyFailed: async () => deliveryTransitions.push("failed"),
+      recordTelegramReplyReady: async () => deliveryTransitions.push("ready"),
+      recordTelegramReplyStarted: async () => deliveryTransitions.push("started"),
       shouldDeleteLiveProgress: () => false,
       tryBackfillCompletedStream: async () => false
     },
     telegram: {
       notifyExtra: () => ({}),
-      reactQuietly: async () => {},
-      replyCodexAnswer: async () => {},
+      reactQuietly: async (...args) => reactions.push(args),
+      replyCodexAnswer: async (...args) => answerReplies.push(args),
       replyHtml: async (...args) => replies.push(args),
       sendHtmlMessage: async () => ({})
     },
@@ -102,7 +115,21 @@ async function createHarness(t, { enabled = true, workerEnabled = false } = {}) 
       error: (...args) => warnings.push(args)
     }
   });
-  return { controller, events, exits, recoveryDir, replies, stops, warnings };
+  return {
+    activeTurns,
+    answerReplies,
+    completed,
+    controller,
+    deliveryTransitions,
+    drains,
+    events,
+    exits,
+    reactions,
+    recoveryDir,
+    replies,
+    stops,
+    warnings
+  };
 }
 
 test("runtime recovery scheduler records worker health and empty startup plans", async (t) => {
@@ -202,4 +229,51 @@ test("worker cancellation detection accepts known worker and abort messages only
   assert.equal(isWorkerCancelledMessage("Worker job was cancelled"), true);
   assert.equal(isWorkerCancelledMessage("Cancelled by Telegram bot"), true);
   assert.equal(isWorkerCancelledMessage("Worker connection failed"), false);
+});
+
+test("running worker snapshots resume through final delivery and queue drain", async (t) => {
+  const workerJob = {
+    id: "job-1",
+    status: "running",
+    threadId: "thread-1",
+    transport: "sdk"
+  };
+  const harness = await createHarness(t, {
+    workerEnabled: true,
+    workerJob,
+    workerResult: {
+      turn: { response: "recovered answer" },
+      threadId: "thread-1"
+    }
+  });
+  await replaceActiveTurnSnapshot(harness.recoveryDir, "chat-1", {
+    chatId: "chat-1",
+    inputPreview: "resume",
+    recoveryEligible: true,
+    startedAt: new Date().toISOString(),
+    workerEventSeq: 4,
+    workerJobId: "job-1"
+  });
+
+  assert.equal(await harness.controller.recoverActiveWorkerJobs({ source: "test" }), 1);
+  for (let index = 0; index < 10; index += 1) {
+    if (harness.events.some(({ type }) => type === "worker_recovery_completed")) break;
+    await waitForImmediate();
+  }
+
+  assert.deepEqual(harness.deliveryTransitions, ["ready", "started", "completed"]);
+  assert.equal(harness.answerReplies.length, 1);
+  assert.equal(harness.answerReplies[0][1], "recovered answer");
+  assert.deepEqual(harness.completed, [["chat-1", "thread-1"]]);
+  assert.equal(harness.drains.length, 1);
+  assert.equal(harness.activeTurns.has("chat-1"), false);
+  assert.deepEqual(
+    harness.events.map(({ type }) => type),
+    [
+      "worker_delivery_recovery_plan",
+      "worker_recovery_started",
+      "worker_recovery_completed"
+    ]
+  );
+  assert.equal(harness.reactions.at(-1)[1], "done");
 });
