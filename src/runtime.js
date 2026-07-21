@@ -58,6 +58,13 @@ import {
 import { replyFormattedCodexAnswer } from "./telegram/codex_answer.js";
 import { splitText } from "./telegram/split.js";
 import { createTelegramRuntimeContext } from "./telegram/runtime_context.js";
+import { registerAdminCommands } from "./telegram/admin_command_router.js";
+import { registerCallbackRoutes } from "./telegram/callback_router.js";
+import { registerChatCommands } from "./telegram/chat_command_router.js";
+import {
+  registerTelegramMessageRoutes,
+  registerTelegramMiddleware
+} from "./telegram/message_router.js";
 import { isRegisteredTelegramCommandText } from "./telegram_commands.js";
 import { createRuntimeStatusSupport } from "./status/runtime_status.js";
 import {
@@ -152,6 +159,8 @@ const sideTurns = new Map();
 const usageRefreshes = new Map();
 const selectionFlows = createSelectionFlowStore();
 let maintenanceController = null;
+let adminCommandHandlers = null;
+let chatCommandHandlers = null;
 const {
   applyPersonaPrompt,
   buildReplyContext,
@@ -217,7 +226,6 @@ const {
   trackSideTurn,
   untrackSideTurn
 } = createQueueRuntimeController({
-  state,
   activeTurns,
   pendingTurns,
   sideTurns,
@@ -740,7 +748,7 @@ const { handleToolButton } = createToolCallbackController({
     createState: createStateBackup
   },
   cleanup: {
-    handleCommand: handleCleanupCommand
+    handleCommand: (...args) => adminCommandHandlers.handleCleanupCommand(...args)
   },
   maintenance: {
     autoHandoffEnabled: maintenanceAutoHandoffEnabled,
@@ -1279,868 +1287,297 @@ const {
 
 hydratePendingTurnsFromState();
 
-bot.catch(async (error, ctx) => {
-  const errorSummary = summarizeTelegramError(error);
-  console.error("Unhandled Telegram update error:", errorSummary);
-  if (ctx.chat) {
-    await replyHtml(ctx, `${b("Telegram bot error")}\n${code(errorSummary.description)}`).catch(() => {});
+registerTelegramMiddleware({
+  bot,
+  config,
+  authorize: authorizeTelegramUpdate,
+  telegram: {
+    replyHtml,
+    summarizeError: summarizeTelegramError
   }
 });
 
-bot.use(async (ctx, next) => {
-  const authorization = authorizeTelegramUpdate(ctx, config);
-  if (!authorization.ok) {
-    if (ctx.message) await ctx.reply("Unauthorized.");
-    return;
-  }
-  return next();
-});
-
-bot.start(async (ctx) => {
-  await replyHtml(ctx, helpTextHtml());
-});
-
-bot.help(async (ctx) => {
-  await replyHtml(ctx, helpTextHtml());
-});
-
-bot.command("menu", async (ctx) => {
-  await sendPanel(ctx, "main");
-});
-
-bot.command("new", async (ctx) => {
-  await handleNewCommand(ctx);
-});
-
-async function handleNewCommand(ctx) {
-  const chatKey = getChatKey(ctx);
-  if (await rejectIfActive(ctx, chatKey)) return;
-
-  const previousThreadId = getChatState(chatKey).threadId || threadCache.get(chatKey)?.id || "";
-  const thread = startCodexThread(chatKey);
-  threadCache.set(chatKey, thread);
-  const chat = getChatState(chatKey);
-  delete chat.threadId;
-  chat.updatedAt = new Date().toISOString();
-  await saveState(config.stateFile, state);
-
-  const abortController = new AbortController();
-  activeTurns.set(chatKey, { abortController });
-  let finalReaction = "";
-  await reactQuietly(ctx, config.telegramThinkingReaction);
-  try {
-    await runCodexTurn(
-      ctx,
-      chatKey,
-      thread,
-      applyPersonaPrompt(t("newThreadPersonaPrompt")),
-      abortController.signal
-    );
-    await rememberThread(chatKey, thread);
-    await replyHtml(ctx, formatKeyValueHtml("New Codex thread started.", [
-      ["Previous thread", previousThreadId || "none"],
-      ["New thread", thread.id || "unknown"],
-      ["Workdir", getEffectiveOptions(chatKey).workingDirectory]
-    ]));
-    finalReaction = config.telegramCompleteReaction;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    finalReaction = abortController.signal.aborted ? config.telegramStoppedReaction : config.telegramErrorReaction;
-    await replyHtml(ctx, `<b>Failed to start new Codex thread</b>\n${code(message)}`);
-  } finally {
-    await reactQuietly(ctx, finalReaction, finalReaction === config.telegramCompleteReaction);
-    activeTurns.delete(chatKey);
-  }
-}
-
-bot.command("resume", async (ctx) => {
-  await handleResumeCommand(ctx);
-});
-
-bot.command("resume_last", async (ctx) => {
-  await handleResumeCommand(ctx, "last");
-});
-
-async function handleResumeCommand(ctx, overrideArg = null) {
-  const chatKey = getChatKey(ctx);
-  if (await rejectIfActive(ctx, chatKey)) return;
-
-  const arg = overrideArg ?? getCommandArgs(ctx).trim();
-  let threadId = arg;
-  let session = null;
-  if (!threadId || threadId.toLowerCase() === "last") {
-    session = (await listRecentCodexSessions(1))[0] ?? null;
-    threadId = session?.id ?? "";
-  }
-
-  if (!threadId) {
-    await replyHtml(ctx, `No Codex session found. Use ${code("/new")} to start one.`);
-    return;
-  }
-
-  const thread = resumeCodexThread(chatKey, threadId);
-  threadCache.set(chatKey, thread);
-  const chat = getChatState(chatKey);
-  chat.threadId = threadId;
-  chat.updatedAt = new Date().toISOString();
-  await saveState(config.stateFile, state);
-
-  await replyHtml(ctx, formatKeyValueHtml("Resumed Codex thread.", [
-    ["Thread", threadId],
-    ...(session ? [["Source", session.cwd], ["Time", session.timestamp]] : [])
-  ]));
-}
-
-bot.command("threads", async (ctx) => {
-  const sessions = await listRecentCodexSessions(8);
-  if (sessions.length === 0) {
-    await replyHtml(ctx, "No Codex sessions found.");
-    return;
-  }
-
-  const lines = [b("Recent Codex sessions:")];
-  for (const session of sessions) {
-    lines.push(
-      "",
-      code(session.id),
-      `- time: ${code(session.timestamp)}`,
-      `- cwd: ${code(session.cwd)}`,
-      `- source: ${code(`${session.source}/${session.originator}`)}`,
-      `- resume: ${code(`/resume ${session.id}`)}`
-    );
-  }
-  await replyHtml(ctx, lines.join("\n"));
-});
-
-bot.command("status", async (ctx) => {
-  const chatKey = getChatKey(ctx);
-  await pruneExpiredPendingTurns(chatKey, ctx);
-  await replyHtml(ctx, formatStatusHtml(chatKey, await buildStatusDetails(chatKey)), statusKeyboard(chatKey));
-});
-
-bot.command("options", async (ctx) => {
-  await replyHtml(ctx, formatOptionsHtml(getChatKey(ctx)));
-});
-
-bot.command("settings", async (ctx) => {
-  await sendPanel(ctx, "settings");
-});
-
-bot.command("model", async (ctx) => {
-  const chatKey = getChatKey(ctx);
-  const value = getCommandArgs(ctx).trim();
-  if (value) {
-    await updateOptionCommand(ctx, "model", "model name or off");
-    return;
-  }
-  if (await rejectIfActive(ctx, chatKey)) return;
-  await sendStandaloneModelSelection(ctx, chatKey);
-});
-
-bot.command("model_off", async (ctx) => {
-  await updateOptionValue(ctx, "model", "off");
-});
-
-bot.command("workdir", async (ctx) => {
-  await updateOptionCommand(ctx, "workingDirectory", "absolute directory");
-});
-
-bot.command("workdir_default", async (ctx) => {
-  await updateOptionValue(ctx, "workingDirectory", "default");
-});
-
-bot.command("sandbox", async (ctx) => {
-  await updateOptionCommand(ctx, "sandboxMode", [...VALID.sandbox].join("|"));
-});
-
-bot.command("sandbox_read_only", async (ctx) => {
-  await updateOptionValue(ctx, "sandboxMode", "read-only");
-});
-
-bot.command("sandbox_workspace_write", async (ctx) => {
-  await updateOptionValue(ctx, "sandboxMode", "workspace-write");
-});
-
-bot.command("sandbox_danger_full_access", async (ctx) => {
-  await updateOptionValue(ctx, "sandboxMode", "danger-full-access");
-});
-
-bot.command("sandbox_default", async (ctx) => {
-  await updateOptionValue(ctx, "sandboxMode", "default");
-});
-
-bot.command("approval", async (ctx) => {
-  await updateOptionCommand(ctx, "approvalPolicy", [...VALID.approval].join("|"));
-});
-
-bot.command("approval_never", async (ctx) => {
-  await updateOptionValue(ctx, "approvalPolicy", "never");
-});
-
-bot.command("approval_on_request", async (ctx) => {
-  await updateOptionValue(ctx, "approvalPolicy", "on-request");
-});
-
-bot.command("approval_on_failure", async (ctx) => {
-  await updateOptionValue(ctx, "approvalPolicy", "on-failure");
-});
-
-bot.command("approval_untrusted", async (ctx) => {
-  await updateOptionValue(ctx, "approvalPolicy", "untrusted");
-});
-
-bot.command("approval_default", async (ctx) => {
-  await updateOptionValue(ctx, "approvalPolicy", "default");
-});
-
-bot.command("reasoning", async (ctx) => {
-  const chatKey = getChatKey(ctx);
-  const value = getCommandArgs(ctx).trim();
-  if (value) {
-    await updateOptionValue(ctx, "modelReasoningEffort", value.toLowerCase());
-    return;
-  }
-  if (await rejectIfActive(ctx, chatKey)) return;
-  await sendStandaloneReasoningSelection(ctx, chatKey);
-});
-
-for (const shortcut of [
-  "reasoning_minimal",
-  "reasoning_low",
-  "reasoning_medium",
-  "reasoning_high",
-  "reasoning_xhigh",
-  "reasoning_max",
-  "reasoning_ultra",
-  "reasoning_default"
-]) {
-  const reasoning = shortcut.slice("reasoning_".length);
-  bot.command(shortcut, async (ctx) => {
-    await updateOptionValue(ctx, "modelReasoningEffort", reasoning);
-  });
-}
-
-bot.command("fast", async (ctx) => {
-  await handleFastCommand(ctx);
-});
-
-bot.command("fast_on", async (ctx) => {
-  await handleFastCommand(ctx, "on");
-});
-
-bot.command("fast_off", async (ctx) => {
-  await handleFastCommand(ctx, "off");
-});
-
-bot.command("fast_status", async (ctx) => {
-  await handleFastCommand(ctx, "status");
-});
-
-async function handleFastCommand(ctx, overrideArg = null) {
-  const chatKey = getChatKey(ctx);
-  if (await rejectIfActive(ctx, chatKey)) return;
-  const arg = (overrideArg ?? getCommandArgs(ctx).trim()).toLowerCase();
-  const chat = getChatState(chatKey);
-  const fastEnabled = getEffectiveOptions(chatKey).serviceTier === "fast";
-  const models = await listCodexModels();
-
-  if (arg === "status") {
-    await replyHtml(ctx, formatFastStatusHtml(chatKey, models));
-    return;
-  }
-
-  if (!arg || arg === "toggle") {
-    if (fastEnabled) delete chat.options.serviceTier;
-    else chat.options.serviceTier = "fast";
-  } else if (["on", "true", "yes", "1"].includes(arg)) {
-    chat.options.serviceTier = "fast";
-  } else if (["off", "false", "no", "0", "default"].includes(arg)) {
-    delete chat.options.serviceTier;
-  } else {
-    await replyHtml(ctx, `Usage: ${code("/fast")}, ${code("/fast_on")}, ${code("/fast_off")}, or ${code("/fast_status")}`);
-    return;
-  }
-
-  invalidateThreadCache(chatKey);
-  await saveState(config.stateFile, state);
-  await replyHtml(ctx, `${b("Fast service tier updated.")}\n\n${formatFastStatusHtml(chatKey, models)}`);
-}
-
-bot.command("websearch", async (ctx) => {
-  await updateOptionCommand(ctx, "webSearchMode", [...VALID.webSearch].join("|"));
-});
-
-for (const mode of ["disabled", "cached", "live", "default"]) {
-  bot.command(`websearch_${mode}`, async (ctx) => {
-    await updateOptionValue(ctx, "webSearchMode", mode);
-  });
-}
-
-bot.command("network", async (ctx) => {
-  await updateOptionCommand(ctx, "networkAccessEnabled", "on|off");
-});
-
-for (const value of ["on", "off", "default"]) {
-  bot.command(`network_${value}`, async (ctx) => {
-    await updateOptionValue(ctx, "networkAccessEnabled", value);
-  });
-}
-
-bot.command("skipgit", async (ctx) => {
-  await updateOptionCommand(ctx, "skipGitRepoCheck", "on|off");
-});
-
-for (const value of ["on", "off", "default"]) {
-  bot.command(`skipgit_${value}`, async (ctx) => {
-    await updateOptionValue(ctx, "skipGitRepoCheck", value);
-  });
-}
-
-bot.command("adddir", async (ctx) => {
-  const chatKey = getChatKey(ctx);
-  if (await rejectIfActive(ctx, chatKey)) return;
-  const dir = getCommandArgs(ctx).trim();
-  if (!dir) {
-    await replyHtml(ctx, `Usage: ${code("/adddir <absolute-directory>")}`);
-    return;
-  }
-  await ensureDirectory(dir, "additional directory");
-  const chat = getChatState(chatKey);
-  chat.options.additionalDirectories = unique([...(chat.options.additionalDirectories ?? []), dir]);
-  invalidateThreadCache(chatKey);
-  await saveState(config.stateFile, state);
-  await replyHtml(ctx, `Added directory: ${code(dir)}`);
-});
-
-bot.command("cleardirs", async (ctx) => {
-  const chatKey = getChatKey(ctx);
-  if (await rejectIfActive(ctx, chatKey)) return;
-  const chat = getChatState(chatKey);
-  delete chat.options.additionalDirectories;
-  invalidateThreadCache(chatKey);
-  await saveState(config.stateFile, state);
-  await replyHtml(ctx, "Cleared additional directories.");
-});
-
-bot.command("stream", async (ctx) => {
-  await updateOptionCommand(ctx, "streamEvents", "on|off");
-});
-
-for (const value of ["on", "off", "default"]) {
-  bot.command(`stream_${value}`, async (ctx) => {
-    await updateOptionValue(ctx, "streamEvents", value);
-  });
-}
-
-bot.command("schema", async (ctx) => {
-  const chatKey = getChatKey(ctx);
-  if (await rejectIfActive(ctx, chatKey)) return;
-  const value = getCommandArgs(ctx).trim();
-  if (!value) {
-    await replyHtml(ctx, `Usage: ${code("/schema <json-schema>")} or ${code("/schema off")}`);
-    return;
-  }
-  const chat = getChatState(chatKey);
-  if (value.toLowerCase() === "off") {
-    delete chat.outputSchema;
-    await saveState(config.stateFile, state);
-    await replyHtml(ctx, "Structured output schema disabled.");
-    return;
-  }
-  try {
-    chat.outputSchema = JSON.parse(value);
-  } catch (error) {
-    await replyHtml(ctx, `<b>Invalid JSON schema</b>\n${code(error instanceof Error ? error.message : String(error))}`);
-    return;
-  }
-  await saveState(config.stateFile, state);
-  await replyHtml(ctx, "Structured output schema enabled for this chat.");
-});
-
-bot.command("schema_off", async (ctx) => {
-  const chatKey = getChatKey(ctx);
-  if (await rejectIfActive(ctx, chatKey)) return;
-  const chat = getChatState(chatKey);
-  delete chat.outputSchema;
-  await saveState(config.stateFile, state);
-  await replyHtml(ctx, "Structured output schema disabled.");
-});
-
-bot.command("config", async (ctx) => {
-  await replyHtml(ctx, formatConfigHtml());
-});
-
-bot.command("doctor", async (ctx) => {
-  await replyHtml(ctx, await formatDoctorHtml(getChatKey(ctx)));
-});
-
-bot.command("health", async (ctx) => {
-  await replyHtml(ctx, await formatHealthHtml());
-});
-
-bot.command("tools", async (ctx) => {
-  await sendPanel(ctx, "tools");
-});
-
-bot.command("skills", async (ctx) => {
-  await replyCodexSkillsStatus(ctx, { config, runtimeValue, replyHtml, editOrReplyHtml }, { query: commandArgument(ctx.message?.text, "skills") });
-});
-
-bot.command("backup", async (ctx) => {
-  const backup = await createStateBackup("manual");
-  await replyHtml(ctx, formatKeyValueHtml("Backup created:", [
-    ["file", backup.path],
-    ["size", formatBytes(backup.bytes)],
-    ["chats", backup.chatCount]
-  ]));
-  await replyDocumentQuietly(ctx, backup.path, "Codex Telegram Bot backup");
-});
-
-bot.command("export", async (ctx) => {
-  const chatKey = getChatKey(ctx);
-  const file = await createChatExport(chatKey);
-  await replyHtml(ctx, formatKeyValueHtml("Chat export created:", [
-    ["file", file.path],
-    ["size", formatBytes(file.bytes)]
-  ]));
-  await replyDocumentQuietly(ctx, file.path, "Current chat export");
-});
-
-function commandArgument(text, command) {
-  const trimmed = String(text || "").trimStart();
-  const token = trimmed.split(/\s+/, 1)[0] || "";
-  const bareCommand = token.replace(/^\//, "").split("@", 1)[0].toLowerCase();
-  return bareCommand === command ? trimmed.slice(token.length).trim() : "";
-}
-
-bot.command("prefs", async (ctx) => {
-  await handlePrefsCommand(ctx);
-});
-
-bot.command("prefs_reset", async (ctx) => {
-  await handlePrefsCommand(ctx, "reset");
-});
-
-async function handlePrefsCommand(ctx, overrideArg = null) {
-  const chatKey = getChatKey(ctx);
-  const arg = (overrideArg ?? getCommandArgs(ctx).trim()).toLowerCase();
-  if (arg === "reset") {
-    if (await rejectIfActive(ctx, chatKey)) return;
-    const chat = getChatState(chatKey);
-    chat.options = {};
-    delete chat.outputSchema;
-    invalidateThreadCache(chatKey);
-    await saveState(config.stateFile, state);
-    await replyHtml(ctx, `${b("Preferences reset.")}\n\n${formatPrefsHtml(chatKey)}`);
-    return;
-  }
-  if (arg) {
-    await replyHtml(ctx, `Usage: ${code("/prefs")} or ${code("/prefs_reset")}`);
-    return;
-  }
-  await replyHtml(ctx, formatPrefsHtml(chatKey));
-}
-
-bot.command("whoami", async (ctx) => {
-  await replyHtml(ctx, formatWhoamiHtml(ctx));
-});
-
-bot.command("logs", async (ctx) => {
-  await replyHtml(ctx, await formatLogsHtml(ctx));
-});
-
-bot.command("logs_error", async (ctx) => {
-  await replyHtml(ctx, await formatLogsHtml(ctx, "error"));
-});
-
-bot.command("stop", async (ctx) => {
-  await handleStopCommand(ctx);
-});
-
-async function handleStopCommand(ctx) {
-  const chatKey = getChatKey(ctx);
-  const active = activeTurns.get(chatKey);
-  const stoppedSideTurns = stopSideTurns(chatKey);
-  if (!active && stoppedSideTurns === 0) {
-    await replyHtml(ctx, "No active Codex turn.");
-    return;
-  }
-  if (active) {
-    active.stopRequested = true;
-    await markActiveTurnStopped(chatKey);
-    cancelWorkerJobOnce(active, active.workerJobId);
-    active.abortController?.abort();
-  }
-  const cleared = await clearPendingTurns(chatKey);
-  await replyHtml(ctx, `Stop requested.${cleared > 0 ? ` Cleared queued turns: ${code(cleared)}` : ""}${stoppedSideTurns > 0 ? ` Stopped side turns: ${code(stoppedSideTurns)}` : ""}`);
-}
-
-bot.command("restart", async (ctx) => {
-  await handleRestartCommand(ctx);
-});
-
-bot.command("restart_continue", async (ctx) => {
-  await handleRestartCommand(ctx);
-});
-
-bot.command("recovery_status", async (ctx) => {
-  await replyHtml(ctx, await formatRecoveryStatusHtml());
-});
-
-bot.command("recovery_resume", async (ctx) => {
-  const started = await scheduleStartupRecovery({ force: true, notifyCtx: ctx });
-  await replyHtml(ctx, started ? t("recoveryManualResumeStarted") : t("recoveryNoCandidates"));
-});
-
-bot.command("recovery_cancel", async (ctx) => {
-  await clearCompletedRecovery(config.botRecoveryDir);
-  await clearRecoveryPendingTurns();
-  await replyHtml(ctx, t("recoveryCancelled"));
-});
-
-bot.command("queue", async (ctx) => {
-  await handleQueueCommand(ctx);
-});
-
-bot.command("queue_pause", async (ctx) => {
-  await handleQueueCommand(ctx, "pause");
-});
-
-bot.command("queue_resume", async (ctx) => {
-  await handleQueueCommand(ctx, "resume");
-});
-
-bot.command("queue_mode", async (ctx) => {
-  await handleQueueCommand(ctx, "mode");
-});
-
-for (const mode of ["safe", "interrupt", "side"]) {
-  bot.command(`queue_mode_${mode}`, async (ctx) => {
-    await handleQueueCommand(ctx, `mode ${mode}`);
-  });
-}
-
-async function handleQueueCommand(ctx, overrideArg = null) {
-  const chatKey = getChatKey(ctx);
-  const arg = (overrideArg ?? getCommandArgs(ctx).trim()).toLowerCase();
-  const [subcommand, value] = arg.split(/\s+/, 2);
-  if (subcommand === "mode") {
-    if (!value) {
-      await replyHtml(ctx, formatQueueModeHtml(chatKey));
-      return;
-    }
-    if (!VALID.queueMode.has(value)) {
-      await replyHtml(ctx, `Usage: ${code("/queue_mode")} or ${code("/queue_mode_safe|interrupt|side")}`);
-      return;
-    }
-    await setQueueMode(chatKey, value);
-    await replyHtml(ctx, `${b(t("queueUpdatedTitle"))}\n\n${formatQueueModeHtml(chatKey)}`);
-    return;
-  }
-  if (arg === "pause") {
-    await setQueuePaused(chatKey, true);
-    await replyHtml(ctx, `${b(t("queuePausedTitle"))}\n${t("queuePausedDetail")}\n\n${formatQueueHtml(chatKey)}`, queueKeyboard(chatKey));
-    return;
-  }
-  if (arg === "resume") {
-    await setQueuePaused(chatKey, false);
-    const started = await startQueueDrainIfIdle(chatKey, ctx);
-    await replyHtml(ctx, `${b(t("queueResumedTitle"))}${started ? `\n${t("queueProcessingRestarted")}` : ""}\n\n${formatQueueHtml(chatKey)}`, queueKeyboard(chatKey));
-    return;
-  }
-  if (arg && arg !== "status") {
-    await replyHtml(ctx, `Usage: ${code("/queue")}, ${code("/queue_pause")}, ${code("/queue_resume")}, or ${code("/queue_mode")}`);
-    return;
-  }
-  await pruneExpiredPendingTurns(chatKey, ctx);
-  await replyHtml(ctx, formatQueueHtml(chatKey), queueKeyboard(chatKey));
-}
-
-bot.command("cancelqueue", async (ctx) => {
-  const chatKey = getChatKey(ctx);
-  const arg = getCommandArgs(ctx).trim();
-  const cleared = arg ? await removePendingTurn(chatKey, arg) : await clearPendingTurns(chatKey);
-  await replyHtml(ctx, cleared > 0 ? `Cleared queued turns: ${code(cleared)}` : "No queued Codex turns.");
-});
-
-bot.command("forget", async (ctx) => {
-  const chatKey = getChatKey(ctx);
-  if (await rejectIfActive(ctx, chatKey)) return;
-  threadCache.delete(chatKey);
-  delete state.chats[chatKey];
-  delete state.queues[chatKey];
-  pendingTurns.delete(chatKey);
-  await saveState(config.stateFile, state);
-  await replyHtml(ctx, "Forgot the Codex thread and chat-specific options.");
-});
-
-bot.command("cleanup", async (ctx) => {
-  await handleCleanupCommand(ctx);
-});
-
-bot.command("cleanup_status", async (ctx) => {
-  await handleCleanupCommand(ctx, "status");
-});
-
-bot.command("cleanup_uploads", async (ctx) => {
-  const plan = await createUploadCleanupPlan({ dryRun: true });
-  const record = createUploadCleanupPlanRecord(plan);
-  state.uploadCleanup.plans[record.id] = record;
-  await appendCleanupLog(createUploadCleanupPlanLogEntry(plan, { planId: record.id, at: record.createdAt }));
-  await saveState(config.stateFile, state);
-  await replyHtml(ctx, formatUploadCleanupPlanHtml(plan, record), uploadCleanupKeyboard(record.id));
-});
-
-bot.command("cleanup_uploads_confirm", async (ctx) => {
-  await replyHtml(ctx, `${b("Upload cleanup confirmation changed")}\nRun ${code("/cleanup_uploads")} and press the ${code("Confirm upload cleanup")} button. This command no longer deletes files.`);
-});
-
-async function handleCleanupCommand(ctx, overrideArg = null) {
-  const arg = (overrideArg ?? getCommandArgs(ctx).trim()).toLowerCase();
-  if (!arg || arg === "status" || arg === "dry-run") {
-    const plan = await createCleanupPlan("manual");
-    await saveState(config.stateFile, state);
-    await sendCleanupPlan(ctx, plan);
-    return;
-  }
-  await replyHtml(ctx, `Usage: ${code("/cleanup")} or ${code("/cleanup_status")}`);
-}
-
-bot.action(/^cleanup:(quarantine|delete|both|ignore):([a-zA-Z0-9_-]+)$/, async (ctx) => {
-  const [, action, planId] = ctx.match;
-  const plan = state.cleanup?.plans?.[planId];
-  if (!plan) {
-    await answerCleanupCallback(ctx, "missing");
-    await editCleanupMessage(ctx, `${b(t("cleanupPlanNotFoundTitle"))}\n${t("cleanupPlanNotFoundBody")}\n\n${t("cleanupFreshCandidatesPrompt")} ${code("/cleanup")}.`);
-    return;
-  }
-  if (Date.now() > Date.parse(plan.expiresAt)) {
-    await answerCleanupCallback(ctx, "expired");
-    delete state.cleanup.plans[planId];
-    await saveState(config.stateFile, state);
-    await editCleanupMessage(ctx, `${b(t("cleanupPlanExpiredTitle"))}\n${t("cleanupApprovalExpired")}: ${code(formatDateTime(plan.expiresAt))}\n\n${t("cleanupFreshCandidatesPrompt")} ${code("/cleanup")}.`);
-    return;
-  }
-  await answerCleanupCallback(ctx, action);
-  await editCleanupProcessingMessage(ctx, action, plan);
-  if (action === "ignore") {
-    delete state.cleanup.plans[planId];
-    await saveState(config.stateFile, state);
-    await editCleanupMessage(ctx, formatCleanupIgnoredHtml(plan));
-    return;
-  }
-
-  const result = await applyCleanupPlan(plan, action);
-  delete state.cleanup.plans[planId];
-  await appendCleanupLog({ type: "apply", action, planId, result, at: new Date().toISOString() });
-  await saveState(config.stateFile, state);
-  await editCleanupMessage(ctx, formatCleanupResultHtml(action, result, plan));
-});
-
-bot.action(/^upload_cleanup_confirm:([a-zA-Z0-9_-]+)$/, async (ctx) => {
-  const [, planId] = ctx.match;
-  const record = state.uploadCleanup?.plans?.[planId];
-  const confirmation = confirmUploadCleanupPlan(record);
-  if (!confirmation.ok) {
-    await answerUploadCleanupCallback(ctx, confirmation.reason);
-    if (confirmation.reason === "expired_plan" && state.uploadCleanup?.plans) {
-      delete state.uploadCleanup.plans[planId];
-      await saveState(config.stateFile, state);
-    }
-    await editUploadCleanupMessage(ctx, `${b("Upload cleanup plan unavailable")}\nRun ${code("/cleanup_uploads")} to generate a fresh preview.`);
-    return;
-  }
-
-  await answerUploadCleanupCallback(ctx, "confirm");
-  await editOrReplyHtml(ctx, formatUploadCleanupProcessingHtml(record), inlineKeyboard([
-    [{ text: "Processing", callback_data: `upload_cleanup_processing:${planId}` }]
-  ]));
-  const result = await deleteUploadCandidates(confirmation.plan.candidates, { dryRun: false, rootDir: config.uploadDir });
-  delete state.uploadCleanup.plans[planId];
-  await appendCleanupLog(createUploadCleanupResultLogEntry(planId, confirmation.plan, result));
-  await saveState(config.stateFile, state);
-  await editUploadCleanupMessage(ctx, formatUploadCleanupResultHtml(confirmation.plan, result));
-});
-
-bot.action(/^upload_cleanup_processing:([a-zA-Z0-9_-]+)$/, async (ctx) => {
-  await answerUploadCleanupCallback(ctx, "processing");
-});
-
-bot.action(/^cleanup:processing:([a-zA-Z0-9_-]+)$/, async (ctx) => {
-  try {
-    await ctx.answerCbQuery(t("cleanupAlreadyProcessing"));
-  } catch (error) {
-    console.warn("cleanup processing callback answer failed:", summarizeTelegramError(error));
+chatCommandHandlers = registerChatCommands({
+  bot,
+  settings: {
+    config,
+    validApprovalPolicies: VALID.approval,
+    validSandboxModes: VALID.sandbox,
+    validWebSearchModes: VALID.webSearch
+  },
+  activeTurns,
+  threadCache,
+  chats: {
+    get: getChatState,
+    getEffectiveOptions,
+    invalidateThreadCache,
+    rejectIfActive
+  },
+  threads: {
+    remember: rememberThread,
+    resume: resumeCodexThread,
+    start: startCodexThread
+  },
+  sessions: {
+    listRecent: listRecentCodexSessions
+  },
+  turns: {
+    applyPersonaPrompt,
+    run: runCodexTurn
+  },
+  models: {
+    formatFastStatus: formatFastStatusHtml,
+    list: listCodexModels,
+    sendStandaloneModelSelection,
+    sendStandaloneReasoningSelection
+  },
+  options: {
+    format: formatOptionsHtml,
+    updateCommand: updateOptionCommand,
+    updateValue: updateOptionValue
+  },
+  panels: {
+    helpHtml: helpTextHtml,
+    send: sendPanel
+  },
+  status: {
+    buildDetails: buildStatusDetails,
+    format: formatStatusHtml,
+    keyboard: statusKeyboard
+  },
+  queue: {
+    pruneExpired: pruneExpiredPendingTurns
+  },
+  telegram: {
+    getChatKey,
+    getCommandArgs,
+    reactQuietly,
+    replyHtml
+  },
+  localization: {
+    text: t
+  },
+  formatting: {
+    keyValue: formatKeyValueHtml,
+    unique
+  },
+  filesystem: {
+    ensureDirectory
+  },
+  persistence: {
+    save: () => saveState(config.stateFile, state)
   }
 });
-
-bot.action(/^queue:(cancel|up|next):([a-zA-Z0-9_-]+)$/, async (ctx) => {
-  const [, action, turnId] = ctx.match;
-  await ctx.answerCbQuery();
-  const chatKey = getChatKey(ctx);
-  await pruneExpiredPendingTurns(chatKey, ctx);
-  let changed = 0;
-  if (action === "cancel") changed = await removePendingTurn(chatKey, turnId);
-  else if (action === "up") changed = await movePendingTurn(chatKey, turnId, "up");
-  else if (action === "next") changed = await movePendingTurn(chatKey, turnId, "next");
-
-  if (changed === 0) {
-    await replyHtml(ctx, "Queue item not found. Run /queue to refresh.");
-    return;
-  }
-  await replyHtml(ctx, formatQueueHtml(chatKey), queueKeyboard(chatKey));
-});
-
-bot.action(/^m:([a-f0-9]{6}):([a-zA-Z0-9._-]+|default)$/, async (ctx) => {
-  const [, token, model] = ctx.match;
-  await handleStandaloneModelSelection(ctx, token, model);
-});
-
-bot.action(/^r:([a-f0-9]{6}):([a-z0-9][a-z0-9_-]{0,49}|default)$/, async (ctx) => {
-  const [, token, reasoning] = ctx.match;
-  await handleStandaloneReasoningSelection(ctx, token, reasoning);
-});
-
-bot.action(/^f:([a-f0-9]{6}):(on|off)$/, async (ctx) => {
-  const [, token, fast] = ctx.match;
-  await handleStandaloneFastSelection(ctx, token, fast);
-});
-
-bot.action(/^x:([a-f0-9]{6})$/, async (ctx) => {
-  const [, token] = ctx.match;
-  await handleStandaloneSelectionCancel(ctx, token);
-});
-
-bot.action("ui:close:menu", async (ctx) => {
-  await handleMenuClose(ctx);
-});
-
-bot.action(/^model:set:([a-zA-Z0-9._-]+|default)$/, async (ctx) => {
-  const [, model] = ctx.match;
-  await ctx.answerCbQuery();
-  await handleSettingsModelSelection(ctx, model);
-});
-
-bot.action(/^reasoning:set:([a-z0-9][a-z0-9_-]{0,49}|default)$/, async (ctx) => {
-  const [, reasoning] = ctx.match;
-  await ctx.answerCbQuery();
-  await handleSettingsReasoningSelection(ctx, reasoning);
-});
-
-bot.action(/^rm:([a-z0-9][a-z0-9_-]{0,49}|default)$/, async (ctx) => {
-  const [, reasoning] = ctx.match;
-  await ctx.answerCbQuery();
-  await handleSettingsReasoningSelection(ctx, reasoning, { continueToFast: true });
-});
-
-bot.action(/^p:([a-z_]+)$/, async (ctx) => {
-  const [, panel] = ctx.match;
-  await ctx.answerCbQuery();
-  await sendPanel(ctx, panel, { edit: true });
-});
-
-bot.action(/^q:(pause|resume|clear|mode)(?::(safe|interrupt|side))?$/, async (ctx) => {
-  const [, action, value] = ctx.match;
-  await ctx.answerCbQuery();
-  await handleQueueButton(ctx, action, value || "");
-});
-
-bot.action(/^set:([a-z_]+):([a-z0-9_-]+)$/, async (ctx) => {
-  const [, key, value] = ctx.match;
-  await ctx.answerCbQuery();
-  await handleSettingButton(ctx, key, value);
-});
-
-bot.action(/^tool:([a-z_]+)$/, async (ctx) => {
-  const [, action] = ctx.match;
-  await ctx.answerCbQuery();
-  await handleToolButton(ctx, action);
-});
-
-bot.action(/^sk:([a-z]):([0-9]+)$/, async (ctx) => {
-  const [, view, page] = ctx.match;
-  await ctx.answerCbQuery();
-  if (!isCodexSkillsView(view)) {
-    await editOrReplyHtml(ctx, b("Invalid skills view"), withToolsBack());
-    return;
-  }
-  await replyCodexSkillsStatus(ctx, { config, runtimeValue, replyHtml, editOrReplyHtml }, { edit: true, view, page: Number(page), extra: withToolsBack() });
-});
-
-bot.action(/^usage:(refresh|refresh_confirm)$/, async (ctx) => {
-  const [, action] = ctx.match;
-  await ctx.answerCbQuery();
-  await handleUsageRefreshButton(ctx, action);
-});
-
-bot.action(/^act:(new|resume_last|stop|restart)$/, async (ctx) => {
-  const [, action] = ctx.match;
-  await ctx.answerCbQuery();
-  if (action === "new") {
-    await handleNewCommand(ctx);
-  } else if (action === "resume_last") {
-    await handleResumeCommand(ctx, "last");
-  } else if (action === "stop") {
-    await handleStopCommand(ctx);
-  } else if (action === "restart") {
-    await handleRestartCommand(ctx);
+adminCommandHandlers = registerAdminCommands({
+  bot,
+  settings: {
+    config,
+    runtimeValue,
+    validQueueModes: VALID.queueMode
+  },
+  state,
+  activeTurns,
+  threadCache,
+  pendingTurns,
+  chats: {
+    get: getChatState,
+    invalidateThreadCache,
+    rejectIfActive
+  },
+  panels: {
+    send: sendPanel
+  },
+  diagnostics: {
+    formatConfig: formatConfigHtml,
+    formatDoctor: formatDoctorHtml,
+    formatHealth: formatHealthHtml,
+    formatLogs: formatLogsHtml,
+    formatWhoami: formatWhoamiHtml
+  },
+  skills: {
+    replyStatus: replyCodexSkillsStatus
+  },
+  backup: {
+    createChatExport,
+    createState: createStateBackup
+  },
+  recovery: {
+    cancelWorkerJobOnce,
+    clearCompleted: clearCompletedRecovery,
+    clearPendingTurns: clearRecoveryPendingTurns,
+    formatStatus: formatRecoveryStatusHtml,
+    handleRestartCommand,
+    markActiveTurnStopped,
+    scheduleStartup: scheduleStartupRecovery
+  },
+  queue: {
+    clearPending: clearPendingTurns,
+    format: formatQueueHtml,
+    formatMode: formatQueueModeHtml,
+    keyboard: queueKeyboard,
+    pruneExpired: pruneExpiredPendingTurns,
+    removePending: removePendingTurn,
+    setMode: setQueueMode,
+    setPaused: setQueuePaused,
+    startDrain: startQueueDrainIfIdle,
+    stopSideTurns
+  },
+  cleanup: {
+    appendLog: appendCleanupLog,
+    createPlan: createCleanupPlan,
+    createUploadPlan: createUploadCleanupPlan,
+    createUploadPlanLogEntry: createUploadCleanupPlanLogEntry,
+    createUploadPlanRecord: createUploadCleanupPlanRecord,
+    formatUploadPlan: formatUploadCleanupPlanHtml,
+    sendPlan: sendCleanupPlan,
+    uploadKeyboard: uploadCleanupKeyboard
+  },
+  telegram: {
+    editOrReplyHtml,
+    getChatKey,
+    getCommandArgs,
+    replyDocument: replyDocumentQuietly,
+    replyHtml
+  },
+  localization: {
+    text: t
+  },
+  formatting: {
+    bytes: formatBytes,
+    formatPrefs: formatPrefsHtml,
+    keyValue: formatKeyValueHtml
+  },
+  persistence: {
+    save: () => saveState(config.stateFile, state)
   }
 });
-
-bot.action(/^confirm:(q_clear|forget|prefs_reset)$/, async (ctx) => {
-  const [, action] = ctx.match;
-  await ctx.answerCbQuery();
-  await handleConfirmButton(ctx, action);
-});
-
-bot.on("photo", async (ctx) => {
-  await handleCodexMessage(ctx, ctx.message.caption?.trim() || "Analyze this image.", async () => {
-    const photo = ctx.message.photo.at(-1);
-    if (!photo) return [];
-    return [await downloadTelegramFile(ctx, photo.file_id, ".jpg")];
-  });
-});
-
-bot.on("document", async (ctx) => {
-  const document = ctx.message.document;
-  const documentPlan = planTelegramDocumentInput(document, ctx.message.caption, { imageFallbackText: "Analyze this image." });
-  if (documentPlan.kind === "pdf_upload_only" || documentPlan.kind === "pdf_caption") {
-    let record;
-    try {
-      record = await downloadTelegramPdf(ctx, document, ctx.message);
-      await rememberLastPdfUpload(ctx, record);
-    } catch (error) {
-      await replyHtml(ctx, `<b>Failed to prepare Codex input</b>\n${code(error instanceof Error ? error.message : String(error))}`);
-      return;
-    }
-    if (documentPlan.kind === "pdf_upload_only") {
-      await replyHtml(ctx, formatUploadedPdfUploadHtml(record));
-      return;
-    }
-    await handleCodexMessage(ctx, mergePdfReferences(documentPlan.text, [record]), async () => []);
-    return;
+registerCallbackRoutes({
+  bot,
+  settings: {
+    config,
+    runtimeValue
+  },
+  state,
+  threadCache,
+  pendingTurns,
+  usageRefreshes,
+  cleanup: {
+    answerCallback: answerCleanupCallback,
+    answerUploadCallback: answerUploadCleanupCallback,
+    appendLog: appendCleanupLog,
+    applyPlan: applyCleanupPlan,
+    confirmUploadPlan: confirmUploadCleanupPlan,
+    createUploadResultLogEntry: createUploadCleanupResultLogEntry,
+    deleteUploadCandidates,
+    editMessage: editCleanupMessage,
+    editProcessingMessage: editCleanupProcessingMessage,
+    editUploadMessage: editUploadCleanupMessage,
+    formatDateTime,
+    formatIgnored: formatCleanupIgnoredHtml,
+    formatResult: formatCleanupResultHtml,
+    formatUploadProcessing: formatUploadCleanupProcessingHtml,
+    formatUploadResult: formatUploadCleanupResultHtml
+  },
+  queue: {
+    clear: clearPendingTurns,
+    format: formatQueueHtml,
+    keyboard: queueKeyboard,
+    move: movePendingTurn,
+    pruneExpired: pruneExpiredPendingTurns,
+    remove: removePendingTurn,
+    sideTurnCount: getSideTurnCount
+  },
+  selection: {
+    handleMenuClose,
+    handleSettingsModel: handleSettingsModelSelection,
+    handleSettingsReasoning: handleSettingsReasoningSelection,
+    handleStandaloneCancel: handleStandaloneSelectionCancel,
+    handleStandaloneFast: handleStandaloneFastSelection,
+    handleStandaloneModel: handleStandaloneModelSelection,
+    handleStandaloneReasoning: handleStandaloneReasoningSelection
+  },
+  panels: {
+    send: sendPanel,
+    settingsHtml: settingsPanelHtml
+  },
+  callbacks: {
+    handleQueue: handleQueueButton,
+    handleSetting: handleSettingButton,
+    handleTool: handleToolButton
+  },
+  skills: {
+    isView: isCodexSkillsView,
+    replyStatus: replyCodexSkillsStatus
+  },
+  commands: {
+    handleNew: chatCommandHandlers.handleNewCommand,
+    handleRestart: handleRestartCommand,
+    handleResume: chatCommandHandlers.handleResumeCommand,
+    handleStop: adminCommandHandlers.handleStopCommand
+  },
+  chats: {
+    get: getChatState,
+    invalidateThreadCache,
+    rejectCallbackIfActive
+  },
+  usage: {
+    refreshSample: refreshUsageSample
+  },
+  status: {
+    buildDetails: buildStatusDetails,
+    format: formatStatusHtml,
+    keyboard: statusKeyboard
+  },
+  telegram: {
+    editOrReplyHtml,
+    getChatKey,
+    replyHtml,
+    summarizeError: summarizeTelegramError
+  },
+  keyboards: {
+    backToMain: backToMainKeyboard,
+    inline: inlineKeyboard,
+    settings: settingsKeyboard,
+    withClose: withMenuCloseButton,
+    withToolsBack
+  },
+  localization: {
+    text: t
+  },
+  persistence: {
+    save: () => saveState(config.stateFile, state)
+  },
+  timing: {
+    withTimeout
   }
-  if (documentPlan.kind !== "image") {
-    await replyHtml(ctx, t("unsupportedDocument"));
-    return;
+});
+registerTelegramMessageRoutes({
+  bot,
+  input: {
+    downloadFile: downloadTelegramFile,
+    downloadPdf: downloadTelegramPdf,
+    extensionFromMime,
+    formatUploadedPdf: formatUploadedPdfUploadHtml,
+    getChatKey,
+    getFreshLastPdf: getFreshLastPdfUpload,
+    handleCodexMessage,
+    rememberLastPdfUpload
+  },
+  pdf: {
+    mergeReferences: mergePdfReferences,
+    planInput: planTelegramDocumentInput,
+    shouldUseRecent: shouldUseRecentPdfUpload
+  },
+  telegram: {
+    replyHtml
+  },
+  localization: {
+    text: t
+  },
+  commands: {
+    isRegistered: isRegisteredTelegramCommandText
   }
-  const ext = path.extname(document.file_name ?? "") || extensionFromMime(document.mime_type);
-  await handleCodexMessage(ctx, documentPlan.text, async () => {
-    return [await downloadTelegramFile(ctx, document.file_id, ext)];
-  });
 });
-
-bot.on("text", async (ctx) => {
-  const text = ctx.message.text.trim();
-  if (!text || isRegisteredTelegramCommandText(ctx.message)) return;
-  const recentPdf = shouldUseRecentPdfUpload(text) ? getFreshLastPdfUpload(getChatKey(ctx)) : null;
-  await handleCodexMessage(ctx, recentPdf ? mergePdfReferences(text, [recentPdf]) : text, async () => []);
-});
-
-bot.on("message", async (ctx) => {
-  await replyHtml(ctx, t("unsupportedMessage"));
-});
-
 await bootstrapBot({
   bot,
   config,
@@ -2355,80 +1792,6 @@ function formatConfigHtml() {
     ["env", config.codexEnv ? "set" : "inherit process.env"],
     ["modelsCacheFile", config.codexModelsCacheFile]
   ]);
-}
-
-async function handleConfirmButton(ctx, action) {
-  const chatKey = getChatKey(ctx);
-  if (action === "q_clear") {
-    const cleared = await clearPendingTurns(chatKey);
-    await editOrReplyHtml(ctx, `${b(t("clearQueueDone"))}\nCleared queued turns: ${code(cleared)}`, queueKeyboard(chatKey));
-    return;
-  }
-  if (action === "forget") {
-    if (await rejectCallbackIfActive(ctx, chatKey)) return;
-    threadCache.delete(chatKey);
-    delete state.chats[chatKey];
-    delete state.queues[chatKey];
-    pendingTurns.delete(chatKey);
-    await saveState(config.stateFile, state);
-    await editOrReplyHtml(ctx, t("forgetDone"), backToMainKeyboard());
-    return;
-  }
-  if (action === "prefs_reset") {
-    if (await rejectCallbackIfActive(ctx, chatKey)) return;
-    const chat = getChatState(chatKey);
-    chat.options = {};
-    delete chat.outputSchema;
-    invalidateThreadCache(chatKey);
-    await saveState(config.stateFile, state);
-    await editOrReplyHtml(ctx, `${b(t("prefsResetDone"))}\n\n${settingsPanelHtml(chatKey)}`, settingsKeyboard());
-  }
-}
-
-async function handleUsageRefreshButton(ctx, action) {
-  const chatKey = getChatKey(ctx);
-  if (action === "refresh") {
-    if (await rejectCallbackIfActive(ctx, chatKey)) return;
-    if (getSideTurnCount(chatKey) > 0) {
-      await editOrReplyHtml(ctx, `Codex side turn is already running. Use ${code("/stop")} first.`, statusKeyboard(chatKey));
-      return;
-    }
-    if (usageRefreshes.has(chatKey)) {
-      await editOrReplyHtml(ctx, `${b(t("usageRefreshRunningTitle"))}\n${t("usageRefreshRunningBody")}`, statusKeyboard(chatKey, { closable: false }));
-      return;
-    }
-    await editOrReplyHtml(ctx, `${b(t("usageRefreshConfirmTitle"))}\n${t("usageRefreshConfirmBody")}`, withMenuCloseButton(inlineKeyboard([
-      [
-        { text: t("usageRefreshRun"), callback_data: "usage:refresh_confirm" },
-        { text: t("cancel"), callback_data: "p:status" }
-      ],
-      [{ text: `← ${t("back")}`, callback_data: "p:status" }]
-    ])));
-    return;
-  }
-
-  if (await rejectCallbackIfActive(ctx, chatKey)) return;
-  if (getSideTurnCount(chatKey) > 0) {
-    await editOrReplyHtml(ctx, `Codex side turn is already running. Use ${code("/stop")} first.`, statusKeyboard(chatKey));
-    return;
-  }
-  if (usageRefreshes.has(chatKey)) {
-    await editOrReplyHtml(ctx, `${b(t("usageRefreshRunningTitle"))}\n${t("usageRefreshRunningBody")}`, statusKeyboard(chatKey, { closable: false }));
-    return;
-  }
-
-  const abortController = new AbortController();
-  usageRefreshes.set(chatKey, abortController);
-  await editOrReplyHtml(ctx, `${b(t("usageRefreshRunningTitle"))}\n${t("usageRefreshRunningBody")}`, statusKeyboard(chatKey, { closable: false }));
-  try {
-    await withTimeout(refreshUsageSample(chatKey, abortController.signal), 60000, "Usage refresh timed out.");
-    await editOrReplyHtml(ctx, `${b(t("usageRefreshDoneTitle"))}\n\n${formatStatusHtml(chatKey, await buildStatusDetails(chatKey))}`, statusKeyboard(chatKey));
-  } catch (error) {
-    abortController.abort();
-    await editOrReplyHtml(ctx, `${b(t("usageRefreshFailedTitle"))}\n${code(error instanceof Error ? error.message : String(error))}`, statusKeyboard(chatKey));
-  } finally {
-    usageRefreshes.delete(chatKey);
-  }
 }
 
 async function rejectCallbackIfActive(ctx, chatKey) {
