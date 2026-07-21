@@ -107,6 +107,9 @@ import {
   formatKeyValueHtml
 } from "./ui/panels.js";
 import { createLiveProgressController } from "./ui/live_progress.js";
+import { createRuntimePanelController } from "./ui/runtime_panel_controller.js";
+import { createSettingsCallbackController } from "./ui/settings_callback_controller.js";
+import { createToolCallbackController } from "./ui/tool_callback_controller.js";
 import { createWorkerClient } from "./worker/client.js";
 import { createWorkerRuntimeController } from "./worker/runtime_controller.js";
 
@@ -466,6 +469,237 @@ const {
   packages: {
     readJson: readJsonFile,
     readPackage: (...args) => readPackageJson(appRoot, ...args)
+  }
+});
+
+const {
+  fastPanelHtml,
+  runtimePanelHtml,
+  sendPanel,
+  settingsPanelHtml
+} = createRuntimePanelController({
+  settings: {
+    config,
+    runtimeValue,
+    runtimeSeconds
+  },
+  state,
+  threadCache,
+  chats: {
+    effectiveModelSlug,
+    formatOptions: formatOptionsHtml,
+    get: getChatState,
+    getEffectiveOptions
+  },
+  queue: {
+    countPending: countPendingTurns,
+    pruneExpired: pruneExpiredPendingTurns
+  },
+  status: {
+    buildDetails: buildStatusDetails,
+    formatQueue: formatQueueHtml,
+    formatStatus: formatStatusHtml
+  },
+  models: {
+    formatFastStatus: formatFastStatusHtml,
+    formatReasoningPrompt: formatReasoningPromptHtml,
+    formatSelection: formatModelSelectionHtml,
+    list: listCodexModels,
+    reasoningOptions: reasoningOptionsForModel
+  },
+  keyboards: {
+    approval: approvalKeyboard,
+    backToMain: backToMainKeyboard,
+    booleanOption: booleanOptionKeyboard,
+    fast: fastKeyboard,
+    language: languageKeyboard,
+    liveProgress: liveProgressKeyboard,
+    locale: localeKeyboard,
+    mainPanel: mainPanelKeyboard,
+    modelSelection: modelSelectionKeyboard,
+    paths: pathsKeyboard,
+    previousPanelFor,
+    queue: queueKeyboard,
+    reasoningSelection: reasoningSelectionKeyboard,
+    runtime: runtimeKeyboard,
+    runtimeCleanup: runtimeCleanupKeyboard,
+    runtimeCodex: runtimeCodexKeyboard,
+    runtimeOutput: runtimeOutputKeyboard,
+    runtimeQueue: runtimeQueueKeyboard,
+    runtimeSnapshot: runtimeSnapshotKeyboard,
+    sandbox: sandboxKeyboard,
+    schema: schemaKeyboard,
+    settings: settingsKeyboard,
+    settingsSelection: settingsSelectionKeyboard,
+    status: statusKeyboard,
+    timeZone: timeZoneKeyboard,
+    timeZoneGroup: timeZoneGroupKeyboard,
+    tools: toolsKeyboard,
+    webSearch: webSearchKeyboard,
+    withClose: withMenuCloseButton,
+    withPrevious: withPreviousPanelButton
+  },
+  views: {
+    renderFast: renderFastPanelHtml,
+    renderLiveProgress: renderLiveProgressPanelHtml,
+    renderMain: renderMainPanelHtml,
+    renderPaths: renderPathsPanelHtml,
+    renderRuntime: renderRuntimePanelHtml,
+    renderSchema: renderSchemaPanelHtml,
+    renderSetting: renderSettingPanelHtml,
+    renderSettings: renderSettingsPanelHtml,
+    renderTimeZoneGroup: renderTimeZoneGroupPanelHtml,
+    renderTools: renderToolsPanelHtml
+  },
+  telegram: {
+    editOrReplyHtml,
+    getChatKey,
+    replyHtml
+  },
+  localization: {
+    language: uiLanguage,
+    locale: uiLocale,
+    text: t,
+    timeZone: uiTimeZone
+  },
+  formatting: {
+    duration: formatDurationSeconds,
+    keyValue: formatKeyValueHtml,
+    optional: formatOptional
+  },
+  help: {
+    html: helpTextHtml
+  }
+});
+const {
+  handleAppServerStatusButton,
+  handleQueueButton,
+  handleSettingButton,
+  handleWorkerStatusButton
+} = createSettingsCallbackController({
+  settings: {
+    config,
+    runtimeValue,
+    updateRuntimeSetting,
+    validQueueModes: VALID.queueMode,
+    saveState: () => saveState(config.stateFile, state)
+  },
+  state,
+  chats: {
+    get: getChatState,
+    invalidateThreadCache,
+    setOption
+  },
+  queue: {
+    format: formatQueueHtml,
+    pruneExpired: pruneExpiredPendingTurns,
+    setMode: setQueueMode,
+    setPaused: setQueuePaused,
+    startDrain: startQueueDrainIfIdle
+  },
+  panels: {
+    runtimeHtml: runtimePanelHtml,
+    settingsHtml: settingsPanelHtml
+  },
+  keyboards: {
+    inline: inlineKeyboard,
+    queue: queueKeyboard,
+    runtime: runtimeKeyboard,
+    runtimeCodex: runtimeCodexKeyboard,
+    settings: settingsKeyboard,
+    withClose: withMenuCloseButton
+  },
+  telegram: {
+    editOrReplyHtml,
+    getChatKey,
+    rejectCallbackIfActive,
+    summarizeError: summarizeTelegramError
+  },
+  localization: {
+    text: t
+  },
+  preferences: {
+    locales: LOCALE_CHOICES,
+    parseLanguage,
+    parseLocale,
+    parseTimeZone,
+    timeZones: TIME_ZONE_CHOICES
+  },
+  diagnostics: {
+    appServerDirectArgs,
+    readCommandOutput
+  },
+  worker: {
+    getClient: getWorkerClient
+  },
+  formatting: {
+    keyValue: formatKeyValueHtml,
+    truncate
+  },
+  commands: {
+    register: registerTelegramCommands
+  }
+});
+const { handleToolButton } = createToolCallbackController({
+  settings: {
+    config,
+    runtimeValue
+  },
+  state,
+  telegram: {
+    editOrReplyHtml,
+    getChatKey,
+    rejectCallbackIfActive,
+    replyDocument: replyDocumentQuietly,
+    replyHtml
+  },
+  keyboards: {
+    inline: inlineKeyboard,
+    maintenance: codexMaintenanceKeyboard,
+    maintenanceBusy: codexMaintenanceBusyKeyboard,
+    withClose: withMenuCloseButton,
+    withToolsBack
+  },
+  diagnostics: {
+    formatConfig: formatConfigHtml,
+    formatDoctor: formatDoctorHtml,
+    formatHealth: formatHealthHtml,
+    formatLogs: formatLogsHtml,
+    formatWhoami: formatWhoamiHtml,
+    handleAppServerStatus: handleAppServerStatusButton,
+    handleWorkerStatus: handleWorkerStatusButton
+  },
+  skills: {
+    replyStatus: replyCodexSkillsStatus
+  },
+  backup: {
+    createChatExport,
+    createState: createStateBackup
+  },
+  cleanup: {
+    handleCommand: handleCleanupCommand
+  },
+  maintenance: {
+    autoHandoffEnabled: maintenanceAutoHandoffEnabled,
+    autoSqliteRepairEnabled: maintenanceAutoSqliteRepairEnabled,
+    createCurrentHandoff: createCurrentThreadHandoff,
+    formatHandoff: formatHandoffResultHtml,
+    formatReport: formatCodexMaintenanceReportHtml,
+    formatResult: formatCodexMaintenanceResultHtml,
+    menuHtml: codexMaintenanceMenuHtml,
+    readReport: readCodexMaintenanceReport,
+    run: runCodexMaintenance,
+    sqliteRepairConfirmHtml: codexMaintenanceSqliteRepairConfirmHtml
+  },
+  persistence: {
+    save: () => saveState(config.stateFile, state)
+  },
+  formatting: {
+    bytes: formatBytes,
+    keyValue: formatKeyValueHtml
+  },
+  localization: {
+    text: t
   }
 });
 
@@ -2369,501 +2603,6 @@ function readFirstLine(file) {
       if (!settled) resolve(buffer);
     });
   });
-}
-
-async function sendPanel(ctx, panel, options = {}) {
-  const chatKey = getChatKey(ctx);
-  const edit = options.edit === true;
-  let html = "";
-  let keyboard = {};
-
-  if (panel === "main") {
-    html = await formatMainPanelHtml(chatKey);
-    keyboard = mainPanelKeyboard(chatKey);
-  } else if (panel === "status") {
-    await pruneExpiredPendingTurns(chatKey, ctx);
-    html = formatStatusHtml(chatKey, await buildStatusDetails(chatKey));
-    keyboard = statusKeyboard(chatKey);
-  } else if (panel === "queue") {
-    await pruneExpiredPendingTurns(chatKey, ctx);
-    html = formatQueueHtml(chatKey);
-    keyboard = queueKeyboard(chatKey);
-  } else if (panel === "settings") {
-    html = settingsPanelHtml(chatKey);
-    keyboard = settingsKeyboard();
-  } else if (panel === "settings_model") {
-    const models = await listCodexModels();
-    html = formatModelSelectionHtml(chatKey, models);
-    keyboard = settingsSelectionKeyboard(modelSelectionKeyboard(models), "settings");
-  } else if (panel === "settings_reasoning") {
-    const models = await listCodexModels();
-    html = formatReasoningPromptHtml(chatKey, models);
-    keyboard = settingsSelectionKeyboard(
-      reasoningSelectionKeyboard(reasoningOptionsForModel(models, effectiveModelSlug(chatKey))),
-      "settings"
-    );
-  } else if (panel === "settings_fast") {
-    html = await fastPanelHtml(chatKey);
-    keyboard = fastKeyboard();
-  } else if (panel === "settings_sandbox") {
-    html = settingPanelHtml("Sandbox", getEffectiveOptions(chatKey).sandboxMode, t("sandboxDescription"));
-    keyboard = sandboxKeyboard();
-  } else if (panel === "settings_approval") {
-    html = settingPanelHtml("Approval", getEffectiveOptions(chatKey).approvalPolicy, t("approvalDescription"));
-    keyboard = approvalKeyboard();
-  } else if (panel === "settings_web") {
-    html = settingPanelHtml("Web Search", getEffectiveOptions(chatKey).webSearchMode, t("webDescription"));
-    keyboard = webSearchKeyboard();
-  } else if (panel === "settings_network") {
-    html = settingPanelHtml("Network", formatOptional(getEffectiveOptions(chatKey).networkAccessEnabled), t("networkDescription"));
-    keyboard = booleanOptionKeyboard("network");
-  } else if (panel === "settings_stream") {
-    html = settingPanelHtml("Stream", String(getEffectiveOptions(chatKey).streamEvents), t("streamDescription"));
-    keyboard = booleanOptionKeyboard("stream");
-  } else if (panel === "settings_live_progress") {
-    html = liveProgressPanelHtml(chatKey);
-    keyboard = liveProgressKeyboard(chatKey);
-  } else if (panel === "settings_runtime") {
-    html = runtimePanelHtml();
-    keyboard = runtimeKeyboard();
-  } else if (panel === "settings_runtime_output") {
-    html = runtimeOutputPanelHtml();
-    keyboard = runtimeOutputKeyboard();
-  } else if (panel === "settings_runtime_queue") {
-    html = runtimeQueuePanelHtml();
-    keyboard = runtimeQueueKeyboard();
-  } else if (panel === "settings_runtime_codex") {
-    html = runtimeCodexPanelHtml();
-    keyboard = runtimeCodexKeyboard();
-  } else if (panel === "settings_runtime_cleanup") {
-    html = runtimeCleanupPanelHtml();
-    keyboard = runtimeCleanupKeyboard();
-  } else if (panel === "settings_runtime_snapshot") {
-    html = runtimeSnapshotPanelHtml();
-    keyboard = runtimeSnapshotKeyboard();
-  } else if (panel === "settings_git") {
-    html = settingPanelHtml("Git Check", String(getEffectiveOptions(chatKey).skipGitRepoCheck), t("gitDescription"));
-    keyboard = booleanOptionKeyboard("skipgit");
-  } else if (panel === "settings_paths") {
-    html = pathsPanelHtml(chatKey);
-    keyboard = pathsKeyboard();
-  } else if (panel === "settings_schema") {
-    html = schemaPanelHtml(chatKey);
-    keyboard = schemaKeyboard();
-  } else if (panel === "settings_language") {
-    html = settingPanelHtml(t("languageTitle"), uiLanguage(), t("languageDescription"));
-    keyboard = languageKeyboard();
-  } else if (panel === "settings_timezone") {
-    html = settingPanelHtml(t("timeZoneTitle"), uiTimeZone(), t("timeZoneDescription"));
-    keyboard = timeZoneKeyboard();
-  } else if (panel.startsWith("settings_timezone_")) {
-    const groupId = panel.slice("settings_timezone_".length);
-    html = timeZoneGroupPanelHtml(groupId);
-    keyboard = timeZoneGroupKeyboard(groupId);
-  } else if (panel === "settings_locale") {
-    html = settingPanelHtml(t("localeTitle"), uiLocale(), t("localeDescription"));
-    keyboard = localeKeyboard();
-  } else if (panel === "tools") {
-    html = toolsPanelHtml(chatKey);
-    keyboard = toolsKeyboard();
-  } else if (panel === "help") {
-    html = helpTextHtml();
-    keyboard = backToMainKeyboard();
-  } else {
-    html = await formatMainPanelHtml(chatKey);
-    keyboard = mainPanelKeyboard(chatKey);
-  }
-
-  keyboard = withMenuCloseButton(withPreviousPanelButton(keyboard, previousPanelFor(panel)));
-  if (edit) return editOrReplyHtml(ctx, html, keyboard);
-  return replyHtml(ctx, html, keyboard);
-}
-
-async function formatMainPanelHtml(chatKey) {
-  return renderMainPanelHtml({
-    details: await buildStatusDetails(chatKey),
-    options: getEffectiveOptions(chatKey),
-    transport: runtimeValue("codexTransport")
-  });
-}
-
-function settingsPanelHtml(chatKey) {
-  return renderSettingsPanelHtml(formatOptionsHtml(chatKey));
-}
-
-async function fastPanelHtml(chatKey) {
-  return renderFastPanelHtml(await formatFastStatusHtml(chatKey, await listCodexModels()));
-}
-
-function settingPanelHtml(title, current, description) {
-  return renderSettingPanelHtml(title, current, description);
-}
-
-function pathsPanelHtml(chatKey) {
-  return renderPathsPanelHtml(getEffectiveOptions(chatKey));
-}
-
-function schemaPanelHtml(chatKey) {
-  return renderSchemaPanelHtml(Boolean(getChatState(chatKey).outputSchema));
-}
-
-function liveProgressPanelHtml(chatKey) {
-  return renderLiveProgressPanelHtml({
-    options: getEffectiveOptions(chatKey),
-    mode: runtimeValue("telegramLiveProgressMode"),
-    intervalSeconds: runtimeSeconds("telegramLiveProgressIntervalMs")
-  });
-}
-
-function runtimePanelHtml() {
-  return renderRuntimePanelHtml(runtimeSummaryHtml());
-}
-function runtimeSummaryHtml() {
-  return formatKeyValueHtml("Runtime overrides:", [
-    ["worker mode", runtimeValue("codexWorkerMode")],
-    ["codex transport", runtimeValue("codexTransport")],
-    ["reactions", runtimeValue("telegramReactionsEnabled")],
-    ["answer format", runtimeValue("telegramFormatCodexAnswers")],
-    ["completion notice", `${runtimeValue("telegramCompletionNoticeSeconds")}s`],
-    ["queue max", runtimeValue("telegramPendingTurnsMax")],
-    ["queue expiry", runtimeValue("telegramPendingTurnMaxAgeSeconds") <= 0 ? "off" : formatDurationSeconds(runtimeValue("telegramPendingTurnMaxAgeSeconds"))],
-    ["cleanup", runtimeValue("cleanupEnabled") ? `${runtimeValue("cleanupNotifyTime")} ${uiTimeZone()}` : "off"],
-    ["snapshot", runtimeValue("snapshotEnabled") ? `${runtimeValue("snapshotNotifyTime")} ${uiTimeZone()}` : "off"],
-    ["logs max lines", runtimeValue("logsMaxLines")],
-    ["max message chars", runtimeValue("maxTelegramChars")]
-  ]);
-}
-
-function runtimeOutputPanelHtml() {
-  return formatKeyValueHtml("Output runtime:", [
-    ["reactions", runtimeValue("telegramReactionsEnabled")],
-    ["answer format", runtimeValue("telegramFormatCodexAnswers")],
-    ["completion notice seconds", runtimeValue("telegramCompletionNoticeSeconds")],
-    ["max Telegram chars", runtimeValue("maxTelegramChars")],
-    ["logs max lines", runtimeValue("logsMaxLines")],
-    ["progress edit interval", `${runtimeSeconds("progressEditIntervalMs")}s`]
-  ]);
-}
-
-function runtimeQueuePanelHtml() {
-  return formatKeyValueHtml("Queue runtime:", [
-    ["pending turns max", runtimeValue("telegramPendingTurnsMax")],
-    ["pending max age seconds", runtimeValue("telegramPendingTurnMaxAgeSeconds")],
-    ["pending max age", runtimeValue("telegramPendingTurnMaxAgeSeconds") <= 0 ? "off" : formatDurationSeconds(runtimeValue("telegramPendingTurnMaxAgeSeconds"))]
-  ]);
-}
-
-function runtimeCodexPanelHtml() {
-  return formatKeyValueHtml("Codex runtime:", [
-    ["worker mode", runtimeValue("codexWorkerMode")],
-    ["worker socket", config.codexWorkerSocket],
-    ["worker poll", `${runtimeValue("codexWorkerEventPollMs")}ms`],
-    ["transport", runtimeValue("codexTransport")],
-    ["app-server direct timeout", `${runtimeValue("codexAppServerDirectTimeoutMs")}ms`],
-    ["codex path", config.codexPath]
-  ]);
-}
-
-function runtimeCleanupPanelHtml() {
-  return formatKeyValueHtml("Cleanup runtime:", [
-    ["enabled", runtimeValue("cleanupEnabled")],
-    ["notify time", `${runtimeValue("cleanupNotifyTime")} ${uiTimeZone()}`],
-    ["retention days", runtimeValue("cleanupRetentionDays")],
-    ["quarantine days", runtimeValue("cleanupQuarantineDays")],
-    ["plan ttl hours", runtimeValue("cleanupPlanTtlHours")]
-  ]);
-}
-
-function runtimeSnapshotPanelHtml() {
-  return formatKeyValueHtml("Snapshot runtime:", [
-    ["enabled", runtimeValue("snapshotEnabled")],
-    ["notify time", `${runtimeValue("snapshotNotifyTime")} ${uiTimeZone()}`],
-    ["retention days", runtimeValue("snapshotRetentionDays")]
-  ]);
-}
-
-function toolsPanelHtml(chatKey) {
-  const chat = getChatState(chatKey);
-  return renderToolsPanelHtml({
-    threadId: chat.threadId || threadCache.get(chatKey)?.id,
-    savedChats: Object.keys(state.chats).length,
-    pendingTurns: countPendingTurns()
-  });
-}
-
-function timeZoneGroupPanelHtml(groupId) {
-  return renderTimeZoneGroupPanelHtml(groupId, uiTimeZone());
-}
-
-async function handleQueueButton(ctx, action, value) {
-  const chatKey = getChatKey(ctx);
-  await pruneExpiredPendingTurns(chatKey, ctx);
-  if (action === "pause") {
-    await setQueuePaused(chatKey, true);
-    await editOrReplyHtml(ctx, `${b(t("queuePausedTitle"))}\n${t("queuePausedDetail")}\n\n${formatQueueHtml(chatKey)}`, queueKeyboard(chatKey));
-    return;
-  }
-  if (action === "resume") {
-    await setQueuePaused(chatKey, false);
-    await startQueueDrainIfIdle(chatKey, ctx);
-    await editOrReplyHtml(ctx, `${b(t("queueResumedTitle"))}\n\n${formatQueueHtml(chatKey)}`, queueKeyboard(chatKey));
-    return;
-  }
-  if (action === "mode") {
-    if (!VALID.queueMode.has(value)) {
-      await editOrReplyHtml(ctx, `${b("Invalid queue mode")}\n${code(value || "empty")}`, queueKeyboard(chatKey));
-      return;
-    }
-    await setQueueMode(chatKey, value);
-    await editOrReplyHtml(ctx, `${b(t("queueUpdatedTitle"))}\n\n${formatQueueHtml(chatKey)}`, queueKeyboard(chatKey));
-    return;
-  }
-  if (action === "clear") {
-    await editOrReplyHtml(ctx, `${b(t("queueClearConfirmTitle"))}\n${t("queueClearConfirmBody")}`, withMenuCloseButton(inlineKeyboard([
-      [
-        { text: t("clearAll"), callback_data: "confirm:q_clear" },
-        { text: t("cancel"), callback_data: "p:queue" }
-      ],
-      [{ text: `← ${t("back")}`, callback_data: "p:queue" }]
-    ])));
-  }
-}
-
-async function handleSettingButton(ctx, key, value) {
-  const chatKey = getChatKey(ctx);
-  if (await rejectCallbackIfActive(ctx, chatKey)) return;
-  try {
-    if (key === "fast") await setOption(chatKey, "serviceTier", value === "on" ? "fast" : "default");
-    else if (key === "sandbox") await setOption(chatKey, "sandboxMode", mapSandboxValue(value));
-    else if (key === "approval") await setOption(chatKey, "approvalPolicy", value.replaceAll("_", "-"));
-    else if (key === "web") await setOption(chatKey, "webSearchMode", value);
-    else if (key === "network") await setOption(chatKey, "networkAccessEnabled", value);
-    else if (key === "stream") await setOption(chatKey, "streamEvents", value);
-    else if (key === "liveprogress") await setOption(chatKey, "liveProgressEnabled", value);
-    else if (key === "liveprogresssource") await setOption(chatKey, "liveProgressSource", value);
-    else if (key === "liveprogressdelete") await setOption(chatKey, "liveProgressDeletePolicy", value);
-    else if (key.startsWith("runtime_")) {
-      await updateRuntimeSetting(runtimeSettingKey(key), runtimeSettingValue(key, value));
-      await editOrReplyHtml(ctx, `${b(t("runtimeUpdated"))}\n\n${runtimePanelHtml()}`, runtimeKeyboard());
-      return;
-    }
-    else if (key === "skipgit") await setOption(chatKey, "skipGitRepoCheck", value);
-    else if (key === "workdir") await setOption(chatKey, "workingDirectory", value);
-    else if (key === "language") {
-      state.ui.language = parseLanguage(value);
-      await saveState(config.stateFile, state);
-      await editOrReplyHtml(ctx, `${b(t("languageUpdated"))}\n\n${settingsPanelHtml(chatKey)}`, settingsKeyboard());
-      await registerTelegramCommands().catch((error) => console.warn("setMyCommands after language update failed:", summarizeTelegramError(error)));
-      return;
-    }
-    else if (key === "timezone") {
-      state.ui.timeZone = value === "default" ? config.telegramTimeZone : timeZoneFromChoice(value);
-      await saveState(config.stateFile, state);
-      await editOrReplyHtml(ctx, `${b(t("timeZoneUpdated"))}\n\n${settingsPanelHtml(chatKey)}`, settingsKeyboard());
-      return;
-    }
-    else if (key === "locale") {
-      state.ui.locale = value === "default" ? config.telegramLocale : localeFromChoice(value);
-      await saveState(config.stateFile, state);
-      await editOrReplyHtml(ctx, `${b(t("localeUpdated"))}\n\n${settingsPanelHtml(chatKey)}`, settingsKeyboard());
-      return;
-    }
-    else if (key === "dirs" && value === "clear") {
-      delete getChatState(chatKey).options.additionalDirectories;
-      invalidateThreadCache(chatKey);
-    } else if (key === "schema" && value === "off") {
-      delete getChatState(chatKey).outputSchema;
-    } else {
-      throw new Error(`Unknown setting action: ${key}:${value}`);
-    }
-  } catch (error) {
-    await editOrReplyHtml(ctx, `${b(t("settingFailure"))}\n${code(error instanceof Error ? error.message : String(error))}`, settingsKeyboard());
-    return;
-  }
-  await saveState(config.stateFile, state);
-  await editOrReplyHtml(ctx, `${b(t("settingUpdated"))}\n\n${settingsPanelHtml(chatKey)}`, settingsKeyboard());
-}
-
-function mapSandboxValue(value) {
-  if (value === "ro") return "read-only";
-  if (value === "ww") return "workspace-write";
-  if (value === "danger") return "danger-full-access";
-  return value;
-}
-
-function timeZoneFromChoice(id) {
-  const choice = TIME_ZONE_CHOICES.find(([choiceId]) => choiceId === id);
-  if (!choice) throw new Error(`Unknown time zone: ${id}`);
-  return parseTimeZone(choice[2]);
-}
-
-function localeFromChoice(id) {
-  const choice = LOCALE_CHOICES.find(([choiceId]) => choiceId === id);
-  if (!choice) throw new Error(`Unknown locale: ${id}`);
-  return parseLocale(choice[2]);
-}
-
-function runtimeSettingKey(actionKey) {
-  const map = {
-    runtime_reactions: "telegramReactionsEnabled",
-    runtime_answerformat: "telegramFormatCodexAnswers",
-    runtime_completionnotice: "telegramCompletionNoticeSeconds",
-    runtime_pendingmax: "telegramPendingTurnsMax",
-    runtime_pendingage: "telegramPendingTurnMaxAgeSeconds",
-    runtime_workermode: "codexWorkerMode",
-    runtime_workerpoll: "codexWorkerEventPollMs",
-    runtime_codextransport: "codexTransport",
-    runtime_appservertimeout: "codexAppServerDirectTimeoutMs",
-    runtime_liveprogressmode: "telegramLiveProgressMode",
-    runtime_liveprogressinterval: "telegramLiveProgressIntervalMs",
-    runtime_cleanup: "cleanupEnabled",
-    runtime_cleanuptime: "cleanupNotifyTime",
-    runtime_cleanupretention: "cleanupRetentionDays",
-    runtime_cleanupquarantine: "cleanupQuarantineDays",
-    runtime_cleanupttl: "cleanupPlanTtlHours",
-    runtime_snapshot: "snapshotEnabled",
-    runtime_snapshottime: "snapshotNotifyTime",
-    runtime_snapshotretention: "snapshotRetentionDays",
-    runtime_logsmax: "logsMaxLines",
-    runtime_maxchars: "maxTelegramChars",
-    runtime_progressedit: "progressEditIntervalMs"
-  };
-  const key = map[actionKey];
-  if (!key) throw new Error(`Unknown runtime action: ${actionKey}`);
-  return key;
-}
-
-function runtimeSettingValue(actionKey, value) {
-  if (value === "korean_brief") return "korean-brief";
-  if (actionKey === "runtime_cleanuptime" || actionKey === "runtime_snapshottime") return value.replaceAll("_", ":");
-  return value;
-}
-
-async function handleAppServerStatusButton(ctx) {
-  const rows = [
-    ["transport", runtimeValue("codexTransport")],
-    ["direct args", appServerDirectArgs().join(" ")],
-    ["timeout", `${runtimeValue("codexAppServerDirectTimeoutMs")}ms`]
-  ];
-  try {
-    const result = await readCommandOutput(config.codexPath, ["app-server", "--help"], runtimeValue("codexAppServerDirectTimeoutMs"));
-    const supportsStdio = result.ok && result.output.includes("--stdio");
-    rows.push(["status", result.ok ? (supportsStdio ? "available" : "unsupported") : "failed"]);
-    rows.push(["help", supportsStdio ? truncate(result.output, 120) : truncate(result.output || result.error || "missing --stdio support", 180)]);
-  } catch (error) {
-    rows.push(["status", "failed"]);
-    rows.push(["error", truncate(error instanceof Error ? error.message : String(error), 240)]);
-  }
-  await editOrReplyHtml(ctx, formatKeyValueHtml("Codex app-server direct:", rows), runtimeCodexKeyboard());
-}
-
-async function handleWorkerStatusButton(ctx) {
-  const rows = [
-    ["worker mode", runtimeValue("codexWorkerMode")],
-    ["socket", config.codexWorkerSocket],
-    ["poll", `${runtimeValue("codexWorkerEventPollMs")}ms`]
-  ];
-  try {
-    const status = await getWorkerClient().status();
-    rows.push(["status", status.status || "ok"]);
-    rows.push(["active jobs", status.activeJobs?.length ?? 0]);
-    rows.push(["running jobs", status.runningJobIds?.length ?? 0]);
-  } catch (error) {
-    rows.push(["status", "failed"]);
-    rows.push(["error", truncate(error instanceof Error ? error.message : String(error), 240)]);
-  }
-  await editOrReplyHtml(ctx, formatKeyValueHtml("Codex worker:", rows), runtimeCodexKeyboard());
-}
-
-async function handleToolButton(ctx, action) {
-  const chatKey = getChatKey(ctx);
-  if (action === "health") {
-    await editOrReplyHtml(ctx, await formatHealthHtml(), withToolsBack());
-  } else if (action === "doctor") {
-    await editOrReplyHtml(ctx, await formatDoctorHtml(chatKey), withToolsBack());
-  } else if (action === "logs") {
-    await editOrReplyHtml(ctx, await formatLogsHtml(ctx), withToolsBack());
-  } else if (action === "logs_error") {
-    await editOrReplyHtml(ctx, await formatLogsHtml(ctx, "error"), withToolsBack());
-  } else if (action === "whoami") {
-    await editOrReplyHtml(ctx, formatWhoamiHtml(ctx), withToolsBack());
-  } else if (action === "config") {
-    await editOrReplyHtml(ctx, formatConfigHtml(), withToolsBack());
-  } else if (action === "skills") {
-    await replyCodexSkillsStatus(ctx, { config, runtimeValue, replyHtml, editOrReplyHtml }, { edit: true, extra: withToolsBack() });
-  } else if (action === "appserver_status") {
-    await handleAppServerStatusButton(ctx);
-  } else if (action === "worker_status") {
-    await handleWorkerStatusButton(ctx);
-  } else if (action === "backup") {
-    const backup = await createStateBackup("manual");
-    await replyHtml(ctx, formatKeyValueHtml("Backup created:", [
-      ["file", backup.path],
-      ["size", formatBytes(backup.bytes)],
-      ["chats", backup.chatCount]
-    ]));
-    await replyDocumentQuietly(ctx, backup.path, "Codex Telegram Bot backup");
-  } else if (action === "export") {
-    const file = await createChatExport(chatKey);
-    await replyHtml(ctx, formatKeyValueHtml("Chat export created:", [
-      ["file", file.path],
-      ["size", formatBytes(file.bytes)]
-    ]));
-    await replyDocumentQuietly(ctx, file.path, "Current chat export");
-  } else if (action === "cleanup") {
-    await handleCleanupCommand(ctx);
-  } else if (action === "codex_maintenance") {
-    await editOrReplyHtml(ctx, codexMaintenanceMenuHtml(), codexMaintenanceKeyboard());
-  } else if (action === "codex_maintenance_report") {
-    await editOrReplyHtml(ctx, formatCodexMaintenanceReportHtml(await readCodexMaintenanceReport()), codexMaintenanceKeyboard());
-  } else if (action === "codex_maintenance_backup") {
-    await editOrReplyHtml(ctx, `${b(t("busyBackup"))}\n${t("busyBackupDetail")}`, codexMaintenanceBusyKeyboard());
-    await editOrReplyHtml(ctx, formatCodexMaintenanceResultHtml(await runCodexMaintenance("backup")), codexMaintenanceKeyboard());
-  } else if (action === "codex_maintenance_config") {
-    if (await rejectCallbackIfActive(ctx, chatKey)) return;
-    await editOrReplyHtml(ctx, `${b(t("busyConfig"))}\n${t("busyConfigDetail")}`, codexMaintenanceBusyKeyboard());
-    await editOrReplyHtml(ctx, formatCodexMaintenanceResultHtml(await runCodexMaintenance("config-prune")), codexMaintenanceKeyboard());
-  } else if (action === "codex_maintenance_worktrees") {
-    if (await rejectCallbackIfActive(ctx, chatKey)) return;
-    await editOrReplyHtml(ctx, `${b(t("busyWorktrees"))}\n${t("busyWorktreesDetail")}`, codexMaintenanceBusyKeyboard());
-    await editOrReplyHtml(ctx, formatCodexMaintenanceResultHtml(await runCodexMaintenance("worktree-archive")), codexMaintenanceKeyboard());
-  } else if (action === "codex_maintenance_logs") {
-    if (await rejectCallbackIfActive(ctx, chatKey)) return;
-    await editOrReplyHtml(ctx, `${b(t("busyLogs"))}\n${t("busyLogsDetail")}`, codexMaintenanceBusyKeyboard());
-    await editOrReplyHtml(ctx, formatCodexMaintenanceResultHtml(await runCodexMaintenance("log-rotate")), codexMaintenanceKeyboard());
-  } else if (action === "codex_maintenance_sqlite_repair") {
-    await editOrReplyHtml(ctx, codexMaintenanceSqliteRepairConfirmHtml(), withMenuCloseButton(inlineKeyboard([
-      [
-        { text: t("repairRun"), callback_data: "tool:codex_maintenance_sqlite_repair_apply", style: "danger" },
-        { text: t("cancel"), callback_data: "tool:codex_maintenance", style: "primary" }
-      ],
-      [{ text: `← ${t("back")}`, callback_data: "tool:codex_maintenance" }]
-    ])));
-  } else if (action === "codex_maintenance_sqlite_repair_apply") {
-    if (await rejectCallbackIfActive(ctx, chatKey)) return;
-    await editOrReplyHtml(ctx, `${b(t("busyRepair"))}\n${t("busyRepairDetail")}`, codexMaintenanceBusyKeyboard());
-    await editOrReplyHtml(ctx, formatCodexMaintenanceResultHtml(await runCodexMaintenance("sqlite-metadata-repair")), codexMaintenanceKeyboard());
-  } else if (action === "codex_maintenance_handoff") {
-    if (await rejectCallbackIfActive(ctx, chatKey)) return;
-    await editOrReplyHtml(ctx, `${b(t("busyHandoff"))}\n${t("busyHandoffDetail")}`, codexMaintenanceBusyKeyboard());
-    await editOrReplyHtml(ctx, formatHandoffResultHtml(await createCurrentThreadHandoff(chatKey)), codexMaintenanceKeyboard());
-  } else if (action === "codex_maintenance_auto_handoff") {
-    state.maintenance.autoHandoffEnabled = !maintenanceAutoHandoffEnabled();
-    await saveState(config.stateFile, state);
-    await editOrReplyHtml(ctx, codexMaintenanceMenuHtml(), codexMaintenanceKeyboard());
-  } else if (action === "codex_maintenance_auto_sqlite_repair") {
-    state.maintenance.autoSqliteRepairEnabled = !maintenanceAutoSqliteRepairEnabled();
-    await saveState(config.stateFile, state);
-    await editOrReplyHtml(ctx, codexMaintenanceMenuHtml(), codexMaintenanceKeyboard());
-  } else if (action === "forget") {
-    await editOrReplyHtml(ctx, `${b(t("forgetConfirmTitle"))}\n${t("forgetConfirmBody")}`, withMenuCloseButton(inlineKeyboard([
-      [
-        { text: t("forgetRun"), callback_data: "confirm:forget" },
-        { text: t("cancel"), callback_data: "p:tools" }
-      ],
-      [{ text: `← ${t("back")}`, callback_data: "p:tools" }]
-    ])));
-  }
 }
 
 function codexMaintenanceMenuHtml() {
