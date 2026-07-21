@@ -75,7 +75,7 @@ import {
   telegramReplyExtraFromMeta,
   telegramSyntheticMessageFromMeta
 } from "./telegram/context.js";
-import { b, code, escapeHtml, pre, stripHtml } from "./telegram/html.js";
+import { b, code, pre, stripHtml } from "./telegram/html.js";
 import {
   createTelegramApiAgent,
   editOrReplyTelegramHtml,
@@ -144,15 +144,17 @@ import {
 } from "./ui/keyboards.js";
 import {
   LOCALE_CHOICES,
-  TIME_ZONE_CHOICES,
-  TIME_ZONE_GROUPS
+  TIME_ZONE_CHOICES
 } from "./ui/preferences.js";
 import {
   applyModelSelectionDraft,
   applyReasoningSelection,
   createSelectionFlowStore
 } from "./ui/model_selection_flow.js";
-import { formatSettingPanelHtml } from "./ui/panels.js";
+import {
+  createRuntimePanelViews,
+  formatKeyValueHtml
+} from "./ui/panels.js";
 import { createWorkerClient } from "./worker/client.js";
 import {
   hasPendingWorkerDelivery,
@@ -248,6 +250,21 @@ const {
   currentLanguage: uiLanguage,
   currentTimeZone: uiTimeZone,
   currentLocale: uiLocale
+});
+const {
+  renderFastPanelHtml,
+  renderLiveProgressPanelHtml,
+  renderMainPanelHtml,
+  renderPathsPanelHtml,
+  renderRuntimePanelHtml,
+  renderSchemaPanelHtml,
+  renderSettingPanelHtml,
+  renderSettingsPanelHtml,
+  renderTimeZoneGroupPanelHtml,
+  renderToolsPanelHtml
+} = createRuntimePanelViews({
+  text: t,
+  formatText: tf
 });
 let workerClient = null;
 let startupRecoveryRunning = false;
@@ -5180,94 +5197,44 @@ async function sendPanel(ctx, panel, options = {}) {
 }
 
 async function formatMainPanelHtml(chatKey) {
-  const details = await buildStatusDetails(chatKey);
-  const options = getEffectiveOptions(chatKey);
-  return [
-    b("Codex Control"),
-    "",
-    `Thread: ${code(details.threadId || "not started")}`,
-    `Transport: ${code(runtimeValue("codexTransport"))}`,
-    `Active turn: ${code(details.active ? "yes" : "no")}`,
-    `Queue: ${code(`${details.queued} pending, mode=${details.queueMode}, paused=${details.queuePaused ? "yes" : "no"}`)}`,
-    `Model: ${code(options.model || "default")}`,
-    `Thinking: ${code(options.modelReasoningEffort)}`,
-    `Workdir: ${code(options.workingDirectory)}`,
-    "",
-    t("mainInstruction")
-  ].join("\n");
-}
-
-function settingsPanelHtml(chatKey) {
-  return [
-    b("Codex Settings"),
-    "",
-    formatOptionsHtml(chatKey),
-    "",
-    t("settingsInstruction")
-  ].join("\n");
-}
-
-async function fastPanelHtml(chatKey) {
-  return `${await formatFastStatusHtml(chatKey, await listCodexModels())}\n\n${t("fastInstruction")}`;
-}
-
-function settingPanelHtml(title, current, description) {
-  return formatSettingPanelHtml({
-    titleText: tf("settingPanelTitle", { title }),
-    current,
-    description
+  return renderMainPanelHtml({
+    details: await buildStatusDetails(chatKey),
+    options: getEffectiveOptions(chatKey),
+    transport: runtimeValue("codexTransport")
   });
 }
 
+function settingsPanelHtml(chatKey) {
+  return renderSettingsPanelHtml(formatOptionsHtml(chatKey));
+}
+
+async function fastPanelHtml(chatKey) {
+  return renderFastPanelHtml(await formatFastStatusHtml(chatKey, await listCodexModels()));
+}
+
+function settingPanelHtml(title, current, description) {
+  return renderSettingPanelHtml(title, current, description);
+}
+
 function pathsPanelHtml(chatKey) {
-  const options = getEffectiveOptions(chatKey);
-  return [
-    b(t("pathsTitle")),
-    `Workdir: ${code(options.workingDirectory)}`,
-    `Additional dirs: ${code((options.additionalDirectories ?? []).join(", ") || "none")}`,
-    "",
-    t("pathsDirect"),
-    t("pathsButtons")
-  ].join("\n");
+  return renderPathsPanelHtml(getEffectiveOptions(chatKey));
 }
 
 function schemaPanelHtml(chatKey) {
-  return [
-    b("Structured Output Schema"),
-    `Current: ${code(getChatState(chatKey).outputSchema ? "enabled" : "disabled")}`,
-    "",
-    t("schemaDirect"),
-    t("schemaButtons")
-  ].join("\n");
+  return renderSchemaPanelHtml(Boolean(getChatState(chatKey).outputSchema));
 }
 
 function liveProgressPanelHtml(chatKey) {
-  const options = getEffectiveOptions(chatKey);
-  return [
-    b("Live Progress"),
-    `Enabled: ${code(options.liveProgressEnabled)}`,
-    `Source: ${code(options.liveProgressSource)}`,
-    `Delete policy: ${code(options.liveProgressDeletePolicy)}`,
-    `Mode: ${code(runtimeValue("telegramLiveProgressMode"))}`,
-    `Interval: ${code(`${runtimeSeconds("telegramLiveProgressIntervalMs")}s`)}`,
-    "",
-    `${code("agent")}: ${t("liveAgent")}`,
-    `${code("activity")}: ${t("liveActivity")}`,
-    `${code("both")}: ${t("liveBoth")}`,
-    `${code("never")}: ${t("liveNever")}`
-  ].join("\n");
+  return renderLiveProgressPanelHtml({
+    options: getEffectiveOptions(chatKey),
+    mode: runtimeValue("telegramLiveProgressMode"),
+    intervalSeconds: runtimeSeconds("telegramLiveProgressIntervalMs")
+  });
 }
 
 function runtimePanelHtml() {
-  return [
-    b(t("runtimeTitle")),
-    "",
-    runtimeSummaryHtml(),
-    "",
-    t("runtimeDescription")
-  ].join("\n");
+  return renderRuntimePanelHtml(runtimeSummaryHtml());
 }
-
 function runtimeSummaryHtml() {
   return formatKeyValueHtml("Runtime overrides:", [
     ["worker mode", runtimeValue("codexWorkerMode")],
@@ -5334,24 +5301,17 @@ function runtimeSnapshotPanelHtml() {
 
 function toolsPanelHtml(chatKey) {
   const chat = getChatState(chatKey);
-  return [
-    b("Codex Tools"),
-    "",
-    `Thread: ${code(chat.threadId || threadCache.get(chatKey)?.id || "not started")}`,
-    `Saved chats: ${code(Object.keys(state.chats).length)}`,
-    `Pending turns: ${code(countPendingTurns())}`,
-    "",
-    t("toolsInstruction")
-  ].join("\n");
+  return renderToolsPanelHtml({
+    threadId: chat.threadId || threadCache.get(chatKey)?.id,
+    savedChats: Object.keys(state.chats).length,
+    pendingTurns: countPendingTurns()
+  });
 }
 
 function timeZoneGroupPanelHtml(groupId) {
-  const group = TIME_ZONE_GROUPS.find(([id]) => id === groupId);
-  if (!group) return settingPanelHtml(t("timeZoneTitle"), uiTimeZone(), t("timeZoneDescription"));
-  const [, emoji, label] = group;
-  const description = groupId === "utc" ? t("timeZoneUtcDescription") : t("timeZoneRegionDescription");
-  return settingPanelHtml(`${t("timeZoneTitle")} · ${emoji} ${label}`, uiTimeZone(), description);
+  return renderTimeZoneGroupPanelHtml(groupId, uiTimeZone());
 }
+
 async function handleQueueButton(ctx, action, value) {
   const chatKey = getChatKey(ctx);
   await pruneExpiredPendingTurns(chatKey, ctx);
@@ -6538,13 +6498,6 @@ async function getDiskSummary(targetPath) {
   const available = Number(parts[3]) * 1024;
   const usedPercent = parts[4];
   return `${formatBytes(available)} free, ${usedPercent} used`;
-}
-
-function formatKeyValueHtml(title, rows) {
-  return [
-    b(title),
-    ...rows.map(([key, value]) => `${escapeHtml(key)}: ${code(String(value))}`)
-  ].join("\n");
 }
 
 async function registerTelegramCommands() {
