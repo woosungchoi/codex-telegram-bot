@@ -5250,7 +5250,7 @@ async function sendPanel(ctx, panel, options = {}) {
     keyboard = mainPanelKeyboard(chatKey);
   }
 
-  keyboard = withPreviousPanelButton(keyboard, previousPanelFor(panel));
+  keyboard = withMenuCloseButton(withPreviousPanelButton(keyboard, previousPanelFor(panel)));
   if (edit) return editOrReplyHtml(ctx, html, keyboard);
   return replyHtml(ctx, html, keyboard);
 }
@@ -5443,7 +5443,7 @@ function mainPanelKeyboard(chatKey) {
   return inlineKeyboard(rows);
 }
 
-function statusKeyboard(chatKey) {
+function statusKeyboard(chatKey, options) {
   const rows = [
     [
       { text: t("refresh"), callback_data: "p:status" },
@@ -5461,11 +5461,12 @@ function statusKeyboard(chatKey) {
     rows.splice(1, 0, [{ text: t("stop"), callback_data: "act:stop" }]);
   }
   rows.push([{ text: `← ${t("back")}`, callback_data: "p:main" }]);
-  return inlineKeyboard(rows);
+  const keyboard = inlineKeyboard(rows);
+  return options?.closable === false ? keyboard : withMenuCloseButton(keyboard);
 }
 
 function settingsKeyboard() {
-  return inlineKeyboard([
+  return withMenuCloseButton(inlineKeyboard([
     [
       { text: t("model"), callback_data: "p:settings_model" },
       { text: "Thinking", callback_data: "p:settings_reasoning" }
@@ -5505,7 +5506,7 @@ function settingsKeyboard() {
       { text: t("main"), callback_data: "p:main" }
     ],
     [{ text: `← ${t("back")}`, callback_data: "p:main" }]
-  ]);
+  ]));
 }
 
 function fastKeyboard() {
@@ -5566,7 +5567,7 @@ function settingsSelectionKeyboard(keyboard, previousPanel) {
     navigation.push({ text: t("main"), callback_data: "p:main" });
   }
   if (navigation.length > 0) rows.push(navigation);
-  return withPreviousPanelButton(inlineKeyboard(rows), previousPanel);
+  return withMenuCloseButton(withPreviousPanelButton(inlineKeyboard(rows), previousPanel));
 }
 
 function sandboxKeyboard() {
@@ -5655,7 +5656,7 @@ function liveProgressKeyboard() {
 }
 
 function runtimeKeyboard() {
-  return inlineKeyboard([
+  return withMenuCloseButton(inlineKeyboard([
     [
       { text: t("output"), callback_data: "p:settings_runtime_output" },
       { text: t("queue"), callback_data: "p:settings_runtime_queue" }
@@ -5669,7 +5670,7 @@ function runtimeKeyboard() {
     ],
     [{ text: t("settings"), callback_data: "p:settings" }, { text: t("main"), callback_data: "p:main" }],
     [{ text: `← ${t("back")}`, callback_data: "p:settings" }]
-  ]);
+  ]));
 }
 
 function runtimeOutputKeyboard() {
@@ -5733,7 +5734,7 @@ function runtimeQueueKeyboard() {
 }
 
 function runtimeCodexKeyboard() {
-  return inlineKeyboard([
+  return withMenuCloseButton(inlineKeyboard([
     [
       { text: "Sidecar", callback_data: "set:runtime_workermode:sidecar" },
       { text: "Inline", callback_data: "set:runtime_workermode:inline" },
@@ -5763,7 +5764,7 @@ function runtimeCodexKeyboard() {
       { text: "Save & restart", callback_data: "act:restart" }
     ],
     [{ text: t("runtime"), callback_data: "p:settings_runtime" }, { text: t("settings"), callback_data: "p:settings" }]
-  ]);
+  ]));
 }
 
 function runtimeCleanupKeyboard() {
@@ -5963,7 +5964,7 @@ function toolsKeyboard() {
 }
 
 function backToMainKeyboard() {
-  return inlineKeyboard([[{ text: t("main"), callback_data: "p:main" }]]);
+  return withMenuCloseButton(inlineKeyboard([[{ text: t("main"), callback_data: "p:main" }]]));
 }
 
 function withPreviousPanelButton(keyboard, previousPanel) {
@@ -5974,6 +5975,17 @@ function withPreviousPanelButton(keyboard, previousPanel) {
     button?.callback_data === callbackData && String(button.text || "").includes("←")
   )));
   if (!hasPreviousButton) rows.push([{ text: `← ${t("back")}`, callback_data: callbackData }]);
+  return inlineKeyboard(rows);
+}
+
+function withMenuCloseButton(keyboard) {
+  const callbackData = "ui:close:menu";
+  const rows = keyboard?.reply_markup?.inline_keyboard
+    ? keyboard.reply_markup.inline_keyboard
+      .map((row) => row.filter((button) => button?.callback_data !== callbackData))
+      .filter((row) => row.length > 0)
+    : [];
+  rows.push([{ text: t("close"), callback_data: callbackData }]);
   return inlineKeyboard(rows);
 }
 
@@ -6014,13 +6026,13 @@ async function handleQueueButton(ctx, action, value) {
     return;
   }
   if (action === "clear") {
-    await editOrReplyHtml(ctx, `${b(t("queueClearConfirmTitle"))}\n${t("queueClearConfirmBody")}`, inlineKeyboard([
+    await editOrReplyHtml(ctx, `${b(t("queueClearConfirmTitle"))}\n${t("queueClearConfirmBody")}`, withMenuCloseButton(inlineKeyboard([
       [
         { text: t("clearAll"), callback_data: "confirm:q_clear" },
         { text: t("cancel"), callback_data: "p:queue" }
       ],
       [{ text: `← ${t("back")}`, callback_data: "p:queue" }]
-    ]));
+    ])));
   }
 }
 
@@ -6227,13 +6239,13 @@ async function handleToolButton(ctx, action) {
     await editOrReplyHtml(ctx, `${b(t("busyLogs"))}\n${t("busyLogsDetail")}`, codexMaintenanceBusyKeyboard());
     await editOrReplyHtml(ctx, formatCodexMaintenanceResultHtml(await runCodexMaintenance("log-rotate")), codexMaintenanceKeyboard());
   } else if (action === "codex_maintenance_sqlite_repair") {
-    await editOrReplyHtml(ctx, codexMaintenanceSqliteRepairConfirmHtml(), inlineKeyboard([
+    await editOrReplyHtml(ctx, codexMaintenanceSqliteRepairConfirmHtml(), withMenuCloseButton(inlineKeyboard([
       [
         { text: t("repairRun"), callback_data: "tool:codex_maintenance_sqlite_repair_apply", style: "danger" },
         { text: t("cancel"), callback_data: "tool:codex_maintenance", style: "primary" }
       ],
       [{ text: `← ${t("back")}`, callback_data: "tool:codex_maintenance" }]
-    ]));
+    ])));
   } else if (action === "codex_maintenance_sqlite_repair_apply") {
     if (await rejectCallbackIfActive(ctx, chatKey)) return;
     await editOrReplyHtml(ctx, `${b(t("busyRepair"))}\n${t("busyRepairDetail")}`, codexMaintenanceBusyKeyboard());
@@ -6251,21 +6263,21 @@ async function handleToolButton(ctx, action) {
     await saveState(config.stateFile, state);
     await editOrReplyHtml(ctx, codexMaintenanceMenuHtml(), codexMaintenanceKeyboard());
   } else if (action === "forget") {
-    await editOrReplyHtml(ctx, `${b(t("forgetConfirmTitle"))}\n${t("forgetConfirmBody")}`, inlineKeyboard([
+    await editOrReplyHtml(ctx, `${b(t("forgetConfirmTitle"))}\n${t("forgetConfirmBody")}`, withMenuCloseButton(inlineKeyboard([
       [
         { text: t("forgetRun"), callback_data: "confirm:forget" },
         { text: t("cancel"), callback_data: "p:tools" }
       ],
       [{ text: `← ${t("back")}`, callback_data: "p:tools" }]
-    ]));
+    ])));
   }
 }
 
 function withToolsBack() {
-  return inlineKeyboard([
+  return withMenuCloseButton(inlineKeyboard([
     [{ text: t("tools"), callback_data: "p:tools" }, { text: t("main"), callback_data: "p:main" }],
     [{ text: `← ${t("back")}`, callback_data: "p:tools" }]
-  ]);
+  ]));
 }
 
 function codexMaintenanceMenuHtml() {
@@ -6288,7 +6300,7 @@ function codexMaintenanceMenuHtml() {
 }
 
 function codexMaintenanceKeyboard() {
-  return inlineKeyboard([
+  return withMenuCloseButton(inlineKeyboard([
     [
       { text: "📊 Report", callback_data: "tool:codex_maintenance_report", style: "primary" },
       { text: "💾 Backup", callback_data: "tool:codex_maintenance_backup", style: "success" }
@@ -6315,7 +6327,7 @@ function codexMaintenanceKeyboard() {
     [
       { text: `← ${t("back")}`, callback_data: "p:tools" }
     ]
-  ]);
+  ]));
 }
 
 function codexMaintenanceSqliteRepairConfirmHtml() {
@@ -6566,16 +6578,16 @@ async function handleUsageRefreshButton(ctx, action) {
       return;
     }
     if (usageRefreshes.has(chatKey)) {
-      await editOrReplyHtml(ctx, `${b(t("usageRefreshRunningTitle"))}\n${t("usageRefreshRunningBody")}`, statusKeyboard(chatKey));
+      await editOrReplyHtml(ctx, `${b(t("usageRefreshRunningTitle"))}\n${t("usageRefreshRunningBody")}`, statusKeyboard(chatKey, { closable: false }));
       return;
     }
-    await editOrReplyHtml(ctx, `${b(t("usageRefreshConfirmTitle"))}\n${t("usageRefreshConfirmBody")}`, inlineKeyboard([
+    await editOrReplyHtml(ctx, `${b(t("usageRefreshConfirmTitle"))}\n${t("usageRefreshConfirmBody")}`, withMenuCloseButton(inlineKeyboard([
       [
         { text: t("usageRefreshRun"), callback_data: "usage:refresh_confirm" },
         { text: t("cancel"), callback_data: "p:status" }
       ],
       [{ text: `← ${t("back")}`, callback_data: "p:status" }]
-    ]));
+    ])));
     return;
   }
 
@@ -6585,13 +6597,13 @@ async function handleUsageRefreshButton(ctx, action) {
     return;
   }
   if (usageRefreshes.has(chatKey)) {
-    await editOrReplyHtml(ctx, `${b(t("usageRefreshRunningTitle"))}\n${t("usageRefreshRunningBody")}`, statusKeyboard(chatKey));
+    await editOrReplyHtml(ctx, `${b(t("usageRefreshRunningTitle"))}\n${t("usageRefreshRunningBody")}`, statusKeyboard(chatKey, { closable: false }));
     return;
   }
 
   const abortController = new AbortController();
   usageRefreshes.set(chatKey, abortController);
-  await editOrReplyHtml(ctx, `${b(t("usageRefreshRunningTitle"))}\n${t("usageRefreshRunningBody")}`, statusKeyboard(chatKey));
+  await editOrReplyHtml(ctx, `${b(t("usageRefreshRunningTitle"))}\n${t("usageRefreshRunningBody")}`, statusKeyboard(chatKey, { closable: false }));
   try {
     await withTimeout(refreshUsageSample(chatKey, abortController.signal), 60000, "Usage refresh timed out.");
     await editOrReplyHtml(ctx, `${b(t("usageRefreshDoneTitle"))}\n\n${formatStatusHtml(chatKey, await buildStatusDetails(chatKey))}`, statusKeyboard(chatKey));
@@ -6910,7 +6922,7 @@ function queueKeyboard(chatKey) {
   }
   rows.push([{ text: t("main"), callback_data: "p:main" }]);
   rows.push([{ text: `← ${t("back")}`, callback_data: "p:main" }]);
-  return inlineKeyboard(rows);
+  return withMenuCloseButton(inlineKeyboard(rows));
 }
 
 async function formatDoctorHtml(chatKey) {

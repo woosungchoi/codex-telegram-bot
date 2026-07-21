@@ -36,6 +36,12 @@ function actionHandler(marker) {
   return extractBlock(runtimeSource.indexOf("async (ctx) =>", registration));
 }
 
+function evaluateRuntimeFunction(name, bindings = {}) {
+  const names = Object.keys(bindings);
+  const values = Object.values(bindings);
+  return Function(...names, `"use strict"; return (${runtimeFunction(name)});`)(...values);
+}
+
 test("standalone model and reasoning commands start isolated cancellable flows", () => {
   assert.match(commandHandler("model"), /sendStandaloneModelSelection/);
   assert.match(commandHandler("reasoning"), /sendStandaloneReasoningSelection/);
@@ -95,6 +101,72 @@ test("selection cancel and menu close use strict edits and remove every button",
   const mainKeyboard = runtimeFunction("mainPanelKeyboard");
   assert.match(mainKeyboard, /ui:close:menu/);
   assert.match(mainKeyboard, /t\("close"\)/);
+});
+
+test("menu close decoration is immutable, idempotent, unique, and last", () => {
+  const withMenuCloseButton = evaluateRuntimeFunction("withMenuCloseButton", {
+    inlineKeyboard: (rows) => ({ reply_markup: { inline_keyboard: rows } }),
+    t: (key) => key === "close" ? "Close" : key
+  });
+  const keyboard = {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: "Main", callback_data: "p:main" },
+          { text: "Old close", callback_data: "ui:close:menu" }
+        ],
+        [{ text: "Back", callback_data: "p:settings" }],
+        [{ text: "Duplicate close", callback_data: "ui:close:menu" }]
+      ]
+    }
+  };
+  const original = JSON.parse(JSON.stringify(keyboard));
+
+  const decorated = withMenuCloseButton(keyboard);
+  assert.deepEqual(keyboard, original);
+  assert.deepEqual(decorated.reply_markup.inline_keyboard, [
+    [{ text: "Main", callback_data: "p:main" }],
+    [{ text: "Back", callback_data: "p:settings" }],
+    [{ text: "Close", callback_data: "ui:close:menu" }]
+  ]);
+  assert.deepEqual(withMenuCloseButton(decorated), decorated);
+});
+
+test("stable menu stages are closable while standalone and processing flows are not", () => {
+  const stableKeyboardFunctions = [
+    "statusKeyboard",
+    "settingsKeyboard",
+    "settingsSelectionKeyboard",
+    "runtimeKeyboard",
+    "runtimeCodexKeyboard",
+    "queueKeyboard",
+    "withToolsBack",
+    "codexMaintenanceKeyboard",
+    "backToMainKeyboard"
+  ];
+  for (const name of stableKeyboardFunctions) {
+    assert.match(runtimeFunction(name), /withMenuCloseButton/, `${name} must include menu close`);
+  }
+
+  const sendPanelStart = runtimeSource.indexOf("async function sendPanel");
+  const sendPanelEnd = runtimeSource.indexOf("async function formatMainPanelHtml", sendPanelStart);
+  assert.match(runtimeSource.slice(sendPanelStart, sendPanelEnd), /withMenuCloseButton\(withPreviousPanelButton/);
+  assert.match(runtimeFunction("handleQueueButton"), /withMenuCloseButton\(inlineKeyboard/);
+  assert.match(runtimeFunction("handleToolButton"), /withMenuCloseButton\(inlineKeyboard/);
+
+  const usageHandler = runtimeFunction("handleUsageRefreshButton");
+  assert.match(usageHandler, /withMenuCloseButton\(inlineKeyboard/);
+  assert.equal(usageHandler.match(/closable: false/g)?.length, 3);
+
+  for (const name of [
+    "withSelectionCancel",
+    "codexMaintenanceBusyKeyboard",
+    "cleanupKeyboard",
+    "editCleanupProcessingMessage",
+    "uploadCleanupKeyboard"
+  ]) {
+    assert.doesNotMatch(runtimeFunction(name), /withMenuCloseButton|ui:close:menu/, `${name} must stay outside menu close`);
+  }
 });
 
 test("strict selection edits disable replacement replies", () => {
