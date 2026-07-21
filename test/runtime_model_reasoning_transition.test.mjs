@@ -1,16 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import {
-  isReasoningEffortSupported,
-  reasoningOptionsForModel
-} from "../src/codex/models.js";
+import { createChatOptionsController } from "../src/codex/chat_options_controller.js";
 import {
   createAtomicChatOptionsReplacer,
   createModelSelectionController
 } from "../src/ui/model_selection_controller.js";
 
-const runtimeSource = fs.readFileSync(new URL("../src/runtime.js", import.meta.url), "utf8");
 const MODELS = [
   {
     slug: "gpt-5.6-sol",
@@ -25,91 +20,60 @@ const MODELS = [
   { slug: "known-empty", supportedReasoning: [] }
 ];
 
-function extractBlock(start) {
-  const open = runtimeSource.indexOf("{", start);
-  assert.notEqual(open, -1, "runtime block opening brace must exist");
-  let depth = 0;
-  for (let index = open; index < runtimeSource.length; index += 1) {
-    if (runtimeSource[index] === "{") depth += 1;
-    if (runtimeSource[index] === "}") depth -= 1;
-    if (depth === 0) return runtimeSource.slice(start, index + 1);
-  }
-  throw new Error("runtime block closing brace must exist");
-}
-
-function runtimeFunction(name) {
-  const start = runtimeSource.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} must exist in runtime.js`);
-  const asyncStart = runtimeSource.lastIndexOf("async ", start);
-  return extractBlock(asyncStart === start - 6 ? asyncStart : start);
-}
-
-function runtimeOptionsImport() {
-  const marker = 'from "./codex/options.js";';
-  const end = runtimeSource.indexOf(marker);
-  assert.notEqual(end, -1, "runtime options import must exist");
-  const start = runtimeSource.lastIndexOf("import ", end);
-  const source = runtimeSource.slice(start, end + marker.length);
-  return source.replace("./codex/options.js", new URL("../src/codex/options.js", import.meta.url).href);
-}
-
-const declarations = [
-  runtimeFunction("defaultChatOptions"),
-  runtimeFunction("getEffectiveOptions"),
-  runtimeFunction("effectiveModelSlug"),
-  runtimeFunction("planRuntimeModelReasoningTransition"),
-  runtimeFunction("getChatState"),
-  runtimeFunction("invalidateThreadCache"),
-  runtimeFunction("setOption"),
-  runtimeFunction("updateOptionValue"),
-  runtimeFunction("formatModelSelectionHtml")
-].join("\n");
-const moduleSource = `${runtimeOptionsImport()}
-export function createRuntimeBindings(context) {
-  const { state, threadCache, config, listCodexModels, getChatKey,
-    isReasoningEffortSupported, reasoningOptionsForModel, rejectIfActive,
-    saveState, replyHtml, code, b, t, runtimeValue, formatOptionsHtml } = context;
-  ${declarations}
-  return {
-    command: updateOptionValue,
-    effectiveModelSlug,
-    formatModelSelectionHtml,
-    getChatState,
-    planRuntimeModelReasoningTransition
-  };
-}`;
-const moduleUrl = `data:text/javascript;base64,${Buffer.from(moduleSource).toString("base64")}`;
-const { createRuntimeBindings } = await import(moduleUrl);
-
 function createHarness(configuredReasoning, initialOptions, configuredModel = "gpt-5.6-sol") {
   const state = { chats: { chat: { options: { ...initialOptions }, updatedAt: "before" } } };
   const threadCache = new Map([["chat", { id: "cached" }]]);
   const counters = { saves: 0, callbackAnswers: 0, replies: [] };
-  const context = {
-    state,
-    threadCache,
-    config: {
-      codexModel: configuredModel,
-      codexReasoningEffort: configuredReasoning,
-      stateFile: "/unused/state.json"
-    },
-    listCodexModels: async () => MODELS,
-    getChatKey: () => "chat",
-    isReasoningEffortSupported,
-    reasoningOptionsForModel,
-    rejectIfActive: async () => false,
-    saveState: async () => { counters.saves += 1; },
-    replyHtml: async (_ctx, html) => { counters.replies.push(html); },
-    code: String,
-    b: String,
-    t: () => "selection help",
-    runtimeValue: () => false,
-    formatOptionsHtml: () => "options"
+  const listModels = async () => MODELS;
+  const replyHtml = async (_ctx, html) => {
+    counters.replies.push(html);
   };
-  const bindings = createRuntimeBindings(context);
+  const options = createChatOptionsController({
+    settings: {
+      workingDirectory: "/workspace",
+      skipGitRepoCheck: false,
+      approvalPolicy: "on-request",
+      sandboxMode: "workspace-write",
+      reasoningEffort: configuredReasoning,
+      webSearchMode: "disabled",
+      liveProgressEnabled: () => false,
+      liveProgressSource: "agent",
+      liveProgressDeletePolicy: "on_success",
+      model: configuredModel,
+      additionalDirectories: [],
+      uploadDir: "/uploads"
+    },
+    stateStore: {
+      chats: state.chats,
+      save: async () => {
+        counters.saves += 1;
+      }
+    },
+    threadCache,
+    models: { list: listModels },
+    telegram: {
+      commandName: () => "model",
+      formatOptionsHtml: () => "options",
+      getChatKey: () => "chat",
+      getCommandArgs: () => "",
+      rejectIfActive: async () => false,
+      replyHtml
+    },
+    validation: {
+      ensureDirectory: async () => {},
+      parseRequiredBoolean: (value) => value === "on",
+      validApprovalPolicies: new Set(["on-request"]),
+      validLiveProgressDeletePolicies: new Set(["on_success"]),
+      validLiveProgressSources: new Set(["agent"]),
+      validSandboxModes: new Set(["workspace-write"]),
+      validServiceTiers: new Set(["fast", "flex"]),
+      validWebSearchModes: new Set(["disabled", "cached", "live"])
+    },
+    text: () => "selection help"
+  });
   const replaceOptions = createAtomicChatOptionsReplacer({
-    getChat: bindings.getChatState,
-    save: () => context.saveState(),
+    getChat: options.getChatState,
+    save: () => counters.saves += 1,
     invalidate: (chatKey) => threadCache.delete(chatKey),
     now: () => "after"
   });
@@ -121,32 +85,34 @@ function createHarness(configuredReasoning, initialOptions, configuredModel = "g
       update: () => null
     },
     models: {
-      list: context.listCodexModels,
+      list: listModels,
       defaultSlug: () => configuredModel,
-      planTransition: bindings.planRuntimeModelReasoningTransition
+      planTransition: options.planRuntimeModelReasoningTransition
     },
     chat: {
-      keyFromContext: context.getChatKey,
-      getOptions: (chatKey) => bindings.getChatState(chatKey).options,
+      keyFromContext: () => "chat",
+      getOptions: (chatKey) => options.getChatState(chatKey).options,
       replaceOptions,
       isActive: () => false,
       rejectIfActive: async () => false,
-      effectiveModelSlug: bindings.effectiveModelSlug
+      effectiveModelSlug: options.effectiveModelSlug
     },
     telegram: {
-      replyHtml: context.replyHtml,
-      editOrReplyHtml: async (_ctx, html) => { counters.replies.push(html); },
+      replyHtml,
+      editOrReplyHtml: async (_ctx, html) => {
+        counters.replies.push(html);
+      },
       editStrict: async () => true,
       answerUiCallback: async () => {}
     },
     views: {
-      formatModelSelectionHtml: bindings.formatModelSelectionHtml,
+      formatModelSelectionHtml: options.formatModelSelectionHtml,
       formatReasoningPromptHtml: () => "reasoning",
       settingsSelectionKeyboard: () => ({}),
       fastPanelHtml: async () => "fast",
       fastKeyboard: () => ({})
     },
-    text: context.t
+    text: () => "selection help"
   });
   const modelAction = async (ctx) => {
     await controller.handleSettingsModelSelection(ctx, ctx.match[1]);
@@ -156,20 +122,20 @@ function createHarness(configuredReasoning, initialOptions, configuredModel = "g
     await controller.handleSettingsReasoningSelection(ctx, ctx.match[1]);
     await ctx.answerCbQuery().catch(() => {});
   };
-  const settingsReasoning = controller.handleSettingsReasoningSelection;
-  const { command } = bindings;
   return {
     state,
     counters,
     threadCache,
-    command,
-    settingsReasoning,
+    command: options.updateOptionValue,
+    settingsReasoning: controller.handleSettingsReasoningSelection,
     modelAction,
     reasoningAction,
     ctx(value) {
       return {
         match: ["", value],
-        answerCbQuery: async () => { counters.callbackAnswers += 1; }
+        answerCbQuery: async () => {
+          counters.callbackAnswers += 1;
+        }
       };
     }
   };
@@ -186,7 +152,10 @@ function observable(harness) {
 
 function assertRejected(harness, options) {
   assert.deepEqual(observable(harness), {
-    options, updatedAt: "before", saves: 0, invalidated: false
+    options,
+    updatedAt: "before",
+    saves: 0,
+    invalidated: false
   });
 }
 
@@ -272,9 +241,9 @@ test("model and reasoning callbacks enforce the same transactional boundary", as
   const unavailable = createHarness("high", { model: "gpt-5.6-sol" });
   await unavailable.modelAction(unavailable.ctx("missing-model"));
   assertRejected(unavailable, { model: "gpt-5.6-sol" });
-  assert.match(unavailable.counters.replies.at(-1), /Current model: gpt-5\.6-sol/);
-  assert.match(unavailable.counters.replies.at(-1), /Current thinking: high/);
-  assert.match(unavailable.counters.replies.at(-1), /Fast service tier: default/);
+  assert.match(unavailable.counters.replies.at(-1), /Current model: <code>gpt-5\.6-sol<\/code>/);
+  assert.match(unavailable.counters.replies.at(-1), /Current thinking: <code>high<\/code>/);
+  assert.match(unavailable.counters.replies.at(-1), /Fast service tier: <code>default<\/code>/);
 
   const cleared = createHarness("high", {
     model: "gpt-5.6-sol",

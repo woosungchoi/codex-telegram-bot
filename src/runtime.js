@@ -20,15 +20,11 @@ import {
 } from "./codex/app_server.js";
 import {
   findCodexModel,
-  isReasoningEffortSupported,
   readCodexModelCatalog,
   reasoningOptionsForModel
 } from "./codex/models.js";
-import {
-  mergeAdditionalDirectories,
-  planModelReasoningTransition
-} from "./codex/options.js";
 import { buildStyleInstructionPrompt } from "./codex/prompts.js";
+import { createChatOptionsController } from "./codex/chat_options_controller.js";
 import { readCodexSessionBackfill } from "./codex/session_backfill.js";
 import { isCodexSkillsView, replyCodexSkillsStatus } from "./codex/skills_status.js";
 import { applyCodexStreamEvent, codexStreamItems, codexStreamResult, createCodexStreamState } from "./codex/stream.js";
@@ -189,6 +185,8 @@ const {
   approvalKeyboard,
   backToMainKeyboard,
   booleanOptionKeyboard,
+  codexMaintenanceBusyKeyboard,
+  codexMaintenanceKeyboard,
   emptyInlineKeyboard,
   fastKeyboard,
   inlineKeyboard,
@@ -198,6 +196,7 @@ const {
   mainPanelKeyboard,
   pathsKeyboard,
   previousPanelFor,
+  queueKeyboard,
   runtimeCleanupKeyboard,
   runtimeCodexKeyboard,
   runtimeKeyboard,
@@ -215,16 +214,22 @@ const {
   timeZoneGroupKeyboard,
   timeZoneKeyboard,
   toolsKeyboard,
+  uploadCleanupKeyboard,
   webSearchKeyboard,
   withMenuCloseButton,
-  withPreviousPanelButton
+  withPreviousPanelButton,
+  withToolsBack
 } = createRuntimeKeyboardViews({
   text: t,
   hasActiveTurn: (chatKey) => activeTurns.has(chatKey),
   sideTurnCount: getSideTurnCount,
   currentLanguage: uiLanguage,
   currentTimeZone: uiTimeZone,
-  currentLocale: uiLocale
+  currentLocale: uiLocale,
+  isQueuePaused,
+  pendingTurnsFor: getPendingTurns,
+  maintenanceAutoHandoffEnabled,
+  maintenanceAutoSqliteRepairEnabled
 });
 const {
   renderFastPanelHtml,
@@ -240,6 +245,63 @@ const {
 } = createRuntimePanelViews({
   text: t,
   formatText: tf
+});
+const {
+  buildTurnOptions,
+  defaultChatOptions,
+  effectiveModelSlug,
+  formatModelSelectionHtml,
+  getChatState,
+  getEffectiveOptions,
+  invalidateThreadCache,
+  planRuntimeModelReasoningTransition,
+  setOption,
+  updateOptionCommand,
+  updateOptionValue
+} = createChatOptionsController({
+  settings: {
+    workingDirectory: config.codexWorkdir,
+    skipGitRepoCheck: config.codexSkipGitRepoCheck,
+    approvalPolicy: config.codexApprovalPolicy,
+    sandboxMode: config.codexSandboxMode,
+    reasoningEffort: config.codexReasoningEffort,
+    webSearchMode: config.codexWebSearch,
+    liveProgressEnabled: () => runtimeValue("telegramLiveProgressEnabled"),
+    liveProgressSource: config.telegramLiveProgressSource,
+    liveProgressDeletePolicy: config.telegramLiveProgressDeletePolicy,
+    model: config.codexModel,
+    networkAccessEnabled: config.codexNetworkAccess,
+    webSearchEnabled: config.codexWebSearchEnabled,
+    additionalDirectories: config.codexAdditionalDirectories,
+    uploadDir: config.uploadDir
+  },
+  stateStore: {
+    chats: state.chats,
+    save: () => saveState(config.stateFile, state)
+  },
+  threadCache,
+  models: {
+    list: listCodexModels
+  },
+  telegram: {
+    commandName,
+    formatOptionsHtml,
+    getChatKey,
+    getCommandArgs,
+    rejectIfActive,
+    replyHtml
+  },
+  validation: {
+    ensureDirectory,
+    parseRequiredBoolean,
+    validApprovalPolicies: VALID.approval,
+    validLiveProgressDeletePolicies: VALID.liveProgressDeletePolicy,
+    validLiveProgressSources: VALID.liveProgressSource,
+    validSandboxModes: VALID.sandbox,
+    validServiceTiers: VALID.serviceTier,
+    validWebSearchModes: VALID.webSearch
+  },
+  text: t
 });
 const replaceChatOptions = createAtomicChatOptionsReplacer({
   getChat: getChatState,
@@ -2103,65 +2165,6 @@ function threadTransport(thread) {
   return detectThreadTransport(thread);
 }
 
-function defaultChatOptions() {
-  const options = {
-    workingDirectory: config.codexWorkdir,
-    skipGitRepoCheck: config.codexSkipGitRepoCheck,
-    approvalPolicy: config.codexApprovalPolicy,
-    sandboxMode: config.codexSandboxMode,
-    modelReasoningEffort: config.codexReasoningEffort,
-    webSearchMode: config.codexWebSearch,
-    streamEvents: true,
-    liveProgressEnabled: runtimeValue("telegramLiveProgressEnabled"),
-    liveProgressSource: config.telegramLiveProgressSource,
-    liveProgressDeletePolicy: config.telegramLiveProgressDeletePolicy
-  };
-  if (config.codexModel) options.model = config.codexModel;
-  if (typeof config.codexNetworkAccess === "boolean") options.networkAccessEnabled = config.codexNetworkAccess;
-  if (typeof config.codexWebSearchEnabled === "boolean") options.webSearchEnabled = config.codexWebSearchEnabled;
-  const additionalDirectories = mergeAdditionalDirectories(config.codexAdditionalDirectories, config.uploadDir);
-  if (additionalDirectories.length > 0) options.additionalDirectories = additionalDirectories;
-  return options;
-}
-
-function buildTurnOptions(chatKey, signal) {
-  const chat = getChatState(chatKey);
-  const options = { signal };
-  if (chat.outputSchema) options.outputSchema = chat.outputSchema;
-  return options;
-}
-
-function getEffectiveOptions(chatKey) {
-  return { ...defaultChatOptions(), ...getChatState(chatKey).options };
-}
-
-function effectiveModelSlug(chatKey) {
-  return state.chats[chatKey]?.options?.model ?? config.codexModel ?? "";
-}
-
-function planRuntimeModelReasoningTransition(
-  models,
-  modelSlug,
-  explicitReasoning,
-  allowExplicitClear = false
-) {
-  return planModelReasoningTransition({
-    models,
-    modelSlug,
-    explicitReasoning,
-    configuredReasoning: config.codexReasoningEffort,
-    allowExplicitClear
-  });
-}
-
-function getChatState(chatKey) {
-  if (!state.chats[chatKey]) {
-    state.chats[chatKey] = { options: {}, updatedAt: new Date().toISOString() };
-  }
-  if (!state.chats[chatKey].options) state.chats[chatKey].options = {};
-  return state.chats[chatKey];
-}
-
 function getOrCreateThread(chatKey) {
   const cached = threadCache.get(chatKey);
   if (cached && threadTransport(cached) === codexTransport()) return cached;
@@ -2179,120 +2182,6 @@ async function rememberThread(chatKey, thread) {
   chat.threadId = thread.id;
   chat.updatedAt = new Date().toISOString();
   await saveState(config.stateFile, state);
-}
-
-async function updateOptionCommand(ctx, key, usage) {
-  const chatKey = getChatKey(ctx);
-  if (await rejectIfActive(ctx, chatKey)) return;
-  const value = getCommandArgs(ctx).trim();
-  if (!value) {
-    await replyHtml(ctx, `Usage: ${code(`/${commandName(ctx)} <${usage}>`)}`);
-    return;
-  }
-  await updateOptionValue(ctx, key, value);
-}
-
-async function updateOptionValue(ctx, key, value) {
-  const chatKey = getChatKey(ctx);
-  if (await rejectIfActive(ctx, chatKey)) return;
-  try {
-    await setOption(chatKey, key, value);
-  } catch (error) {
-    await replyHtml(ctx, code(error instanceof Error ? error.message : String(error)));
-    return;
-  }
-  await saveState(config.stateFile, state);
-  await replyHtml(ctx, `${b(`Updated ${key}.`)}\n\n${formatOptionsHtml(chatKey)}`);
-}
-
-async function setOption(chatKey, key, rawValue) {
-  const value = rawValue.trim();
-  const lower = value.toLowerCase();
-  const clearsOption = lower === "off" || lower === "default" || lower === "clear";
-  let modelCatalog = null;
-  let transition = { action: "keep" };
-  if (key === "model") {
-    modelCatalog = await listCodexModels();
-    const prospectiveModel = clearsOption ? config.codexModel ?? "" : value;
-    transition = planRuntimeModelReasoningTransition(
-      modelCatalog,
-      prospectiveModel,
-      state.chats[chatKey]?.options?.modelReasoningEffort,
-      true
-    );
-    if (transition.action === "reject") {
-      const supported = reasoningOptionsForModel(modelCatalog, prospectiveModel)
-        .map(({ effort }) => effort)
-        .join(", ") || "none";
-      throw new Error(`reasoning for ${prospectiveModel || "default"} must be one of: ${supported}`);
-    }
-  } else if (key === "modelReasoningEffort" && clearsOption) {
-    modelCatalog = await listCodexModels();
-    const model = effectiveModelSlug(chatKey);
-    transition = planRuntimeModelReasoningTransition(modelCatalog, model, undefined);
-    if (transition.action === "reject") {
-      const supported = reasoningOptionsForModel(modelCatalog, model)
-        .map(({ effort }) => effort)
-        .join(", ") || "none";
-      throw new Error(`reasoning for ${model || "default"} must be one of: ${supported}`);
-    }
-  }
-
-  if (clearsOption) {
-    const chat = getChatState(chatKey);
-    delete chat.options[key];
-    if (transition.action === "clear") delete chat.options.modelReasoningEffort;
-    invalidateThreadCache(chatKey);
-    return;
-  }
-
-  if (key === "modelReasoningEffort") {
-    const models = await listCodexModels();
-    const model = effectiveModelSlug(chatKey);
-    if (!isReasoningEffortSupported(models, model, lower)) {
-      const supported = reasoningOptionsForModel(models, model).map(({ effort }) => effort).join(", ") || "none";
-      throw new Error(`reasoning for ${model || "default"} must be one of: ${supported}`);
-    }
-  }
-
-  const chat = getChatState(chatKey);
-  if (key === "model") {
-    chat.options.model = value;
-    if (transition.action === "clear") delete chat.options.modelReasoningEffort;
-  } else if (key === "workingDirectory") {
-    await ensureDirectory(value, "working directory");
-    chat.options.workingDirectory = value;
-  } else if (key === "sandboxMode") {
-    assertEnum(value, VALID.sandbox, "sandbox");
-    chat.options.sandboxMode = value;
-  } else if (key === "approvalPolicy") {
-    assertEnum(value, VALID.approval, "approval");
-    chat.options.approvalPolicy = value;
-  } else if (key === "modelReasoningEffort") {
-    chat.options.modelReasoningEffort = lower;
-  } else if (key === "webSearchMode") {
-    assertEnum(value, VALID.webSearch, "websearch");
-    chat.options.webSearchMode = value;
-  } else if (key === "serviceTier") {
-    assertEnum(value, VALID.serviceTier, "service tier");
-    chat.options.serviceTier = value;
-  } else if (key === "liveProgressSource") {
-    assertEnum(value, VALID.liveProgressSource, "live progress source");
-    chat.options.liveProgressSource = value;
-  } else if (key === "liveProgressDeletePolicy") {
-    assertEnum(value, VALID.liveProgressDeletePolicy, "live progress delete policy");
-    chat.options.liveProgressDeletePolicy = value;
-  } else if (key === "networkAccessEnabled" || key === "skipGitRepoCheck" || key === "streamEvents" || key === "liveProgressEnabled") {
-    chat.options[key] = parseRequiredBoolean(value, key);
-  } else {
-    throw new Error(`Unknown option: ${key}`);
-  }
-  invalidateThreadCache(chatKey);
-}
-
-function invalidateThreadCache(chatKey) {
-  threadCache.delete(chatKey);
-  getChatState(chatKey).updatedAt = new Date().toISOString();
 }
 
 async function rejectIfActive(ctx, chatKey) {
@@ -4146,13 +4035,6 @@ async function handleToolButton(ctx, action) {
   }
 }
 
-function withToolsBack() {
-  return withMenuCloseButton(inlineKeyboard([
-    [{ text: t("tools"), callback_data: "p:tools" }, { text: t("main"), callback_data: "p:main" }],
-    [{ text: `← ${t("back")}`, callback_data: "p:tools" }]
-  ]));
-}
-
 function codexMaintenanceMenuHtml() {
   return [
     b(t("codexMaintenance")),
@@ -4172,37 +4054,6 @@ function codexMaintenanceMenuHtml() {
   ].join("\n");
 }
 
-function codexMaintenanceKeyboard() {
-  return withMenuCloseButton(inlineKeyboard([
-    [
-      { text: "📊 Report", callback_data: "tool:codex_maintenance_report", style: "primary" },
-      { text: "💾 Backup", callback_data: "tool:codex_maintenance_backup", style: "success" }
-    ],
-    [
-      { text: "🧹 Config prune", callback_data: "tool:codex_maintenance_config", style: "primary" },
-      { text: "📦 Worktrees archive", callback_data: "tool:codex_maintenance_worktrees", style: "primary" }
-    ],
-    [
-      { text: "🗄️ Logs rotate", callback_data: "tool:codex_maintenance_logs", style: "primary" }
-    ],
-    [
-      { text: "🧬 SQLite repair", callback_data: "tool:codex_maintenance_sqlite_repair", style: "danger" },
-      { text: t("handoffCreate"), callback_data: "tool:codex_maintenance_handoff", style: "success" }
-    ],
-    [
-      { text: `🤖 Auto handoff ${maintenanceAutoHandoffEnabled() ? "on" : "off"}`, callback_data: "tool:codex_maintenance_auto_handoff", style: maintenanceAutoHandoffEnabled() ? "success" : "primary" },
-      { text: `🤖 Auto repair ${maintenanceAutoSqliteRepairEnabled() ? "on" : "off"}`, callback_data: "tool:codex_maintenance_auto_sqlite_repair", style: maintenanceAutoSqliteRepairEnabled() ? "danger" : "primary" }
-    ],
-    [
-      { text: t("tools"), callback_data: "p:tools" },
-      { text: t("main"), callback_data: "p:main" }
-    ],
-    [
-      { text: `← ${t("back")}`, callback_data: "p:tools" }
-    ]
-  ]));
-}
-
 function codexMaintenanceSqliteRepairConfirmHtml() {
   return [
     b(t("sqliteConfirmTitle")),
@@ -4217,10 +4068,6 @@ function codexMaintenanceSqliteRepairConfirmHtml() {
     "",
     t("sqliteContinue")
   ].join("\n");
-}
-
-function codexMaintenanceBusyKeyboard() {
-  return inlineKeyboard([[{ text: t("processing"), callback_data: "tool:codex_maintenance", style: "primary" }]]);
 }
 
 function maintenanceAutoSqliteRepairEnabled() {
@@ -4498,20 +4345,6 @@ async function listCodexModels() {
   return readCodexModelCatalog(config.codexModelsCacheFile);
 }
 
-function formatModelSelectionHtml(chatKey, models) {
-  const options = getEffectiveOptions(chatKey);
-  const fastModels = models.filter((model) => model.fastSupported).map((model) => model.slug);
-  return [
-    b(t("modelSelectionTitle")),
-    `Current model: ${code(options.model || "default")}`,
-    `Current thinking: ${code(options.modelReasoningEffort)}`,
-    `Fast service tier: ${code(options.serviceTier || "default")}`,
-    "",
-    t("modelSelectionDescription"),
-    `${t("fastSupportedLabel")}: ${code(fastModels.length > 0 ? fastModels.join(", ") : "unknown")}`
-  ].join("\n");
-}
-
 function formatReasoningPromptHtml(chatKey, models) {
   const chatOptions = state.chats[chatKey]?.options ?? {};
   const model = effectiveModelSlug(chatKey);
@@ -4769,35 +4602,6 @@ function formatQueueModeHtml(chatKey) {
   ].join("\n");
 }
 
-function queueKeyboard(chatKey) {
-  const paused = isQueuePaused(chatKey);
-  const rows = [
-    [
-      { text: paused ? t("resumeAuto") : t("pauseAuto"), callback_data: paused ? "q:resume" : "q:pause" },
-      { text: t("refresh"), callback_data: "p:queue" }
-    ],
-    [
-      { text: "safe", callback_data: "q:mode:safe" },
-      { text: "interrupt", callback_data: "q:mode:interrupt" },
-      { text: "side", callback_data: "q:mode:side" }
-    ]
-  ];
-  if (getPendingTurns(chatKey).length > 0) {
-    rows.push([{ text: t("clearAll"), callback_data: "q:clear" }]);
-  }
-  for (const [index, turn] of getPendingTurns(chatKey).slice(0, 10).entries()) {
-    const label = `#${index + 1}`;
-    rows.push([
-      { text: `${label} ${t("cancelItem")}`, callback_data: `queue:cancel:${turn.id}` },
-      { text: `${label} ↑`, callback_data: `queue:up:${turn.id}` },
-      { text: `${label} next`, callback_data: `queue:next:${turn.id}` }
-    ]);
-  }
-  rows.push([{ text: t("main"), callback_data: "p:main" }]);
-  rows.push([{ text: `← ${t("back")}`, callback_data: "p:main" }]);
-  return withMenuCloseButton(inlineKeyboard(rows));
-}
-
 async function formatDoctorHtml(chatKey) {
   const [botPackage, sdkPackage, cliVersion, modelsMeta, yoloWrapper] = await Promise.all([
     readJsonFile(path.join(appRoot, "package.json")),
@@ -4888,12 +4692,6 @@ function formatUploadCleanupPlanHtml(plan, record = null) {
     lines.push(`- ${code(path.basename(candidate.path))}: ${code(formatBytes(candidate.bytes ?? 0))}`);
   }
   return lines.join("\n");
-}
-
-function uploadCleanupKeyboard(planId) {
-  return inlineKeyboard([
-    [{ text: "Confirm upload cleanup", callback_data: `upload_cleanup_confirm:${planId}` }]
-  ]);
 }
 
 function formatUploadCleanupProcessingHtml(record) {
@@ -5294,10 +5092,6 @@ function parseCodexAnswerFormat(value) {
   const normalized = value?.trim().toLowerCase() || "markdown";
   if (["off", "safe", "markdown"].includes(normalized)) return normalized;
   throw new Error("TELEGRAM_FORMAT_CODEX_ANSWERS must be off, safe, or markdown.");
-}
-
-function assertEnum(value, validValues, label) {
-  if (!validValues.has(value)) throw new Error(`${label} must be one of: ${[...validValues].join(", ")}`);
 }
 
 function countBy(values, getKey) {

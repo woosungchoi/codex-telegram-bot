@@ -62,7 +62,11 @@ export function createRuntimeKeyboardViews({
   sideTurnCount,
   currentLanguage,
   currentTimeZone,
-  currentLocale
+  currentLocale,
+  isQueuePaused = () => false,
+  pendingTurnsFor = () => [],
+  maintenanceAutoHandoffEnabled = () => false,
+  maintenanceAutoSqliteRepairEnabled = () => false
 }) {
   const t = text;
 
@@ -573,6 +577,105 @@ export function createRuntimeKeyboardViews({
     ]);
   }
 
+  function withToolsBack() {
+    return withMenuCloseButton(inlineKeyboard([
+      [
+        { text: t("tools"), callback_data: "p:tools" },
+        { text: t("main"), callback_data: "p:main" }
+      ],
+      [{ text: `← ${t("back")}`, callback_data: "p:tools" }]
+    ]));
+  }
+
+  function codexMaintenanceKeyboard() {
+    const autoHandoff = maintenanceAutoHandoffEnabled();
+    const autoRepair = maintenanceAutoSqliteRepairEnabled();
+    return withMenuCloseButton(inlineKeyboard([
+      [
+        { text: "📊 Report", callback_data: "tool:codex_maintenance_report", style: "primary" },
+        { text: "💾 Backup", callback_data: "tool:codex_maintenance_backup", style: "success" }
+      ],
+      [
+        { text: "🧹 Config prune", callback_data: "tool:codex_maintenance_config", style: "primary" },
+        { text: "📦 Worktrees archive", callback_data: "tool:codex_maintenance_worktrees", style: "primary" }
+      ],
+      [{ text: "🗄️ Logs rotate", callback_data: "tool:codex_maintenance_logs", style: "primary" }],
+      [
+        { text: "🧬 SQLite repair", callback_data: "tool:codex_maintenance_sqlite_repair", style: "danger" },
+        { text: t("handoffCreate"), callback_data: "tool:codex_maintenance_handoff", style: "success" }
+      ],
+      [
+        {
+          text: `🤖 Auto handoff ${autoHandoff ? "on" : "off"}`,
+          callback_data: "tool:codex_maintenance_auto_handoff",
+          style: autoHandoff ? "success" : "primary"
+        },
+        {
+          text: `🤖 Auto repair ${autoRepair ? "on" : "off"}`,
+          callback_data: "tool:codex_maintenance_auto_sqlite_repair",
+          style: autoRepair ? "danger" : "primary"
+        }
+      ],
+      [
+        { text: t("tools"), callback_data: "p:tools" },
+        { text: t("main"), callback_data: "p:main" }
+      ],
+      [{ text: `← ${t("back")}`, callback_data: "p:tools" }]
+    ]));
+  }
+
+  function codexMaintenanceBusyKeyboard() {
+    return inlineKeyboard([[
+      {
+        text: t("processing"),
+        callback_data: "tool:codex_maintenance",
+        style: "primary"
+      }
+    ]]);
+  }
+
+  function queueKeyboard(chatKey) {
+    const paused = isQueuePaused(chatKey);
+    const pendingTurns = pendingTurnsFor(chatKey);
+    const rows = [
+      [
+        {
+          text: paused ? t("resumeAuto") : t("pauseAuto"),
+          callback_data: paused ? "q:resume" : "q:pause"
+        },
+        { text: t("refresh"), callback_data: "p:queue" }
+      ],
+      [
+        { text: "safe", callback_data: "q:mode:safe" },
+        { text: "interrupt", callback_data: "q:mode:interrupt" },
+        { text: "side", callback_data: "q:mode:side" }
+      ]
+    ];
+    if (pendingTurns.length > 0) {
+      rows.push([{ text: t("clearAll"), callback_data: "q:clear" }]);
+    }
+    for (const [index, turn] of pendingTurns.slice(0, 10).entries()) {
+      const label = `#${index + 1}`;
+      rows.push([
+        { text: `${label} ${t("cancelItem")}`, callback_data: `queue:cancel:${turn.id}` },
+        { text: `${label} ↑`, callback_data: `queue:up:${turn.id}` },
+        { text: `${label} next`, callback_data: `queue:next:${turn.id}` }
+      ]);
+    }
+    rows.push([{ text: t("main"), callback_data: "p:main" }]);
+    rows.push([{ text: `← ${t("back")}`, callback_data: "p:main" }]);
+    return withMenuCloseButton(inlineKeyboard(rows));
+  }
+
+  function uploadCleanupKeyboard(planId) {
+    return inlineKeyboard([[
+      {
+        text: "Confirm upload cleanup",
+        callback_data: `upload_cleanup_confirm:${planId}`
+      }
+    ]]);
+  }
+
   function backToMainKeyboard() {
     return withMenuCloseButton(inlineKeyboard([[{ text: t("main"), callback_data: "p:main" }]]));
   }
@@ -616,6 +719,8 @@ export function createRuntimeKeyboardViews({
     approvalKeyboard,
     backToMainKeyboard,
     booleanOptionKeyboard,
+    codexMaintenanceBusyKeyboard,
+    codexMaintenanceKeyboard,
     emptyInlineKeyboard,
     fastKeyboard,
     inlineKeyboard,
@@ -625,6 +730,7 @@ export function createRuntimeKeyboardViews({
     mainPanelKeyboard,
     pathsKeyboard,
     previousPanelFor,
+    queueKeyboard,
     runtimeCleanupKeyboard,
     runtimeCodexKeyboard,
     runtimeKeyboard,
@@ -642,9 +748,11 @@ export function createRuntimeKeyboardViews({
     timeZoneGroupKeyboard,
     timeZoneKeyboard,
     toolsKeyboard,
+    uploadCleanupKeyboard,
     webSearchKeyboard,
     withMenuCloseButton,
     withPreviousPanelButton,
-    withSelectionCancel
+    withSelectionCancel,
+    withToolsBack
   };
 }
