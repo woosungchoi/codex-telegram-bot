@@ -2,6 +2,86 @@
 
 All notable public changes are documented here.
 
+## 1.2.10 - 2026-07-21
+
+### Focused runtime boundaries
+
+- Completed the next decomposition pass without replacing the established
+  composition model. `src/runtime.js` remains the explicit application
+  composition root, while keyboard construction, panel presentation, settings
+  parsing, diagnostics, cleanup, model selection, and recovery behavior now
+  live behind focused modules with narrow responsibilities.
+- Kept compatibility facades at the existing import paths for keyboards,
+  configuration, runtime panels, diagnostics, cleanup, and model selection.
+  Existing callers therefore retain the same named exports, callback payloads,
+  persisted state formats, and Telegram interaction behavior.
+- Split the keyboard layer by purpose into shared helpers, selection flows,
+  settings navigation, operational controls, and runtime settings. Stable
+  panel keys, dynamic timezone groups, navigation rows, Close controls, and
+  standalone Cancel controls are now exercised as an explicit rendering
+  matrix rather than depending on one large conditional module.
+- Separated standalone model selection from Settings model selection while
+  preserving their intentionally different transaction rules: standalone
+  selection commits atomically at the end, while Settings continues to apply
+  each accepted choice immediately within the control panel.
+
+### Configuration, maintenance, and diagnostics
+
+- Reorganized the single configuration reader into domain readers for
+  Telegram, Codex, runtime behavior, recovery, maintenance, and filesystem
+  paths. A complete 97-key contract test locks the public result shape,
+  defaults, parsing rules, and output types so internal movement cannot
+  silently change deployment behavior.
+- Split cleanup behavior into inventory, scheduling, and Telegram UI modules.
+  The existing audit-only retention policy, fail-closed safety checks, and
+  public cleanup controller surface remain unchanged.
+- Split runtime diagnostics into focused collectors and a presenter, retaining
+  the prior facade exports and localized output. Status collection can now be
+  tested independently from Telegram rendering and delivery.
+
+### Recovery and delivery safety
+
+- Moved worker-specific resume, job lookup, final-result delivery, completion,
+  and queue draining out of the generic restart controller. The generic
+  controller now concentrates on restart orchestration and inline-turn
+  recovery, while the worker controller owns the sidecar lifecycle.
+- Separated the durable worker-delivery ledger from generic turn and stream
+  snapshots. Delivery state transitions and digest checks now have their own
+  journal boundary without changing the on-disk record shape used by existing
+  installations.
+- Added an end-to-end recovery characterization that resumes a running worker
+  snapshot, delivers the reconstructed final result, marks the recovered turn
+  complete, and drains the next queued turn. Added focused coverage for
+  ambiguous Telegram delivery failures and result-digest mismatches so the
+  duplicate-prevention policy remains explicit.
+
+### Architecture and compatibility
+
+- Updated `docs/architecture.md` to match the current implementation. It now
+  describes `runtime.js` as a dependency-construction and lifecycle-ordering
+  boundary rather than the owner of handlers, settings, cleanup, diagnostics,
+  or recovery algorithms, and documents the intended inward dependency flow
+  between routes, controllers, services, persistence, and Telegram UI.
+- Performed a post-extraction complexity review and split the remaining broad
+  runtime-settings keyboard and Codex configuration readers where the review
+  found independently testable responsibilities. No speculative framework or
+  new dependency was introduced.
+- Preserved commands, callback data, localized copy, configuration names and
+  defaults, queue semantics, recovery snapshots, worker sidecar protocol,
+  cleanup safety rules, and saved chat options across the refactor.
+
+### Verification
+
+- Passed syntax checks for 214 JavaScript files, validation for all three
+  locale files, ESLint with zero warnings, Prettier checks, 462 deterministic
+  tests, and the moderate-level npm audit with zero known vulnerabilities.
+- Verified the packaged file set with `npm pack --dry-run`, including the new
+  focused modules and corrected architecture document, and reviewed the final
+  change graph and complexity report for boundary and test-impact risks.
+- Merged the verified implementation into the local main branch, restarted the
+  bot from that commit, and confirmed both bot and worker services remain
+  active with successful process exit status.
+
 ## 1.2.9 - 2026-07-21
 
 ### Runtime architecture
