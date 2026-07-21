@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { createRuntimeKeyboardViews } from "../src/ui/keyboards.js";
 
 const runtimeSource = fs.readFileSync(new URL("../src/runtime.js", import.meta.url), "utf8");
 
@@ -36,24 +37,32 @@ function actionHandler(marker) {
   return extractBlock(runtimeSource.indexOf("async (ctx) =>", registration));
 }
 
-function evaluateRuntimeFunction(name, bindings = {}) {
-  const names = Object.keys(bindings);
-  const values = Object.values(bindings);
-  return Function(...names, `"use strict"; return (${runtimeFunction(name)});`)(...values);
-}
+const keyboardViews = createRuntimeKeyboardViews({
+  text: (key) => key === "close" ? "Close" : key,
+  hasActiveTurn: () => false,
+  sideTurnCount: () => 0,
+  currentLanguage: () => "en",
+  currentTimeZone: () => "UTC",
+  currentLocale: () => "en-US"
+});
 
 test("standalone model and reasoning commands start isolated cancellable flows", () => {
   assert.match(commandHandler("model"), /sendStandaloneModelSelection/);
   assert.match(commandHandler("reasoning"), /sendStandaloneReasoningSelection/);
 
-  const modelKeyboard = runtimeFunction("standaloneModelSelectionKeyboard");
-  const reasoningKeyboard = runtimeFunction("standaloneReasoningSelectionKeyboard");
-  assert.match(modelKeyboard, /m:\$\{session\.token\}:/);
-  assert.match(reasoningKeyboard, /r:\$\{session\.token\}:/);
-  assert.match(modelKeyboard, /withSelectionCancel/);
-  assert.match(reasoningKeyboard, /withSelectionCancel/);
-  assert.doesNotMatch(modelKeyboard, /p:settings|p:main|settingsSelectionKeyboard/);
-  assert.doesNotMatch(reasoningKeyboard, /p:settings|p:main|settingsSelectionKeyboard/);
+  const session = { token: "abc123" };
+  const modelButtons = keyboardViews
+    .standaloneModelSelectionKeyboard([{ slug: "model", displayName: "Model" }], session)
+    .reply_markup.inline_keyboard.flat();
+  const reasoningButtons = keyboardViews
+    .standaloneReasoningSelectionKeyboard([{ effort: "high" }], session)
+    .reply_markup.inline_keyboard.flat();
+  assert.ok(modelButtons.some(({ callback_data: callbackData }) => callbackData === "m:abc123:model"));
+  assert.ok(reasoningButtons.some(({ callback_data: callbackData }) => callbackData === "r:abc123:high"));
+  for (const buttons of [modelButtons, reasoningButtons]) {
+    assert.ok(buttons.some(({ callback_data: callbackData }) => callbackData === "x:abc123"));
+    assert.ok(buttons.every(({ callback_data: callbackData }) => !["p:settings", "p:main"].includes(callbackData)));
+  }
 });
 
 test("standalone callbacks edit one message and commit only after the final step", () => {
@@ -98,16 +107,14 @@ test("selection cancel and menu close use strict edits and remove every button",
   assert.match(menuHandler, /editSelectionMessageStrict/);
   assert.doesNotMatch(menuHandler, /rejectIfActive|replyHtml/);
 
-  const mainKeyboard = runtimeFunction("mainPanelKeyboard");
-  assert.match(mainKeyboard, /ui:close:menu/);
-  assert.match(mainKeyboard, /t\("close"\)/);
+  const mainButtons = keyboardViews.mainPanelKeyboard("chat").reply_markup.inline_keyboard.flat();
+  assert.ok(mainButtons.some(({ text, callback_data: callbackData }) => (
+    text === "Close" && callbackData === "ui:close:menu"
+  )));
 });
 
 test("menu close decoration is immutable, idempotent, unique, and last", () => {
-  const withMenuCloseButton = evaluateRuntimeFunction("withMenuCloseButton", {
-    inlineKeyboard: (rows) => ({ reply_markup: { inline_keyboard: rows } }),
-    t: (key) => key === "close" ? "Close" : key
-  });
+  const { withMenuCloseButton } = keyboardViews;
   const keyboard = {
     reply_markup: {
       inline_keyboard: [
@@ -133,19 +140,19 @@ test("menu close decoration is immutable, idempotent, unique, and last", () => {
 });
 
 test("stable menu stages are closable while standalone and processing flows are not", () => {
-  const stableKeyboardFunctions = [
-    "statusKeyboard",
-    "settingsKeyboard",
-    "settingsSelectionKeyboard",
-    "runtimeKeyboard",
-    "runtimeCodexKeyboard",
-    "queueKeyboard",
-    "withToolsBack",
-    "codexMaintenanceKeyboard",
-    "backToMainKeyboard"
-  ];
-  for (const name of stableKeyboardFunctions) {
+  for (const name of ["queueKeyboard", "withToolsBack", "codexMaintenanceKeyboard"]) {
     assert.match(runtimeFunction(name), /withMenuCloseButton/, `${name} must include menu close`);
+  }
+  for (const keyboard of [
+    keyboardViews.statusKeyboard("chat"),
+    keyboardViews.settingsKeyboard(),
+    keyboardViews.settingsSelectionKeyboard(keyboardViews.emptyInlineKeyboard(), "settings"),
+    keyboardViews.runtimeKeyboard(),
+    keyboardViews.runtimeCodexKeyboard(),
+    keyboardViews.backToMainKeyboard()
+  ]) {
+    const buttons = keyboard.reply_markup.inline_keyboard.flat();
+    assert.equal(buttons.filter(({ callback_data: callbackData }) => callbackData === "ui:close:menu").length, 1);
   }
 
   const sendPanelStart = runtimeSource.indexOf("async function sendPanel");
@@ -158,8 +165,12 @@ test("stable menu stages are closable while standalone and processing flows are 
   assert.match(usageHandler, /withMenuCloseButton\(inlineKeyboard/);
   assert.equal(usageHandler.match(/closable: false/g)?.length, 3);
 
+  const selectionButtons = keyboardViews
+    .withSelectionCancel(keyboardViews.emptyInlineKeyboard(), { token: "abc123" })
+    .reply_markup.inline_keyboard.flat();
+  assert.ok(selectionButtons.every(({ callback_data: callbackData }) => callbackData !== "ui:close:menu"));
+
   for (const name of [
-    "withSelectionCancel",
     "codexMaintenanceBusyKeyboard",
     "cleanupKeyboard",
     "editCleanupProcessingMessage",
@@ -198,8 +209,12 @@ test("settings model flow edits through reasoning and optional Fast with panel n
   assert.match(reasoningHandler, /editOrReplyHtml/);
   assert.doesNotMatch(reasoningHandler, /replyHtml/);
 
-  const navigation = runtimeFunction("settingsSelectionKeyboard");
-  assert.match(navigation, /p:settings/);
-  assert.match(navigation, /p:main/);
-  assert.match(navigation, /withPreviousPanelButton/);
+  const navigation = keyboardViews
+    .settingsSelectionKeyboard(keyboardViews.emptyInlineKeyboard(), "settings_model")
+    .reply_markup.inline_keyboard.flat();
+  assert.ok(navigation.some(({ callback_data: callbackData }) => callbackData === "p:settings"));
+  assert.ok(navigation.some(({ callback_data: callbackData }) => callbackData === "p:main"));
+  assert.ok(navigation.some(({ callback_data: callbackData, text }) => (
+    callbackData === "p:settings_model" && text.includes("←")
+  )));
 });
