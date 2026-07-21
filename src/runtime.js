@@ -2,7 +2,6 @@ import "dotenv/config";
 
 // Importing this module initializes state and starts the Telegram polling loop.
 
-import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
@@ -14,9 +13,7 @@ import { promisify } from "node:util";
 import { Telegraf } from "telegraf";
 import { bootstrapBot } from "./app/bootstrap.js";
 import {
-  appServerDirectArgs,
-  appServerThreadReadEvents,
-  readAppServerThread
+  appServerDirectArgs
 } from "./codex/app_server.js";
 import {
   findCodexModel,
@@ -24,12 +21,10 @@ import {
   reasoningOptionsForModel
 } from "./codex/models.js";
 import { createChatOptionsController } from "./codex/chat_options_controller.js";
-import { readCodexSessionBackfill } from "./codex/session_backfill.js";
+import { createCodexRuntimeExecutor } from "./codex/runtime_executor.js";
 import { isCodexSkillsView, replyCodexSkillsStatus } from "./codex/skills_status.js";
-import { applyCodexStreamEvent, codexStreamItems, codexStreamResult, createCodexStreamState } from "./codex/stream.js";
-import { createCodexStreamWatchdog, STREAM_IDLE_TIMEOUT_MESSAGE } from "./codex/watchdog.js";
 import { createTurnRuntimeController } from "./codex/turn_controller.js";
-import { analyzeContextPressure, resolveAutoCompactTokenLimit } from "./codex/compact.js";
+import { resolveAutoCompactTokenLimit } from "./codex/compact.js";
 import {
   CODEX_TRANSPORT_APP_SERVER_DIRECT,
   CODEX_TRANSPORT_SDK,
@@ -84,23 +79,14 @@ import {
   deleteUploadCandidates,
   shouldRunUploadCleanup
 } from "./uploads.js";
-import { appendRecoveryJournal, summarizeStreamEvent } from "./recovery/journal.js";
 import { createRuntimeRecoveryController } from "./recovery/runtime_controller.js";
+import { createTurnRecoveryJournal } from "./recovery/turn_journal.js";
+import { clearCompletedRecovery } from "./recovery/startup.js";
 import {
-  applyRecoveryThreadToChatState,
-  clearCompletedRecovery,
-  markRecoveryAttempt
-} from "./recovery/startup.js";
-import {
-  ensureRecoveryDir,
   readActiveTurnSnapshots,
   readRecoveryDedupe,
-  readRestartMarker,
-  replaceActiveTurnSnapshot,
-  removeActiveTurnSnapshot,
-  upsertActiveTurnSnapshot
+  readRestartMarker
 } from "./recovery/state.js";
-import { startRecoveryBackfillPoller } from "./recovery/backfill_poller.js";
 import {
   createRuntimeKeyboardViews,
   modelSelectionKeyboard,
@@ -123,21 +109,10 @@ import {
 } from "./ui/panels.js";
 import { createWorkerClient } from "./worker/client.js";
 import { createWorkerRuntimeController } from "./worker/runtime_controller.js";
-import {
-  markWorkerDeliveryFailed,
-  markWorkerDeliveryResultReady,
-  markWorkerDeliverySending,
-  markWorkerDeliverySent,
-  markWorkerDeliveryStreaming,
-  normalizeWorkerDeliveryEntry,
-  summarizeWorkerDeliveryStatus,
-  workerDeliveryKey
-} from "./worker/delivery.js";
+import { summarizeWorkerDeliveryStatus } from "./worker/delivery.js";
 
 const execFileAsync = promisify(execFile);
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const STREAM_BACKFILLED_MESSAGE = "stream_backfilled";
-
 const VALID = {
   approval: new Set(["never", "on-request", "on-failure", "untrusted"]),
   sandbox: new Set(["read-only", "workspace-write", "danger-full-access"]),
@@ -488,6 +463,120 @@ const {
     formatDateTime,
     formatCount: cleanupCount
   }
+});
+const {
+  appendRecoveryEvent,
+  digestText,
+  markActiveTurnStopped,
+  recordActiveTurnCompleted,
+  recordActiveTurnFailed,
+  recordActiveTurnStarted,
+  recordCodexStreamBackfill,
+  recordCodexStreamFinalResponseSeen,
+  recordCodexStreamFirstItem,
+  recordCodexStreamIteratorClosed,
+  recordCodexStreamStarted,
+  recordCodexStreamUnknownEvent,
+  recordStreamIdleNotice,
+  recordStreamIdleTimeout,
+  recordStreamItemEvent,
+  recordTelegramProgressFailed,
+  recordTelegramReplyCompleted,
+  recordTelegramReplyDigestMismatch,
+  recordTelegramReplyFailed,
+  recordTelegramReplyReady,
+  recordTelegramReplyStarted,
+  recordThreadStarted,
+  restoreRecoveryThreadForTurn,
+  safeRecoveryWrite
+} = createTurnRecoveryJournal({
+  settings: {
+    enabled: config.botRestartRecoveryEnabled,
+    recoveryDir: config.botRecoveryDir,
+    defaultWorkdir: config.codexWorkdir,
+    defaultModel: config.codexModel
+  },
+  state,
+  activeTurns,
+  threadCache,
+  chats: {
+    get: getChatState
+  },
+  options: {
+    get: getEffectiveOptions
+  },
+  persistence: {
+    save: () => saveState(config.stateFile, state)
+  },
+  telegram: {
+    replyHtml
+  },
+  formatting: {
+    truncate
+  },
+  text: t
+});
+const {
+  maybeNotifyContextPressure,
+  refreshUsageSample,
+  runCodexTurn,
+  tryBackfillCompletedStream
+} = createCodexRuntimeExecutor({
+  settings: {
+    recoveryEnabled: config.botRestartRecoveryEnabled,
+    runtimeValue,
+    codexPath: config.codexPath,
+    codexEnv: config.codexEnv,
+    sessionsDir: config.codexSessionsDir,
+    contextGuardEnabled: config.codexContextGuardEnabled,
+    contextCompactThresholdPercent: config.codexContextCompactThresholdPercent,
+    contextMinRemainingTokens: config.codexContextMinRemainingTokens,
+    config
+  },
+  chats: {
+    get: getChatState,
+    save: () => saveState(config.stateFile, state)
+  },
+  options: {
+    build: buildTurnOptions,
+    get: getEffectiveOptions
+  },
+  threads: {
+    start: (...args) => startCodexThread(...args),
+    transport: (...args) => threadTransport(...args),
+    currentTransport: codexTransport
+  },
+  recovery: {
+    appendEvent: (...args) => appendRecoveryEvent(...args),
+    recordActiveTurnFailed: (...args) => recordActiveTurnFailed(...args),
+    recordBackfill: (...args) => recordCodexStreamBackfill(...args),
+    recordFinalResponse: (...args) => recordCodexStreamFinalResponseSeen(...args),
+    recordFirstItem: (...args) => recordCodexStreamFirstItem(...args),
+    recordIdleNotice: (...args) => recordStreamIdleNotice(...args),
+    recordIdleTimeout: (...args) => recordStreamIdleTimeout(...args),
+    recordIteratorClosed: (...args) => recordCodexStreamIteratorClosed(...args),
+    recordStreamItem: (...args) => recordStreamItemEvent(...args),
+    recordStreamStarted: (...args) => recordCodexStreamStarted(...args),
+    recordThreadStarted: (...args) => recordThreadStarted(...args),
+    recordUnknownEvent: (...args) => recordCodexStreamUnknownEvent(...args)
+  },
+  progress: {
+    editMessage: editMessageQuietly,
+    maybeSend: maybeSendLiveProgress,
+    summarize: summarizeProgress
+  },
+  usage: {
+    readLatestTokenCount: (...args) => readLatestTokenCount(...args)
+  },
+  telegram: {
+    replyHtml
+  },
+  formatting: {
+    keyValue: formatKeyValueHtml,
+    truncate
+  },
+  text: t,
+  sleep
 });
 let workerClient = null;
 const {
@@ -1580,641 +1669,6 @@ await bootstrapBot({
   startRecoveryScheduler,
   handleSignal: handleProcessSignal
 });
-
-async function runCodexTurn(ctx, chatKey, thread, input, signal, workingMessageId, liveProgress = null, options = {}) {
-  const linkedAbort = createLinkedAbortController(signal);
-  const turnOptions = buildTurnOptions(chatKey, linkedAbort.controller.signal);
-  if (!getEffectiveOptions(chatKey).streamEvents) {
-    try {
-      return await thread.run(input, turnOptions);
-    } finally {
-      linkedAbort.cleanup();
-    }
-  }
-
-  const streamStartedAt = Date.now();
-  await recordCodexStreamStarted(chatKey, options.turnKind || "user");
-  const { events } = await thread.runStreamed(input, turnOptions);
-  const streamState = createCodexStreamState();
-  let lastProgressAt = 0;
-  let firstItemSeen = false;
-  let streamOutcome = "completed";
-  const progressState = liveProgress;
-  const isRecoveryTurn = options.turnKind === "recovery";
-  let backfillPollRecovered = false;
-  const watchdog = createCodexStreamWatchdog({
-    noticeMs: runtimeValue("codexStreamIdleNoticeMs"),
-    abortMs: runtimeValue("codexStreamIdleAbortMs"),
-    onNotice: ({ idleMs }) => recordStreamIdleNotice(ctx, chatKey, idleMs, isRecoveryTurn),
-    onTimeout: ({ idleMs }) => recordStreamIdleTimeout(chatKey, idleMs),
-    abort: (error) => linkedAbort.controller.abort(error)
-  });
-  const backfillPoller = isRecoveryTurn
-    ? startCodexStreamBackfillPoller(chatKey, thread, streamState, {
-      sinceMs: streamStartedAt,
-      intervalMs: runtimeValue("botRecoveryBackfillPollMs"),
-      onRecovered: () => {
-        backfillPollRecovered = true;
-        streamOutcome = "backfilled_after_poll";
-        linkedAbort.controller.abort(new Error(STREAM_BACKFILLED_MESSAGE));
-      }
-    })
-    : null;
-  watchdog.start();
-
-  try {
-    for await (const event of events) {
-      watchdog.touch();
-      const update = applyCodexStreamEvent(streamState, event);
-      if (update.type === "thread_started") {
-        if (options.rememberThreadId !== false) {
-          const chat = getChatState(chatKey);
-          chat.threadId = update.threadId;
-          await saveState(config.stateFile, state);
-          await recordThreadStarted(chatKey, update.threadId);
-        }
-      } else if (update.type === "item") {
-        await recordStreamItemEvent(chatKey, event, update);
-        if (!firstItemSeen) {
-          firstItemSeen = true;
-          await recordCodexStreamFirstItem(chatKey, event, update, Date.now() - streamStartedAt);
-        }
-        if (update.finalResponseChanged) {
-          await recordCodexStreamFinalResponseSeen(chatKey, streamState.finalResponse.length, Date.now() - streamStartedAt);
-        }
-        const now = Date.now();
-        if (workingMessageId && now - lastProgressAt > runtimeValue("progressEditIntervalMs")) {
-          lastProgressAt = now;
-          await editMessageQuietly(ctx, workingMessageId, summarizeProgress(codexStreamItems(streamState)));
-        }
-      } else if (update.type === "error") {
-        streamOutcome = "error";
-        await recordActiveTurnFailed(chatKey, update.message);
-        throw new Error(update.message);
-      } else if (update.type === "turn_completed") {
-        await appendRecoveryEvent({ type: "turn_completed", chatKey });
-      } else if (update.type === "unknown") {
-        await recordCodexStreamUnknownEvent(chatKey, event, Date.now() - streamStartedAt);
-      }
-      await maybeSendLiveProgress(ctx, progressState, event, codexStreamItems(streamState));
-    }
-
-    return codexStreamResult(streamState);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (backfillPollRecovered || message === STREAM_BACKFILLED_MESSAGE) {
-      streamOutcome = "backfilled_after_poll";
-      return codexStreamResult(streamState);
-    }
-    streamOutcome = watchdog.timeoutTriggered ? STREAM_IDLE_TIMEOUT_MESSAGE : "error";
-    if (watchdog.timeoutTriggered) {
-      if (await tryBackfillCompletedStream(chatKey, thread, streamState, {
-        sinceMs: streamStartedAt,
-        reason: "stream_idle_timeout"
-      })) {
-        streamOutcome = "backfilled_after_idle_timeout";
-        return codexStreamResult(streamState);
-      }
-      throw new Error(STREAM_IDLE_TIMEOUT_MESSAGE);
-    }
-    throw error;
-  } finally {
-    backfillPoller?.stop();
-    watchdog.stop();
-    linkedAbort.cleanup();
-    await recordCodexStreamIteratorClosed(chatKey, {
-      elapsedMs: Date.now() - streamStartedAt,
-      outcome: streamOutcome,
-      itemCount: codexStreamItems(streamState).length,
-      finalResponseLength: streamState.finalResponse.length
-    });
-  }
-}
-
-function startCodexStreamBackfillPoller(chatKey, thread, streamState, { sinceMs = 0, intervalMs = 0, onRecovered = () => {} } = {}) {
-  if (!config.botRestartRecoveryEnabled) return null;
-  if (!Number.isFinite(Number(intervalMs)) || Number(intervalMs) <= 0) return null;
-  return startRecoveryBackfillPoller({
-    intervalMs,
-    check: async () => {
-      const backfillState = createCodexStreamState();
-      const recovered = await tryBackfillCompletedStream(chatKey, thread, backfillState, {
-        sinceMs,
-        reason: "recovery_backfill_poll",
-        recordMiss: false
-      });
-      if (recovered) copyCodexStreamState(streamState, backfillState);
-      return recovered;
-    },
-    onRecovered,
-    onError: (error, { reason } = {}) => appendRecoveryEvent({
-      type: "recovery_backfill_poll_error",
-      chatKey,
-      threadId: thread?.id || getChatState(chatKey).threadId || "",
-      reason: reason || "interval",
-      message: truncate(error instanceof Error ? error.message : String(error), 500)
-    })
-  });
-}
-
-function copyCodexStreamState(target, source) {
-  target.items = source.items;
-  target.appServerAgentMessageTextById = source.appServerAgentMessageTextById;
-  target.nextSyntheticItemId = source.nextSyntheticItemId;
-  target.finalResponse = source.finalResponse;
-  target.usage = source.usage;
-}
-
-async function tryBackfillCompletedStream(chatKey, thread, streamState, { sinceMs = 0, reason = "manual", recordMiss = true } = {}) {
-  const threadId = thread?.id || getChatState(chatKey).threadId || "";
-  if (!threadId) return false;
-  let events = [];
-  try {
-    events = await readBackfillEventsForThread(thread, threadId, { sinceMs, reason });
-  } catch (error) {
-    await recordCodexStreamBackfill(chatKey, {
-      threadId,
-      reason,
-      recovered: false,
-      eventCount: 0,
-      finalResponseLength: streamState.finalResponse.length,
-      source: threadTransport(thread),
-      status: error instanceof Error ? error.message : String(error)
-    });
-    return false;
-  }
-  if (events.length === 0) return false;
-
-  let completed = false;
-  let failed = false;
-  for (const event of events) {
-    const update = applyCodexStreamEvent(streamState, event);
-    if (update.type === "turn_completed") completed = true;
-    if (update.type === "error") failed = true;
-  }
-  const recovered = completed && !failed && Boolean(streamState.finalResponse);
-  if (recovered || recordMiss) {
-    await recordCodexStreamBackfill(chatKey, {
-      threadId,
-      reason,
-      recovered,
-      eventCount: events.length,
-      finalResponseLength: streamState.finalResponse.length,
-      source: threadTransport(thread)
-    });
-  }
-  if (recovered) await appendRecoveryEvent({ type: "turn_completed", chatKey, threadId, source: "backfill" });
-  return recovered;
-}
-
-async function readBackfillEventsForThread(thread, threadId, { sinceMs = 0 } = {}) {
-  if (threadTransport(thread) === CODEX_TRANSPORT_APP_SERVER_DIRECT || codexTransport() === CODEX_TRANSPORT_APP_SERVER_DIRECT) {
-    const response = await readAppServerThread({
-      threadId,
-      codexPath: config.codexPath,
-      codexEnv: config.codexEnv,
-      connectTimeoutMs: runtimeValue("codexAppServerDirectTimeoutMs"),
-      includeTurns: true
-    });
-    return appServerThreadReadEvents(response, { threadId });
-  }
-  const backfill = await readCodexSessionBackfill({
-    sessionsDir: config.codexSessionsDir,
-    threadId,
-    sinceMs
-  });
-  return backfill.events;
-}
-
-function createLinkedAbortController(parentSignal) {
-  const controller = new AbortController();
-  if (!parentSignal) return { controller, cleanup: () => {} };
-  if (parentSignal.aborted) {
-    controller.abort(parentSignal.reason);
-    return { controller, cleanup: () => {} };
-  }
-  const abort = () => controller.abort(parentSignal.reason);
-  parentSignal.addEventListener("abort", abort, { once: true });
-  return {
-    controller,
-    cleanup: () => parentSignal.removeEventListener("abort", abort)
-  };
-}
-
-async function refreshUsageSample(chatKey, signal) {
-  const thread = startCodexThread(chatKey);
-  await thread.run("Reply exactly: OK.", { signal });
-  if (!thread.id) throw new Error("Usage refresh did not create a Codex thread id.");
-
-  const sample = await waitForLatestTokenCount(thread.id);
-  if (!sample) throw new Error("Codex usage sample was not written for the refresh turn.");
-
-  const chat = getChatState(chatKey);
-  chat.usageProbeThreadId = thread.id;
-  chat.updatedAt = new Date().toISOString();
-  await saveState(config.stateFile, state);
-  return sample;
-}
-
-async function waitForLatestTokenCount(threadId) {
-  const deadline = Date.now() + 8000;
-  while (Date.now() < deadline) {
-    const sample = await readLatestTokenCount(threadId);
-    if (sample) return sample;
-    await sleep(250);
-  }
-  return null;
-}
-
-async function maybeNotifyContextPressure(ctx, chatKey, thread) {
-  if (!config.codexContextGuardEnabled) return;
-  const threadId = thread?.id || getChatState(chatKey).threadId;
-  if (!threadId) return;
-  const sample = await readLatestTokenCount(threadId);
-  const pressure = analyzeContextPressure(sample?.tokenCount);
-  if (!pressure) return;
-
-  const threshold = config.codexContextCompactThresholdPercent;
-  const overPercent = threshold > 0 && pressure.percent >= threshold;
-  const lowRemaining = config.codexContextMinRemainingTokens > 0
-    && pressure.remainingTokens <= config.codexContextMinRemainingTokens;
-  if (!overPercent && !lowRemaining) return;
-
-  const autoLimit = resolveAutoCompactTokenLimit(config);
-  await replyHtml(ctx, formatKeyValueHtml(t("contextCompactContinueTitle"), [
-    [t("contextUsage"), `${Math.round(pressure.percent)}% (${pressure.inputTokens}/${pressure.modelContextWindow})`],
-    [t("contextRemaining"), pressure.remainingTokens],
-    [t("contextAutoCompact"), autoLimit > 0 ? autoLimit : t("contextAutoCompactDefault")],
-    [t("contextAction"), t("contextCompactContinueAction")]
-  ]));
-}
-
-async function recordActiveTurnStarted(chatKey, turn) {
-  if (!config.botRestartRecoveryEnabled) return;
-  const snapshot = {
-    chatKey,
-    chatId: turn.chatId ?? chatKey,
-    messageThreadId: turn.messageThreadId,
-    replyToMessageId: turn.replyToMessageId,
-    originMessageId: turn.originMessageId,
-    originUpdateId: turn.originUpdateId,
-    queueItemId: turn.id || "",
-    threadId: getChatState(chatKey).threadId || "",
-    inputTextDigest: digestText(turn.inputText || turn.text || ""),
-    inputPreview: truncate(String(turn.text || turn.inputText || "").replace(/\s+/g, " "), 240),
-    workingDirectory: getEffectiveOptions(chatKey).workingDirectory || config.codexWorkdir,
-    model: getEffectiveOptions(chatKey).model || config.codexModel || "",
-    serviceTier: getEffectiveOptions(chatKey).serviceTier || "default",
-    startedAt: new Date().toISOString(),
-    lastEventAt: new Date().toISOString(),
-    lastKnownStatus: "running",
-    recoveryEligible: turn.kind !== "recovery",
-    recoveryReason: turn.kind === "recovery" ? "recovery_turn" : ""
-  };
-  await safeRecoveryWrite(async () => {
-    await replaceActiveTurnSnapshot(config.botRecoveryDir, chatKey, snapshot);
-    await appendRecoveryEvent({ type: "turn_started", chatKey, queueItemId: turn.id || "", recoveryEligible: snapshot.recoveryEligible });
-  });
-}
-
-async function recordThreadStarted(chatKey, threadId) {
-  if (!config.botRestartRecoveryEnabled) return;
-  await safeRecoveryWrite(async () => {
-    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
-      threadId,
-      lastEventAt: new Date().toISOString(),
-      lastKnownStatus: "thread_started"
-    });
-    await appendRecoveryEvent({ type: "thread_started", chatKey, threadId });
-  });
-}
-
-async function recordStreamItemEvent(chatKey, event, update = {}) {
-  if (!config.botRestartRecoveryEnabled) return;
-  const summary = summarizeStreamEvent(event);
-  const completed = update.eventType === "item.completed" || event.type === "item.completed";
-  await safeRecoveryWrite(async () => {
-    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
-      lastEventAt: new Date().toISOString(),
-      lastCompletedItemType: completed ? summary.itemType : undefined,
-      lastCompletedItemId: completed ? summary.itemId : undefined,
-      lastKnownStatus: summary.eventType || event.type || "unknown"
-    });
-    await appendRecoveryEvent({ type: "stream_item", chatKey, ...summary });
-  });
-}
-
-async function recordCodexStreamStarted(chatKey, turnKind) {
-  if (!config.botRestartRecoveryEnabled) return;
-  await safeRecoveryWrite(async () => {
-    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
-      lastEventAt: new Date().toISOString(),
-      lastKnownStatus: "codex_stream_started",
-      streamTurnKind: turnKind || ""
-    });
-    await appendRecoveryEvent({ type: "codex_stream_started", chatKey, turnKind: turnKind || "" });
-  });
-}
-
-async function recordCodexStreamFirstItem(chatKey, event, update, elapsedMs) {
-  if (!config.botRestartRecoveryEnabled) return;
-  const summary = summarizeStreamEvent(event);
-  await safeRecoveryWrite(async () => {
-    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
-      lastEventAt: new Date().toISOString(),
-      lastKnownStatus: "codex_stream_first_item",
-      firstItemType: update.item?.type || summary.itemType || "",
-      firstItemEventType: update.eventType || summary.eventType || event.type || ""
-    });
-    await appendRecoveryEvent({ type: "codex_stream_first_item", chatKey, elapsedMs, ...summary });
-  });
-}
-
-async function recordCodexStreamFinalResponseSeen(chatKey, length, elapsedMs) {
-  if (!config.botRestartRecoveryEnabled) return;
-  await safeRecoveryWrite(async () => {
-    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
-      lastEventAt: new Date().toISOString(),
-      lastKnownStatus: "codex_stream_final_response_seen",
-      finalResponseLength: length,
-      finalResponseSeenAt: new Date().toISOString()
-    });
-    await appendRecoveryEvent({ type: "codex_stream_final_response_seen", chatKey, elapsedMs, length });
-  });
-}
-
-async function recordCodexStreamIteratorClosed(chatKey, metadata) {
-  if (!config.botRestartRecoveryEnabled) return;
-  await safeRecoveryWrite(async () => {
-    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
-      lastEventAt: new Date().toISOString(),
-      lastKnownStatus: "codex_stream_iterator_closed",
-      streamOutcome: metadata.outcome || ""
-    });
-    await appendRecoveryEvent({ type: "codex_stream_iterator_closed", chatKey, ...metadata });
-  });
-}
-
-async function recordCodexStreamUnknownEvent(chatKey, event, elapsedMs) {
-  if (!config.botRestartRecoveryEnabled) return;
-  await safeRecoveryWrite(async () => {
-    await appendRecoveryEvent({ type: "codex_stream_unknown_event", chatKey, elapsedMs, ...summarizeStreamEvent(event) });
-  });
-}
-
-async function recordCodexStreamBackfill(chatKey, metadata) {
-  if (!config.botRestartRecoveryEnabled) return;
-  await safeRecoveryWrite(async () => {
-    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
-      lastEventAt: new Date().toISOString(),
-      lastKnownStatus: metadata.recovered ? "codex_stream_backfilled" : "codex_stream_backfill_missed",
-      backfillSource: metadata.source || "",
-      backfillEventCount: metadata.eventCount ?? 0,
-      backfillFinalResponseLength: metadata.finalResponseLength ?? 0
-    });
-    await appendRecoveryEvent({
-      type: metadata.recovered ? "codex_stream_backfilled" : "codex_stream_backfill_missed",
-      chatKey,
-      ...metadata,
-      status: truncate(metadata.status || "", 500)
-    });
-  });
-}
-
-async function recordStreamIdleNotice(ctx, chatKey, idleMs, isRecoveryTurn) {
-  if (!config.botRestartRecoveryEnabled) return;
-  await safeRecoveryWrite(async () => {
-    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
-      lastEventAt: new Date().toISOString(),
-      lastKnownStatus: "stream_idle_notice",
-      streamIdleMs: idleMs
-    });
-    await appendRecoveryEvent({ type: "stream_idle_notice", chatKey, idleMs, recovery: isRecoveryTurn });
-  });
-  if (isRecoveryTurn) {
-    await replyHtml(ctx, `${b(t("recoveryIdleTitle"))}\n${t("recoveryIdleDetail")}`).catch(() => {});
-  }
-}
-
-async function recordStreamIdleTimeout(chatKey, idleMs) {
-  if (!config.botRestartRecoveryEnabled) return;
-  await safeRecoveryWrite(async () => {
-    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
-      lastEventAt: new Date().toISOString(),
-      lastKnownStatus: STREAM_IDLE_TIMEOUT_MESSAGE,
-      recoveryEligible: false,
-      recoveryReason: STREAM_IDLE_TIMEOUT_MESSAGE,
-      streamIdleMs: idleMs
-    });
-    await appendRecoveryEvent({ type: STREAM_IDLE_TIMEOUT_MESSAGE, chatKey, idleMs });
-  });
-}
-
-async function recordTelegramReplyReady(chatKey, execution, text) {
-  const metadata = telegramReplyMetadata(text);
-  await transitionWorkerDelivery(chatKey, execution, (entry) => (
-    markWorkerDeliveryResultReady(entry, {
-      seq: execution.workerLastSeq ?? entry.seq,
-      responseDigest: metadata.digest,
-      responseLength: metadata.length
-    })
-  ));
-  if (!config.botRestartRecoveryEnabled) return;
-  await safeRecoveryWrite(async () => {
-    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
-      lastEventAt: new Date().toISOString(),
-      lastKnownStatus: "telegram_reply_ready",
-      recoveryEligible: true,
-      finalResponseDigest: metadata.digest,
-      finalResponseLength: metadata.length
-    });
-    await appendRecoveryEvent({ type: "telegram_reply_ready", chatKey, jobId: execution.workerJobId || "", ...metadata });
-  });
-}
-
-async function recordTelegramReplyStarted(chatKey, execution, text) {
-  const metadata = telegramReplyMetadata(text);
-  await transitionWorkerDelivery(chatKey, execution, (entry) => markWorkerDeliverySending(entry));
-  if (!config.botRestartRecoveryEnabled) return;
-  await safeRecoveryWrite(async () => {
-    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
-      lastEventAt: new Date().toISOString(),
-      lastKnownStatus: "telegram_delivery_sending",
-      recoveryEligible: true,
-      finalResponseDigest: metadata.digest,
-      finalResponseLength: metadata.length
-    });
-    await appendRecoveryEvent({ type: "telegram_reply_started", chatKey, jobId: execution.workerJobId || "", ...metadata });
-  });
-}
-
-async function recordTelegramProgressFailed(progressState, event, errorSummary) {
-  if (!config.botRestartRecoveryEnabled) return;
-  await appendRecoveryEvent({
-    type: "telegram_progress_failed",
-    chatKey: progressState?.chatKey || "",
-    jobId: progressState?.active?.workerJobId || "",
-    workerEventSeq: Number(event?.seq || progressState?.active?.workerEventSeq || 0),
-    kind: errorSummary?.kind || "unknown",
-    code: errorSummary?.code ?? null,
-    errno: errorSummary?.errno ?? null
-  });
-}
-
-async function recordTelegramReplyCompleted(chatKey, execution, text) {
-  const metadata = telegramReplyMetadata(text);
-  await transitionWorkerDelivery(chatKey, execution, (entry) => markWorkerDeliverySent(entry));
-  if (!config.botRestartRecoveryEnabled) return;
-  await safeRecoveryWrite(async () => {
-    await appendRecoveryEvent({ type: "telegram_reply_completed", chatKey, jobId: execution.workerJobId || "", ...metadata });
-  });
-}
-
-async function recordTelegramReplyFailed(chatKey, execution, error, { ambiguous = true } = {}) {
-  const errorSummary = { ...summarizeTelegramError(error), ambiguous };
-  await transitionWorkerDelivery(chatKey, execution, (entry) => markWorkerDeliveryFailed(entry, errorSummary));
-  if (!config.botRestartRecoveryEnabled) return;
-  await safeRecoveryWrite(async () => {
-    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
-      lastEventAt: new Date().toISOString(),
-      lastKnownStatus: "telegram_delivery_failed",
-      recoveryEligible: true,
-      recoveryReason: "telegram_delivery_failed"
-    });
-    await appendRecoveryEvent({
-      type: "telegram_reply_failed",
-      chatKey,
-      jobId: execution.workerJobId || "",
-      error: errorSummary
-    });
-  });
-}
-
-async function recordTelegramReplyDigestMismatch(chatKey, execution, expectedDigest, actualDigest) {
-  await transitionWorkerDelivery(chatKey, execution, (entry) => markWorkerDeliveryFailed(entry, {
-    kind: "integrity",
-    code: "RESPONSE_DIGEST_MISMATCH",
-    description: "Reconstructed response digest did not match the persisted result.",
-    ambiguous: false
-  }));
-  if (!config.botRestartRecoveryEnabled) return;
-  await safeRecoveryWrite(async () => {
-    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
-      lastEventAt: new Date().toISOString(),
-      lastKnownStatus: "telegram_delivery_digest_mismatch",
-      recoveryEligible: true,
-      recoveryReason: "telegram_delivery_digest_mismatch"
-    });
-    await appendRecoveryEvent({
-      type: "telegram_reply_digest_mismatch",
-      chatKey,
-      jobId: execution.workerJobId || "",
-      expectedDigest,
-      actualDigest
-    });
-  });
-}
-
-async function transitionWorkerDelivery(chatKey, execution, transition) {
-  if (execution?.executionMode !== "sidecar" || !execution.workerJobId) return null;
-  if (!state.worker || typeof state.worker !== "object") state.worker = { deliveries: {} };
-  if (!state.worker.deliveries || typeof state.worker.deliveries !== "object") state.worker.deliveries = {};
-  const key = workerDeliveryKey(chatKey, execution.workerJobId);
-  const normalized = normalizeWorkerDeliveryEntry(key, state.worker.deliveries[key]);
-  const current = normalized ?? markWorkerDeliveryStreaming(null, {
-    chatKey,
-    jobId: execution.workerJobId,
-    seq: 0
-  });
-  const next = transition(current);
-  state.worker.deliveries[key] = next;
-  await saveState(config.stateFile, state);
-  return next;
-}
-
-function telegramReplyMetadata(text) {
-  return {
-    digest: digestText(text),
-    length: String(text || "").length
-  };
-}
-
-async function restoreRecoveryThreadForTurn(chatKey, turn) {
-  const recoveryThreadId = String(turn?.recovery?.threadId || "").trim();
-  if (!recoveryThreadId) return;
-  const chat = getChatState(chatKey);
-  const changed = applyRecoveryThreadToChatState(chat, turn);
-  const cached = threadCache.get(chatKey);
-  if (cached && cached.id !== recoveryThreadId) threadCache.delete(chatKey);
-  if (!changed) return;
-  await saveState(config.stateFile, state);
-  await appendRecoveryEvent({
-    type: "recovery_thread_restored",
-    chatKey,
-    threadId: recoveryThreadId,
-    recoveryKey: turn.recovery?.recoveryKey || ""
-  });
-}
-
-async function recordActiveTurnCompleted(chatKey, threadId) {
-  if (!config.botRestartRecoveryEnabled) return;
-  await safeRecoveryWrite(async () => {
-    await appendRecoveryEvent({ type: "turn_completed", chatKey, threadId });
-    await removeActiveTurnSnapshot(config.botRecoveryDir, chatKey);
-    const active = activeTurns.get(chatKey);
-    if (active?.currentPreparedTurn?.kind === "recovery") {
-      await markRecoveryAttempt(config.botRecoveryDir, active.currentPreparedTurn.recovery || { chatKey, threadId }, { status: "completed" });
-      await clearCompletedRecovery(config.botRecoveryDir);
-    }
-  });
-}
-
-async function recordActiveTurnFailed(chatKey, message) {
-  if (!config.botRestartRecoveryEnabled) return;
-  await safeRecoveryWrite(async () => {
-    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
-      lastEventAt: new Date().toISOString(),
-      lastKnownStatus: "failed",
-      recoveryEligible: false,
-      recoveryReason: message
-    });
-    await appendRecoveryEvent({ type: "turn_failed", chatKey, message: truncate(message, 500) });
-    const active = activeTurns.get(chatKey);
-    if (active?.currentPreparedTurn?.kind === "recovery") {
-      await markRecoveryAttempt(config.botRecoveryDir, active.currentPreparedTurn.recovery || { chatKey }, { status: "failed" });
-    }
-  });
-}
-
-async function markActiveTurnStopped(chatKey) {
-  if (!config.botRestartRecoveryEnabled) return;
-  await safeRecoveryWrite(async () => {
-    await upsertActiveTurnSnapshot(config.botRecoveryDir, chatKey, {
-      lastEventAt: new Date().toISOString(),
-      lastKnownStatus: "stopped",
-      recoveryEligible: false,
-      recoveryReason: "user_stop"
-    });
-    await appendRecoveryEvent({ type: "turn_stopped", chatKey });
-  });
-}
-
-async function appendRecoveryEvent(event) {
-  await appendRecoveryJournal(config.botRecoveryDir, event);
-}
-
-async function safeRecoveryWrite(fn) {
-  try {
-    await ensureRecoveryDir(config.botRecoveryDir);
-    await fn();
-  } catch (error) {
-    console.warn("recovery journal write failed:", error instanceof Error ? error.message : String(error));
-  }
-}
-
-function digestText(text) {
-  return `sha256:${createHash("sha256").update(String(text)).digest("hex")}`;
-}
 
 function codexTransport() {
   return runtimeValue("codexTransport");
