@@ -17,3 +17,7 @@ export function truncate(value, max) {
 export function safeFilename(value) {
   return String(value).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "unknown";
 }
+
+export function unique(values) {
+  return [...new Set(values)];
+}

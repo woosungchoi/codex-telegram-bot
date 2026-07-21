@@ -1,7 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { collapseExcessBlankLines, formatOptional, safeFilename, trimTrailingSpaces, truncate } from "../src/utils/text.js";
-import { timestampForFilename } from "../src/utils/time.js";
+import {
+  collapseExcessBlankLines,
+  formatOptional,
+  safeFilename,
+  trimTrailingSpaces,
+  truncate,
+  unique
+} from "../src/utils/text.js";
+import { formatDurationSeconds, timestampForFilename } from "../src/utils/time.js";
 
 test("text cleanup helpers normalize whitespace", () => {
   assert.equal(trimTrailingSpaces("a  \n b\t"), "a\n b");
@@ -20,4 +27,9 @@ test("filename helpers produce filesystem-safe values", () => {
   assert.equal(timestampForFilename("2026-06-03T01:02:03.004Z"), "2026-06-03T01-02-03-004Z");
   assert.equal(safeFilename("bad/name:with spaces"), "bad_name_with_spaces");
   assert.equal(safeFilename(""), "unknown");
+});
+
+test("collection and duration helpers keep runtime display behavior", () => {
+  assert.deepEqual(unique(["a", "b", "a"]), ["a", "b"]);
+  assert.equal(formatDurationSeconds(90061), "1d 1h 1m 1s");
 });
