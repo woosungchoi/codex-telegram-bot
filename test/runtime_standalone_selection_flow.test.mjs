@@ -1,14 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import { findCodexModel, reasoningOptionsForModel } from "../src/codex/models.js";
 import {
-  applyModelSelectionDraft,
-  applyReasoningSelection,
-  createSelectionFlowStore
-} from "../src/ui/model_selection_flow.js";
+  createAtomicChatOptionsReplacer,
+  createModelSelectionController
+} from "../src/ui/model_selection_controller.js";
+import { createSelectionFlowStore } from "../src/ui/model_selection_flow.js";
 
-const runtimeSource = fs.readFileSync(new URL("../src/runtime.js", import.meta.url), "utf8");
 const MODELS = [
   {
     slug: "gpt-fast",
@@ -23,64 +20,6 @@ const MODELS = [
     supportedReasoning: [{ effort: "high", description: "" }]
   }
 ];
-
-function extractBlock(start) {
-  assert.notEqual(start, -1, "runtime block must exist");
-  const open = runtimeSource.indexOf("{", start);
-  let depth = 0;
-  for (let index = open; index < runtimeSource.length; index += 1) {
-    if (runtimeSource[index] === "{") depth += 1;
-    if (runtimeSource[index] === "}") depth -= 1;
-    if (depth === 0) return runtimeSource.slice(start, index + 1);
-  }
-  throw new Error("runtime block closing brace must exist");
-}
-
-function runtimeFunction(name) {
-  const marker = `function ${name}(`;
-  const start = runtimeSource.indexOf(marker);
-  assert.notEqual(start, -1, `${name} must exist in runtime.js`);
-  const asyncStart = runtimeSource.lastIndexOf("async ", start);
-  return extractBlock(asyncStart === start - 6 ? asyncStart : start);
-}
-
-const declarations = [
-  runtimeFunction("handleStandaloneModelSelection"),
-  runtimeFunction("handleStandaloneReasoningSelection"),
-  runtimeFunction("handleStandaloneFastSelection"),
-  runtimeFunction("handleStandaloneSelectionCancel"),
-  runtimeFunction("handleMenuClose"),
-  runtimeFunction("standaloneSelectionSession"),
-  runtimeFunction("answerSelectionExpiredCallback"),
-  runtimeFunction("rejectStandaloneSelectionIfActive"),
-  runtimeFunction("commitStandaloneModelSelection"),
-  runtimeFunction("commitStandaloneReasoningSelection"),
-  runtimeFunction("replaceChatOptionsAtomically")
-].join("\n");
-
-const moduleSource = `
-export function createRuntimeBindings(context) {
-  const {
-    selectionFlows, activeTurns, getChatKey, listCodexModels, editSelectionMessageStrict,
-    answerUiCallback, answerSelectionText, b, code, t, formatModelSelectionHtml,
-    formatStandaloneReasoningPromptHtml, formatStandaloneFastPromptHtml,
-    formatStandaloneSelectionResultHtml, standaloneModelSelectionKeyboard,
-    standaloneReasoningSelectionKeyboard, standaloneFastSelectionKeyboard,
-    emptyInlineKeyboard, reasoningOptionsForModel, standaloneReasoningChoiceSupported,
-    findCodexModel, config, getChatState, applyModelSelectionDraft,
-    applyReasoningSelection, saveState, state, threadCache
-  } = context;
-  ${declarations}
-  return {
-    model: handleStandaloneModelSelection,
-    reasoning: handleStandaloneReasoningSelection,
-    fast: handleStandaloneFastSelection,
-    cancel: handleStandaloneSelectionCancel,
-    closeMenu: handleMenuClose
-  };
-}`;
-const moduleUrl = `data:text/javascript;base64,${Buffer.from(moduleSource).toString("base64")}`;
-const { createRuntimeBindings } = await import(moduleUrl);
 
 function createHarness(initialOptions = {}, options = {}) {
   let tokenNumber = 0;
@@ -100,49 +39,68 @@ function createHarness(initialOptions = {}, options = {}) {
   let editSucceeds = true;
   let saveFails = options.saveFails === true;
   const activeTurns = new Map();
-  const context = {
-    selectionFlows,
-    activeTurns,
-    getChatKey: () => "chat",
-    listCodexModels: async () => MODELS,
-    editSelectionMessageStrict: async (_ctx, html, extra) => {
-      edits.push({ html, extra });
-      return editSucceeds;
-    },
-    answerUiCallback: async (ctx, edited) => {
-      await ctx.answerCbQuery(edited ? undefined : "selectionUpdateFailed", edited ? undefined : { show_alert: true });
-    },
-    answerSelectionText: async () => {},
-    b: String,
-    code: String,
-    t: (key) => key,
-    formatModelSelectionHtml: () => "model prompt",
-    formatStandaloneReasoningPromptHtml: () => "reasoning prompt",
-    formatStandaloneFastPromptHtml: () => "fast prompt",
-    formatStandaloneSelectionResultHtml: () => "selection result",
-    standaloneModelSelectionKeyboard: () => ({ stage: "model" }),
-    standaloneReasoningSelectionKeyboard: () => ({ stage: "reasoning" }),
-    standaloneFastSelectionKeyboard: () => ({ stage: "fast" }),
-    emptyInlineKeyboard: () => ({ reply_markup: { inline_keyboard: [] } }),
-    reasoningOptionsForModel,
-    standaloneReasoningChoiceSupported: (models, model, reasoning) => (
-      reasoning === "default"
-      || reasoningOptionsForModel(models, model).some(({ effort }) => effort === reasoning)
-    ),
-    findCodexModel,
-    config: { codexModel: "gpt-fast", stateFile: "/unused/state.json" },
-    getChatState: () => state.chats.chat,
-    applyModelSelectionDraft,
-    applyReasoningSelection,
-    saveState: async () => {
+  const threadCache = new Map([["chat", { id: "cached" }]]);
+  const replaceOptions = createAtomicChatOptionsReplacer({
+    getChat: () => state.chats.chat,
+    save: async () => {
       counters.saves += 1;
       if (saveFails) throw new Error("save failed");
     },
-    state,
-    threadCache: new Map([["chat", { id: "cached" }]])
+    invalidate: (chatKey) => threadCache.delete(chatKey),
+    now: () => "after"
+  });
+  const controller = createModelSelectionController({
+    flowStore: selectionFlows,
+    models: {
+      list: async () => MODELS,
+      defaultSlug: () => "gpt-fast",
+      planTransition: () => ({ action: "keep" })
+    },
+    chat: {
+      keyFromContext: () => "chat",
+      getOptions: () => state.chats.chat.options,
+      replaceOptions,
+      isActive: (chatKey) => activeTurns.has(chatKey),
+      rejectIfActive: async () => false,
+      effectiveModelSlug: () => state.chats.chat.options.model || "gpt-fast"
+    },
+    telegram: {
+      replyHtml: async () => {},
+      editOrReplyHtml: async () => {},
+      editStrict: async (_ctx, html, extra) => {
+        edits.push({ html, extra });
+        return editSucceeds;
+      },
+      answerUiCallback: async (ctx, edited) => {
+        await ctx.answerCbQuery(
+          edited ? undefined : "selectionUpdateFailed",
+          edited ? undefined : { show_alert: true }
+        );
+      }
+    },
+    views: {
+      formatModelSelectionHtml: () => "model prompt",
+      formatReasoningPromptHtml: () => "reasoning prompt",
+      formatStandaloneReasoningPromptHtml: () => "reasoning prompt",
+      formatStandaloneFastPromptHtml: () => "fast prompt",
+      formatStandaloneSelectionResultHtml: () => "selection result",
+      standaloneModelSelectionKeyboard: () => ({ stage: "model" }),
+      standaloneReasoningSelectionKeyboard: () => ({ stage: "reasoning" }),
+      standaloneFastSelectionKeyboard: () => ({ stage: "fast" }),
+      settingsSelectionKeyboard: () => ({}),
+      emptyInlineKeyboard: () => ({ reply_markup: { inline_keyboard: [] } }),
+      fastPanelHtml: async () => "fast",
+      fastKeyboard: () => ({})
+    },
+    text: (key) => key
+  });
+  const handlers = {
+    model: controller.handleStandaloneModelSelection,
+    reasoning: controller.handleStandaloneReasoningSelection,
+    fast: controller.handleStandaloneFastSelection,
+    cancel: controller.handleStandaloneSelectionCancel,
+    closeMenu: controller.handleMenuClose
   };
-  const handlers = createRuntimeBindings(context);
-
   return {
     ...handlers,
     state,

@@ -2,11 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
-  findCodexModel,
   isReasoningEffortSupported,
   reasoningOptionsForModel
 } from "../src/codex/models.js";
-import { applyReasoningSelection } from "../src/ui/model_selection_flow.js";
+import {
+  createAtomicChatOptionsReplacer,
+  createModelSelectionController
+} from "../src/ui/model_selection_controller.js";
 
 const runtimeSource = fs.readFileSync(new URL("../src/runtime.js", import.meta.url), "utf8");
 const MODELS = [
@@ -42,14 +44,6 @@ function runtimeFunction(name) {
   return extractBlock(asyncStart === start - 6 ? asyncStart : start);
 }
 
-function actionHandler(marker) {
-  const registration = runtimeSource.indexOf(marker);
-  assert.notEqual(registration, -1, `${marker} must exist in runtime.js`);
-  const start = runtimeSource.indexOf("async (ctx) =>", registration);
-  assert.notEqual(start, -1, `${marker} handler must exist`);
-  return extractBlock(start);
-}
-
 function runtimeOptionsImport() {
   const marker = 'from "./codex/options.js";';
   const end = runtimeSource.indexOf(marker);
@@ -68,25 +62,20 @@ const declarations = [
   runtimeFunction("invalidateThreadCache"),
   runtimeFunction("setOption"),
   runtimeFunction("updateOptionValue"),
-  runtimeFunction("formatModelSelectionHtml"),
-  runtimeFunction("replaceChatOptionsAtomically"),
-  runtimeFunction("handleSettingsModelSelection"),
-  runtimeFunction("handleSettingsReasoningSelection")
+  runtimeFunction("formatModelSelectionHtml")
 ].join("\n");
 const moduleSource = `${runtimeOptionsImport()}
 export function createRuntimeBindings(context) {
-  const { state, threadCache, config, listCodexModels, reasoningOptionsForModel,
-    findCodexModel, isReasoningEffortSupported, applyReasoningSelection,
-    getChatKey, rejectIfActive, saveState, replyHtml, editOrReplyHtml,
-    code, b, t, runtimeValue, formatOptionsHtml, formatReasoningPromptHtml,
-    modelSelectionKeyboard, reasoningSelectionKeyboard, settingsSelectionKeyboard,
-    fastPanelHtml, fastKeyboard } = context;
+  const { state, threadCache, config, listCodexModels, getChatKey,
+    isReasoningEffortSupported, reasoningOptionsForModel, rejectIfActive,
+    saveState, replyHtml, code, b, t, runtimeValue, formatOptionsHtml } = context;
   ${declarations}
   return {
     command: updateOptionValue,
-    settingsReasoning: handleSettingsReasoningSelection,
-    modelAction: (${actionHandler("bot.action(/^model:set:")}),
-    reasoningAction: (${actionHandler("bot.action(/^reasoning:set:")})
+    effectiveModelSlug,
+    formatModelSelectionHtml,
+    getChatState,
+    planRuntimeModelReasoningTransition
   };
 }`;
 const moduleUrl = `data:text/javascript;base64,${Buffer.from(moduleSource).toString("base64")}`;
@@ -105,29 +94,70 @@ function createHarness(configuredReasoning, initialOptions, configuredModel = "g
       stateFile: "/unused/state.json"
     },
     listCodexModels: async () => MODELS,
-    findCodexModel,
-    reasoningOptionsForModel,
-    isReasoningEffortSupported,
-    applyReasoningSelection,
     getChatKey: () => "chat",
+    isReasoningEffortSupported,
+    reasoningOptionsForModel,
     rejectIfActive: async () => false,
     saveState: async () => { counters.saves += 1; },
     replyHtml: async (_ctx, html) => { counters.replies.push(html); },
-    editOrReplyHtml: async (_ctx, html) => { counters.replies.push(html); },
     code: String,
     b: String,
     t: () => "selection help",
     runtimeValue: () => false,
-    formatOptionsHtml: () => "options",
-    formatReasoningPromptHtml: () => "reasoning",
-    modelSelectionKeyboard: () => ({}),
-    reasoningSelectionKeyboard: () => ({}),
-    settingsSelectionKeyboard: () => ({}),
-    fastPanelHtml: async () => "fast",
-    fastKeyboard: () => ({})
+    formatOptionsHtml: () => "options"
   };
-  const { command, settingsReasoning, modelAction, reasoningAction } = createRuntimeBindings(context);
-
+  const bindings = createRuntimeBindings(context);
+  const replaceOptions = createAtomicChatOptionsReplacer({
+    getChat: bindings.getChatState,
+    save: () => context.saveState(),
+    invalidate: (chatKey) => threadCache.delete(chatKey),
+    now: () => "after"
+  });
+  const controller = createModelSelectionController({
+    flowStore: {
+      begin: () => {},
+      finish: () => {},
+      read: () => null,
+      update: () => null
+    },
+    models: {
+      list: context.listCodexModels,
+      defaultSlug: () => configuredModel,
+      planTransition: bindings.planRuntimeModelReasoningTransition
+    },
+    chat: {
+      keyFromContext: context.getChatKey,
+      getOptions: (chatKey) => bindings.getChatState(chatKey).options,
+      replaceOptions,
+      isActive: () => false,
+      rejectIfActive: async () => false,
+      effectiveModelSlug: bindings.effectiveModelSlug
+    },
+    telegram: {
+      replyHtml: context.replyHtml,
+      editOrReplyHtml: async (_ctx, html) => { counters.replies.push(html); },
+      editStrict: async () => true,
+      answerUiCallback: async () => {}
+    },
+    views: {
+      formatModelSelectionHtml: bindings.formatModelSelectionHtml,
+      formatReasoningPromptHtml: () => "reasoning",
+      settingsSelectionKeyboard: () => ({}),
+      fastPanelHtml: async () => "fast",
+      fastKeyboard: () => ({})
+    },
+    text: context.t
+  });
+  const modelAction = async (ctx) => {
+    await controller.handleSettingsModelSelection(ctx, ctx.match[1]);
+    await ctx.answerCbQuery().catch(() => {});
+  };
+  const reasoningAction = async (ctx) => {
+    await controller.handleSettingsReasoningSelection(ctx, ctx.match[1]);
+    await ctx.answerCbQuery().catch(() => {});
+  };
+  const settingsReasoning = controller.handleSettingsReasoningSelection;
+  const { command } = bindings;
   return {
     state,
     counters,

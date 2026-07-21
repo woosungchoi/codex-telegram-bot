@@ -147,10 +147,12 @@ import {
   TIME_ZONE_CHOICES
 } from "./ui/preferences.js";
 import {
-  applyModelSelectionDraft,
-  applyReasoningSelection,
   createSelectionFlowStore
 } from "./ui/model_selection_flow.js";
+import {
+  createAtomicChatOptionsReplacer,
+  createModelSelectionController
+} from "./ui/model_selection_controller.js";
 import {
   createRuntimePanelViews,
   formatKeyValueHtml
@@ -265,6 +267,58 @@ const {
 } = createRuntimePanelViews({
   text: t,
   formatText: tf
+});
+const replaceChatOptions = createAtomicChatOptionsReplacer({
+  getChat: getChatState,
+  save: () => saveState(config.stateFile, state),
+  invalidate: (chatKey) => threadCache.delete(chatKey)
+});
+const {
+  handleMenuClose,
+  handleSettingsModelSelection,
+  handleSettingsReasoningSelection,
+  handleStandaloneFastSelection,
+  handleStandaloneModelSelection,
+  handleStandaloneReasoningSelection,
+  handleStandaloneSelectionCancel,
+  sendStandaloneModelSelection,
+  sendStandaloneReasoningSelection
+} = createModelSelectionController({
+  flowStore: selectionFlows,
+  models: {
+    list: listCodexModels,
+    defaultSlug: () => config.codexModel ?? "",
+    planTransition: planRuntimeModelReasoningTransition
+  },
+  chat: {
+    keyFromContext: getChatKey,
+    getOptions: (chatKey) => getChatState(chatKey).options,
+    replaceOptions: replaceChatOptions,
+    isActive: (chatKey) => activeTurns.has(chatKey),
+    rejectIfActive,
+    effectiveModelSlug
+  },
+  telegram: {
+    replyHtml,
+    editOrReplyHtml,
+    editStrict: editSelectionMessageStrict,
+    answerUiCallback
+  },
+  views: {
+    emptyInlineKeyboard,
+    fastKeyboard,
+    fastPanelHtml,
+    formatModelSelectionHtml,
+    formatReasoningPromptHtml,
+    formatStandaloneFastPromptHtml,
+    formatStandaloneReasoningPromptHtml,
+    formatStandaloneSelectionResultHtml,
+    settingsSelectionKeyboard,
+    standaloneFastSelectionKeyboard,
+    standaloneModelSelectionKeyboard,
+    standaloneReasoningSelectionKeyboard
+  },
+  text: t
 });
 let workerClient = null;
 let startupRecoveryRunning = false;
@@ -4676,416 +4730,6 @@ function summarizeFileChangePaths(item) {
   if (paths.length === 0) return "";
   const summary = paths.slice(0, 3).join(", ");
   return paths.length > 3 ? `${summary}, +${paths.length - 3}` : summary;
-}
-
-async function sendStandaloneModelSelection(ctx, chatKey) {
-  const models = await listCodexModels();
-  const session = selectionFlows.begin(chatKey, "model");
-  try {
-    await replyHtml(
-      ctx,
-      formatModelSelectionHtml(chatKey, models),
-      standaloneModelSelectionKeyboard(models, session)
-    );
-  } catch (error) {
-    selectionFlows.finish(chatKey, session.token);
-    throw error;
-  }
-}
-
-async function sendStandaloneReasoningSelection(ctx, chatKey) {
-  const models = await listCodexModels();
-  const session = selectionFlows.begin(chatKey, "reasoning", {
-    modelSlug: effectiveModelSlug(chatKey)
-  });
-  try {
-    await replyHtml(
-      ctx,
-      formatStandaloneReasoningPromptHtml(session, models),
-      standaloneReasoningSelectionKeyboard(
-        reasoningOptionsForModel(models, session.modelSlug),
-        session
-      )
-    );
-  } catch (error) {
-    selectionFlows.finish(chatKey, session.token);
-    throw error;
-  }
-}
-
-async function handleStandaloneModelSelection(ctx, token, model) {
-  const chatKey = getChatKey(ctx);
-  const session = await standaloneSelectionSession(ctx, chatKey, token, "model", "model");
-  if (!session || await rejectStandaloneSelectionIfActive(ctx, chatKey)) return;
-  const processing = selectionFlows.update(chatKey, token, "model", { phase: "model_processing" });
-  if (!processing) {
-    await answerSelectionExpiredCallback(ctx);
-    return;
-  }
-
-  const models = await listCodexModels();
-  if (model !== "default" && !models.some((candidate) => candidate.slug === model)) {
-    const edited = await editSelectionMessageStrict(
-      ctx,
-      `${b(t("modelUnavailable"))}\n\n${formatModelSelectionHtml(chatKey, models)}`,
-      standaloneModelSelectionKeyboard(models, processing)
-    );
-    const restored = selectionFlows.update(chatKey, token, "model_processing", { phase: "model" });
-    if (restored) await answerUiCallback(ctx, edited);
-    else await answerSelectionExpiredCallback(ctx);
-    return;
-  }
-
-  const modelSlug = model === "default" ? config.codexModel ?? "" : model;
-  const next = {
-    ...processing,
-    phase: "reasoning",
-    modelChoice: model,
-    modelSlug,
-    fastSupported: Boolean(findCodexModel(models, modelSlug)?.fastSupported)
-  };
-  const edited = await editSelectionMessageStrict(
-    ctx,
-    formatStandaloneReasoningPromptHtml(next, models),
-    standaloneReasoningSelectionKeyboard(reasoningOptionsForModel(models, modelSlug), next)
-  );
-  if (edited) {
-    const advanced = selectionFlows.update(chatKey, token, "model_processing", {
-      phase: next.phase,
-      modelChoice: next.modelChoice,
-      modelSlug: next.modelSlug,
-      fastSupported: next.fastSupported
-    });
-    if (!advanced) {
-      await answerSelectionExpiredCallback(ctx);
-      return;
-    }
-  } else {
-    selectionFlows.update(chatKey, token, "model_processing", { phase: "model" });
-  }
-  await answerUiCallback(ctx, edited);
-}
-
-async function handleStandaloneReasoningSelection(ctx, token, reasoning) {
-  const chatKey = getChatKey(ctx);
-  const session = await standaloneSelectionSession(ctx, chatKey, token, null, "reasoning");
-  if (!session || await rejectStandaloneSelectionIfActive(ctx, chatKey)) return;
-  const processing = selectionFlows.update(chatKey, token, "reasoning", {
-    phase: "reasoning_processing"
-  });
-  if (!processing) {
-    await answerSelectionExpiredCallback(ctx);
-    return;
-  }
-
-  const models = await listCodexModels();
-  const reasoningOptions = reasoningOptionsForModel(models, processing.modelSlug);
-  if (!standaloneReasoningChoiceSupported(models, processing.modelSlug, reasoning)) {
-    const edited = await editSelectionMessageStrict(
-      ctx,
-      `${b(t("thinkingUnavailable"))}\n\n${formatStandaloneReasoningPromptHtml(processing, models)}`,
-      standaloneReasoningSelectionKeyboard(reasoningOptions, processing)
-    );
-    const restored = selectionFlows.update(chatKey, token, "reasoning_processing", {
-      phase: "reasoning"
-    });
-    if (restored) await answerUiCallback(ctx, edited);
-    else await answerSelectionExpiredCallback(ctx);
-    return;
-  }
-
-  const fastSupported = processing.kind === "model"
-    && processing.fastSupported
-    && Boolean(findCodexModel(models, processing.modelSlug)?.fastSupported);
-  const completed = { ...processing, reasoningChoice: reasoning, fastSupported };
-  if (processing.kind === "model" && fastSupported) {
-    const fastSession = { ...completed, phase: "fast" };
-    const edited = await editSelectionMessageStrict(
-      ctx,
-      formatStandaloneFastPromptHtml(chatKey, fastSession),
-      standaloneFastSelectionKeyboard(fastSession)
-    );
-    if (edited) {
-      const advanced = selectionFlows.update(chatKey, token, "reasoning_processing", {
-        phase: "fast",
-        reasoningChoice: reasoning,
-        fastSupported: true
-      });
-      if (!advanced) {
-        await answerSelectionExpiredCallback(ctx);
-        return;
-      }
-    } else {
-      selectionFlows.update(chatKey, token, "reasoning_processing", { phase: "reasoning" });
-    }
-    await answerUiCallback(ctx, edited);
-    return;
-  }
-
-  const committing = selectionFlows.update(chatKey, token, "reasoning_processing", {
-    phase: "committing",
-    reasoningChoice: reasoning,
-    fastSupported
-  });
-  if (!committing) {
-    await answerSelectionExpiredCallback(ctx);
-    return;
-  }
-  try {
-    if (processing.kind === "model") await commitStandaloneModelSelection(chatKey, committing);
-    else await commitStandaloneReasoningSelection(chatKey, reasoning);
-  } catch (error) {
-    const restored = selectionFlows.update(chatKey, token, "committing", {
-      phase: "reasoning"
-    });
-    if (!restored) {
-      await answerSelectionExpiredCallback(ctx);
-      return;
-    }
-    const edited = await editSelectionMessageStrict(
-      ctx,
-      `${b(t("settingFailure"))}\n${code(error instanceof Error ? error.message : String(error))}\n\n${formatStandaloneReasoningPromptHtml(restored, models)}`,
-      standaloneReasoningSelectionKeyboard(reasoningOptions, restored)
-    );
-    await answerUiCallback(ctx, edited);
-    return;
-  }
-
-  selectionFlows.finish(chatKey, token, "committing");
-  const html = processing.kind === "model"
-    ? `${b(t("modelSelectionCompleted"))}\n\n${formatStandaloneSelectionResultHtml(chatKey, true)}`
-    : `${b(t("reasoningSelectionCompleted"))}\n\n${formatStandaloneSelectionResultHtml(chatKey)}`;
-  const edited = await editSelectionMessageStrict(ctx, html, emptyInlineKeyboard());
-  await answerUiCallback(ctx, edited);
-}
-
-async function handleStandaloneFastSelection(ctx, token, fast) {
-  const chatKey = getChatKey(ctx);
-  const session = await standaloneSelectionSession(ctx, chatKey, token, "model", "fast");
-  if (!session || await rejectStandaloneSelectionIfActive(ctx, chatKey)) return;
-  const committing = selectionFlows.update(chatKey, token, "fast", {
-    phase: "committing",
-    fastChoice: fast
-  });
-  if (!committing) {
-    await answerSelectionExpiredCallback(ctx);
-    return;
-  }
-
-  try {
-    await commitStandaloneModelSelection(chatKey, committing);
-  } catch (error) {
-    const restored = selectionFlows.update(chatKey, token, "committing", { phase: "fast" });
-    if (!restored) {
-      await answerSelectionExpiredCallback(ctx);
-      return;
-    }
-    const edited = await editSelectionMessageStrict(
-      ctx,
-      `${b(t("settingFailure"))}\n${code(error instanceof Error ? error.message : String(error))}\n\n${formatStandaloneFastPromptHtml(chatKey, restored)}`,
-      standaloneFastSelectionKeyboard(restored)
-    );
-    await answerUiCallback(ctx, edited);
-    return;
-  }
-
-  selectionFlows.finish(chatKey, token, "committing");
-  const edited = await editSelectionMessageStrict(
-    ctx,
-    `${b(t("modelSelectionCompleted"))}\n\n${formatStandaloneSelectionResultHtml(chatKey, true)}`,
-    emptyInlineKeyboard()
-  );
-  await answerUiCallback(ctx, edited);
-}
-
-async function handleStandaloneSelectionCancel(ctx, token) {
-  const chatKey = getChatKey(ctx);
-  const current = selectionFlows.read(chatKey, token);
-  if (current?.phase === "committing") {
-    await ctx.answerCbQuery(t("selectionFinalizing"), { show_alert: true }).catch(() => {});
-    return;
-  }
-  const session = selectionFlows.finish(chatKey, token);
-  const text = !session
-    ? t("selectionExpired")
-    : session.kind === "model"
-      ? t("modelSelectionCancelled")
-      : t("reasoningSelectionCancelled");
-  const edited = await editSelectionMessageStrict(ctx, text, emptyInlineKeyboard());
-  await answerUiCallback(ctx, edited);
-}
-
-async function handleMenuClose(ctx) {
-  const edited = await editSelectionMessageStrict(ctx, t("menuClosed"), emptyInlineKeyboard());
-  await answerUiCallback(ctx, edited);
-}
-
-async function standaloneSelectionSession(ctx, chatKey, token, kind, phase) {
-  const session = selectionFlows.read(chatKey, token);
-  if (session && (!kind || session.kind === kind) && session.phase === phase) return session;
-  if (session) {
-    await answerSelectionExpiredCallback(ctx);
-    return null;
-  }
-  const edited = await editSelectionMessageStrict(ctx, t("selectionExpired"), emptyInlineKeyboard());
-  await answerUiCallback(ctx, edited);
-  return null;
-}
-
-async function answerSelectionExpiredCallback(ctx) {
-  await ctx.answerCbQuery(t("selectionExpired"), { show_alert: true }).catch(() => {});
-}
-
-async function rejectStandaloneSelectionIfActive(ctx, chatKey) {
-  if (!activeTurns.has(chatKey)) return false;
-  await ctx.answerCbQuery(t("selectionBlockedByActiveTurn"), { show_alert: true }).catch(() => {});
-  return true;
-}
-
-function standaloneReasoningChoiceSupported(models, modelSlug, reasoning) {
-  if (reasoning !== "default") return isReasoningEffortSupported(models, modelSlug, reasoning);
-  return planRuntimeModelReasoningTransition(models, modelSlug, undefined).action !== "reject";
-}
-
-async function commitStandaloneModelSelection(chatKey, session) {
-  const chat = getChatState(chatKey);
-  await replaceChatOptionsAtomically(
-    chatKey,
-    applyModelSelectionDraft(chat.options, session)
-  );
-}
-
-async function commitStandaloneReasoningSelection(chatKey, reasoning) {
-  const chat = getChatState(chatKey);
-  await replaceChatOptionsAtomically(
-    chatKey,
-    applyReasoningSelection(chat.options, reasoning)
-  );
-}
-
-async function replaceChatOptionsAtomically(chatKey, nextOptions) {
-  const chat = getChatState(chatKey);
-  const previousOptions = chat.options;
-  const previousUpdatedAt = chat.updatedAt;
-  chat.options = nextOptions;
-  chat.updatedAt = new Date().toISOString();
-  try {
-    await saveState(config.stateFile, state);
-  } catch (error) {
-    chat.options = previousOptions;
-    chat.updatedAt = previousUpdatedAt;
-    throw error;
-  }
-  threadCache.delete(chatKey);
-}
-
-async function handleSettingsModelSelection(ctx, model) {
-  const chatKey = getChatKey(ctx);
-  if (await rejectIfActive(ctx, chatKey)) return;
-
-  const models = await listCodexModels();
-  const modelKeyboard = settingsSelectionKeyboard(modelSelectionKeyboard(models), "settings");
-  if (model !== "default" && !models.some((candidate) => candidate.slug === model)) {
-    await editOrReplyHtml(
-      ctx,
-      `${b(t("modelUnavailable"))}\n\n${formatModelSelectionHtml(chatKey, models)}`,
-      modelKeyboard
-    );
-    return;
-  }
-
-  const prospectiveModel = model === "default" ? config.codexModel ?? "" : model;
-  const explicitReasoning = state.chats[chatKey]?.options?.modelReasoningEffort;
-  const transition = planRuntimeModelReasoningTransition(
-    models,
-    prospectiveModel,
-    explicitReasoning,
-    true
-  );
-  if (transition.action === "reject") {
-    await editOrReplyHtml(
-      ctx,
-      `${b(t("thinkingUnavailable"))}\n${code(transition.reasoning || "default")} is not supported by ${code(prospectiveModel || "default")}\n\n${t("modelSelectionDescription")}`,
-      modelKeyboard
-    );
-    return;
-  }
-
-  const nextOptions = { ...getChatState(chatKey).options };
-  if (model === "default") delete nextOptions.model;
-  else nextOptions.model = model;
-  if (transition.action === "clear") delete nextOptions.modelReasoningEffort;
-  const catalogModel = findCodexModel(models, prospectiveModel);
-  if (!catalogModel?.fastSupported && nextOptions.serviceTier === "fast") {
-    delete nextOptions.serviceTier;
-  }
-  await replaceChatOptionsAtomically(chatKey, nextOptions);
-
-  const reasoningOptions = reasoningOptionsForModel(models, prospectiveModel);
-  const reconciliation = transition.action === "clear"
-    ? `Reasoning override cleared: ${code(explicitReasoning)}`
-    : `Reasoning override cleared: ${code("no")}`;
-  await editOrReplyHtml(
-    ctx,
-    `${b("Model updated.")}\n${reconciliation}\n\n${formatReasoningPromptHtml(chatKey, models)}`,
-    settingsSelectionKeyboard(
-      reasoningSelectionKeyboard(reasoningOptions, { callbackPrefix: "rm:" }),
-      "settings_model"
-    )
-  );
-}
-
-async function handleSettingsReasoningSelection(ctx, reasoning, options) {
-  const chatKey = getChatKey(ctx);
-  if (await rejectIfActive(ctx, chatKey)) return;
-  const continueToFast = options?.continueToFast === true;
-
-  const models = await listCodexModels();
-  const effectiveModel = effectiveModelSlug(chatKey);
-  const reasoningOptions = reasoningOptionsForModel(models, effectiveModel);
-  const reasoningButtons = settingsSelectionKeyboard(
-    reasoningSelectionKeyboard(reasoningOptions),
-    continueToFast ? "settings_model" : "settings"
-  );
-  if (reasoning === "default") {
-    const transition = planRuntimeModelReasoningTransition(models, effectiveModel, undefined);
-    if (transition.action === "reject") {
-      await editOrReplyHtml(
-        ctx,
-        `${b(t("thinkingUnavailable"))}\n${code(transition.reasoning || "default")} is not supported by ${code(effectiveModel || "default")}\n\n${formatReasoningPromptHtml(chatKey, models)}`,
-        reasoningButtons
-      );
-      return;
-    }
-  }
-  if (reasoning !== "default" && !isReasoningEffortSupported(models, effectiveModel, reasoning)) {
-    await editOrReplyHtml(
-      ctx,
-      `${b(t("thinkingUnavailable"))}\n\n${formatReasoningPromptHtml(chatKey, models)}`,
-      reasoningButtons
-    );
-    return;
-  }
-
-  await replaceChatOptionsAtomically(
-    chatKey,
-    applyReasoningSelection(getChatState(chatKey).options, reasoning)
-  );
-  const fastSupported = Boolean(findCodexModel(models, effectiveModel)?.fastSupported);
-  if (continueToFast && fastSupported) {
-    await editOrReplyHtml(
-      ctx,
-      `${b("Thinking updated.")}\n\n${await fastPanelHtml(chatKey)}`,
-      settingsSelectionKeyboard(fastKeyboard(), "settings_reasoning")
-    );
-    return;
-  }
-
-  await editOrReplyHtml(
-    ctx,
-    `${b("Thinking updated.")}\n\n${formatReasoningPromptHtml(chatKey, models)}`,
-    reasoningButtons
-  );
 }
 
 async function sendPanel(ctx, panel, options = {}) {
