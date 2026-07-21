@@ -111,3 +111,25 @@ test("cleanup callback rendering keeps the action and candidate totals", () => {
   assert.match(html, /cleanupActionBoth/);
   assert.match(html, /manifest\.json/);
 });
+
+test("cleanup runtime facade preserves inventory, scheduler, and UI methods", () => {
+  const { controller } = createFixture();
+  assert.deepEqual(Object.keys(controller).sort(), [
+    "answerCleanupCallback",
+    "answerUploadCleanupCallback",
+    "appendCleanupLog",
+    "collectProtectedThreadIds",
+    "createUploadCleanupPlan",
+    "editCleanupMessage",
+    "editCleanupProcessingMessage",
+    "editUploadCleanupMessage",
+    "formatCleanupIgnoredHtml",
+    "formatCleanupResultHtml",
+    "listCleanupSessionFiles",
+    "listQuarantineDeleteCandidates",
+    "pruneExpiredCleanupPlans",
+    "pruneExpiredUploadCleanupPlans",
+    "runDailyCleanupCheck",
+    "startCleanupScheduler"
+  ]);
+});

@@ -93,3 +93,19 @@ test("pending delivery lines distinguish safe and uncertain recovery", () => {
     "telegramDeliveryManualReview"
   ]);
 });
+
+test("runtime diagnostics facade preserves its stable method surface", () => {
+  const { diagnostics } = createFixture();
+  assert.deepEqual(Object.keys(diagnostics).sort(), [
+    "buildStatusDetails",
+    "formatDoctorHtml",
+    "formatHealthHtml",
+    "formatPendingDeliveryLines",
+    "formatQueueHtml",
+    "formatQueueModeHtml",
+    "formatRecoveryStatusHtml",
+    "formatRestartRecoveredHtml",
+    "formatRestartScheduledHtml",
+    "formatStatusHtml"
+  ]);
+});
