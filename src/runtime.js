@@ -50,12 +50,11 @@ import {
   parseRequiredBoolean,
   saveRuntimeState
 } from "./runtime/state_store.js";
-import { b, code, pre, stripHtml } from "./telegram/html.js";
+import { b, code, pre } from "./telegram/html.js";
 import {
   createTelegramApiAgent,
   editOrReplyTelegramHtml,
   replyTelegramHtml,
-  runTelegramProgressBestEffort,
   sendTelegramHtml,
   summarizeTelegramError
 } from "./telegram/api.js";
@@ -65,11 +64,16 @@ import {
   shouldUseRecentPdfUpload
 } from "./telegram/pdf.js";
 import { replyFormattedCodexAnswer } from "./telegram/codex_answer.js";
-import { formatCodexAnswerMarkdownHtml, formatCodexAnswerSafeHtml } from "./telegram/markdown.js";
 import { splitText } from "./telegram/split.js";
 import { createTelegramRuntimeContext } from "./telegram/runtime_context.js";
 import { isRegisteredTelegramCommandText } from "./telegram_commands.js";
-import { formatCodexUsageSummary } from "./status_usage.js";
+import { createRuntimeStatusSupport } from "./status/runtime_status.js";
+import {
+  createRuntimeDiagnostics,
+  readCommandOutput,
+  readJsonFile,
+  readPackageJson
+} from "./status/runtime_diagnostics.js";
 import {
   buildUploadCleanupPlanFromDisk,
   confirmUploadCleanupPlan,
@@ -82,11 +86,6 @@ import {
 import { createRuntimeRecoveryController } from "./recovery/runtime_controller.js";
 import { createTurnRecoveryJournal } from "./recovery/turn_journal.js";
 import { clearCompletedRecovery } from "./recovery/startup.js";
-import {
-  readActiveTurnSnapshots,
-  readRecoveryDedupe,
-  readRestartMarker
-} from "./recovery/state.js";
 import {
   createRuntimeKeyboardViews,
   modelSelectionKeyboard,
@@ -107,11 +106,10 @@ import {
   createRuntimePanelViews,
   formatKeyValueHtml
 } from "./ui/panels.js";
+import { createLiveProgressController } from "./ui/live_progress.js";
 import { createWorkerClient } from "./worker/client.js";
 import { createWorkerRuntimeController } from "./worker/runtime_controller.js";
-import { summarizeWorkerDeliveryStatus } from "./worker/delivery.js";
 
-const execFileAsync = promisify(execFile);
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const VALID = {
   approval: new Set(["never", "on-request", "on-failure", "untrusted"]),
@@ -192,7 +190,7 @@ const {
     text: t
   },
   formatting: {
-    bytes: formatBytes
+    bytes: (...args) => formatBytes(...args)
   }
 });
 const {
@@ -371,6 +369,107 @@ const {
   },
   text: t
 });
+const {
+  buildAppSummary,
+  buildBestCodexUsageSummary,
+  buildConfigSummary,
+  formatBytes,
+  formatDateTime,
+  getLocalClock,
+  getLocalDateKey,
+  readLatestTokenCount
+} = createRuntimeStatusSupport({
+  settings: {
+    config,
+    runtimeValue,
+    packageFile: path.join(appRoot, "package.json")
+  },
+  chats: {
+    get: getChatState
+  },
+  packages: {
+    readJson: (...args) => readJsonFile(...args),
+    readPackage: (...args) => readPackageJson(appRoot, ...args)
+  },
+  sessions: {
+    findFile: (...args) => findCodexSessionFile(...args)
+  },
+  localization: {
+    locale: uiLocale,
+    timeZone: uiTimeZone
+  },
+  formatting: {
+    redactValue
+  },
+  readFile: fs.readFile
+});
+const {
+  buildStatusDetails,
+  formatDoctorHtml,
+  formatHealthHtml,
+  formatQueueHtml,
+  formatQueueModeHtml,
+  formatRecoveryStatusHtml,
+  formatRestartRecoveredHtml,
+  formatRestartScheduledHtml,
+  formatStatusHtml
+} = createRuntimeDiagnostics({
+  settings: {
+    config,
+    runtimeValue,
+    packageFile: path.join(appRoot, "package.json")
+  },
+  state,
+  activeTurns,
+  threadCache,
+  chats: {
+    get: getChatState
+  },
+  options: {
+    get: getEffectiveOptions,
+    format: formatOptionsHtml
+  },
+  queue: {
+    countPendingTurns,
+    countSideTurns,
+    isPaused: isQueuePaused,
+    mode: getQueueMode,
+    pending: getPendingTurns,
+    sideTurnCount: getSideTurnCount
+  },
+  sessions: {
+    listRecent: listRecentCodexSessions
+  },
+  usage: {
+    buildSummary: buildBestCodexUsageSummary
+  },
+  models: {
+    list: listCodexModels
+  },
+  uploads: {
+    createCleanupPlan: (...args) => createUploadCleanupPlan(...args)
+  },
+  localization: {
+    text: t,
+    formatText: tf,
+    locale: uiLocale,
+    timeZone: uiTimeZone
+  },
+  formatting: {
+    bytes: formatBytes,
+    count: cleanupCount,
+    dateTime: formatDateTime,
+    duration: formatDurationSeconds,
+    keyValue: formatKeyValueHtml,
+    truncate
+  },
+  packages: {
+    readJson: readJsonFile,
+    readPackage: (...args) => readPackageJson(appRoot, ...args)
+  }
+});
+
+const execFileAsync = promisify(execFile);
 const replaceChatOptions = createAtomicChatOptionsReplacer({
   getChat: getChatState,
   save: () => saveState(config.stateFile, state),
@@ -515,6 +614,37 @@ const {
     truncate
   },
   text: t
+});
+const {
+  createLiveProgressState,
+  formatTurn,
+  maybeSendLiveProgress,
+  shouldDeleteLiveProgress,
+  summarizeProgress
+} = createLiveProgressController({
+  settings: {
+    runtimeValue
+  },
+  options: {
+    get: getEffectiveOptions,
+    defaults: defaultChatOptions
+  },
+  telegram: {
+    getChatKey,
+    replyTracked: (...args) => replyTrackedProgressHtml(...args)
+  },
+  recovery: {
+    recordProgressFailed: (...args) => recordTelegramProgressFailed(...args)
+  },
+  localization: {
+    language: uiLanguage,
+    forLanguage: lt,
+    formatForLanguage: ltf
+  },
+  formatting: {
+    redact: redactText,
+    truncate
+  }
 });
 const {
   maybeNotifyContextPressure,
@@ -2220,171 +2350,6 @@ async function pruneOldBackups() {
   }
 }
 
-async function buildAppSummary() {
-  const botPackage = await readJsonFile(path.join(appRoot, "package.json"));
-  const sdkPackage = await readPackageJson("@openai/codex-sdk");
-  return {
-    botVersion: botPackage?.version || "",
-    node: process.version,
-    codexSdk: sdkPackage?.version || "",
-    startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString()
-  };
-}
-
-function buildConfigSummary() {
-  return redactValue({
-    codexWorkdir: config.codexWorkdir,
-    codexPath: config.codexPath,
-    codexModel: config.codexModel,
-    codexApprovalPolicy: config.codexApprovalPolicy,
-    codexSandboxMode: config.codexSandboxMode,
-    codexReasoningEffort: config.codexReasoningEffort,
-    codexWebSearch: config.codexWebSearch,
-    codexNetworkAccess: config.codexNetworkAccess,
-    codexWebSearchEnabled: config.codexWebSearchEnabled,
-    codexSkipGitRepoCheck: config.codexSkipGitRepoCheck,
-    codexAdditionalDirectories: config.codexAdditionalDirectories,
-    telegramLiveProgressEnabled: runtimeValue("telegramLiveProgressEnabled"),
-    telegramLiveProgressIntervalSeconds: Math.round(runtimeValue("telegramLiveProgressIntervalMs") / 1000),
-    telegramLiveProgressMode: runtimeValue("telegramLiveProgressMode"),
-    telegramLiveProgressSource: config.telegramLiveProgressSource,
-    telegramLiveProgressDeletePolicy: config.telegramLiveProgressDeletePolicy,
-    telegramPendingTurnsMax: runtimeValue("telegramPendingTurnsMax"),
-    telegramPendingTurnMaxAgeSeconds: runtimeValue("telegramPendingTurnMaxAgeSeconds"),
-    botRestartRecoveryEnabled: config.botRestartRecoveryEnabled,
-    botRestartExitCode: config.botRestartExitCode,
-    botRestartDrainTimeoutSeconds: config.botRestartDrainTimeoutSeconds,
-    botRestartDelaySeconds: config.botRestartDelaySeconds,
-    botRecoveryDir: config.botRecoveryDir,
-    botRecoveryStaleSeconds: config.botRecoveryStaleSeconds,
-    botRecoveryTurnTtlSeconds: config.botRecoveryTurnTtlSeconds,
-    botRecoverySuspendAfter: config.botRecoverySuspendAfter,
-    botRecoveryBackfillPollMs: config.botRecoveryBackfillPollMs,
-    telegramLanguage: config.telegramLanguage,
-    telegramTimeZone: config.telegramTimeZone,
-    telegramLocale: config.telegramLocale,
-    codexBaseUrl: config.codexBaseUrl,
-    codexApiKey: config.codexApiKey ? "set" : "",
-    codexConfig: config.codexConfig ? "set" : "",
-    codexEnv: config.codexEnv ? "set" : "",
-    codexAutoCompactTokenLimit: resolveAutoCompactTokenLimit(config) || "default",
-    codexToolOutputTokenLimit: config.codexToolOutputTokenLimit || "default",
-    codexCompactStrength: config.codexCompactStrength,
-    codexContextGuardEnabled: config.codexContextGuardEnabled,
-    codexContextCompactThresholdPercent: config.codexContextCompactThresholdPercent,
-    codexContextMinRemainingTokens: config.codexContextMinRemainingTokens,
-    stateFile: config.stateFile,
-    codexSessionsDir: config.codexSessionsDir,
-    uploadDir: config.uploadDir,
-    backupDir: config.backupDir,
-    cleanupQuarantineDir: config.cleanupQuarantineDir,
-    cleanupEnabled: runtimeValue("cleanupEnabled"),
-    cleanupNotifyTime: runtimeValue("cleanupNotifyTime"),
-    cleanupRetentionDays: runtimeValue("cleanupRetentionDays"),
-    cleanupQuarantineDays: runtimeValue("cleanupQuarantineDays"),
-    cleanupPlanTtlHours: runtimeValue("cleanupPlanTtlHours"),
-    snapshotEnabled: runtimeValue("snapshotEnabled"),
-    snapshotNotifyTime: runtimeValue("snapshotNotifyTime"),
-    snapshotRetentionDays: runtimeValue("snapshotRetentionDays")
-  });
-}
-
-function getLocalClock() {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-CA", {
-      timeZone: uiTimeZone(),
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23"
-    }).formatToParts(new Date()).map((part) => [part.type, part.value])
-  );
-  return {
-    dateKey: `${parts.year}-${parts.month}-${parts.day}`,
-    time: `${parts.hour}:${parts.minute}`
-  };
-}
-
-function getLocalDateKey() {
-  return getLocalClock().dateKey;
-}
-
-function formatDateTime(value) {
-  return new Intl.DateTimeFormat(uiLocale(), {
-    timeZone: uiTimeZone(),
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZoneName: "short"
-  }).format(new Date(value)).replace(",", "");
-}
-
-function formatBytes(bytes) {
-  if (bytes >= 1024 * 1024) return `${Math.round(bytes / 1024 / 102.4) / 10} MB`;
-  if (bytes >= 1024) return `${Math.round(bytes / 102.4) / 10} KB`;
-  return `${bytes} B`;
-}
-
-async function readLatestTokenCount(threadId) {
-  const file = await findCodexSessionFile(threadId);
-  if (!file) return null;
-  let latest = null;
-  const lines = (await fs.readFile(file, "utf8")).split("\n");
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    try {
-      const parsed = JSON.parse(line);
-      if (parsed?.payload?.type === "token_count") {
-        latest = {
-          tokenCount: parsed.payload,
-          sampledAt: parsed.timestamp || parsed.time || parsed.created_at || ""
-        };
-      }
-    } catch {
-      // Ignore partial or non-JSON session lines.
-    }
-  }
-  return latest;
-}
-
-async function buildBestCodexUsageSummary(chatKey, threadId) {
-  const chat = getChatState(chatKey);
-  const latest = await selectLatestUsageSample([
-    { threadId, sourceLabel: "current thread" },
-    { threadId: chat.usageProbeThreadId || "", sourceLabel: "usage probe" }
-  ]);
-  return formatCodexUsageSummary({
-    tokenCount: latest?.tokenCount,
-    sampledAt: latest?.sampledAt,
-    sourceLabel: latest?.sourceLabel,
-    now: new Date(),
-    locale: uiLocale(),
-    timeZone: uiTimeZone()
-  });
-}
-
-async function selectLatestUsageSample(candidates) {
-  let latest = null;
-  const seen = new Set();
-  for (const candidate of candidates) {
-    if (!candidate.threadId || seen.has(candidate.threadId)) continue;
-    seen.add(candidate.threadId);
-    const sample = await readLatestTokenCount(candidate.threadId);
-    if (!sample) continue;
-    const sampledAt = Date.parse(sample.sampledAt);
-    const latestSampledAt = latest ? Date.parse(latest.sampledAt) : Number.NEGATIVE_INFINITY;
-    if (!latest || sampledAt >= latestSampledAt) {
-      latest = { ...sample, sourceLabel: candidate.sourceLabel };
-    }
-  }
-  return latest;
-}
-
 function readFirstLine(file) {
   return new Promise((resolve, reject) => {
     const stream = createReadStream(file, { encoding: "utf8" });
@@ -2404,201 +2369,6 @@ function readFirstLine(file) {
       if (!settled) resolve(buffer);
     });
   });
-}
-
-function formatTurn(turn) {
-  return turn.finalResponse?.trim() || "";
-}
-
-function summarizeProgress(items) {
-  const latest = items.at(-1);
-  const counts = countBy(items, (item) => item.type);
-  const parts = ["Codex progress"];
-  if (counts.reasoning) parts.push(`reasoning:${counts.reasoning}`);
-  if (counts.command_execution) parts.push(`cmd:${counts.command_execution}`);
-  if (counts.file_change) parts.push(`files:${counts.file_change}`);
-  if (counts.web_search) parts.push(`web:${counts.web_search}`);
-  if (latest?.type === "command_execution") parts.push(`last: ${truncate(latest.command, 80)}`);
-  if (latest?.type === "web_search") parts.push(`last: ${truncate(latest.query, 80)}`);
-  return parts.join("\n");
-}
-
-function createLiveProgressState(active = null) {
-  return {
-    lastSentAt: 0,
-    lastKey: "",
-    active,
-    chatKey: "",
-    messageRefs: []
-  };
-}
-
-function shouldDeleteLiveProgress(progressState, turnSucceeded) {
-  const options = progressState?.chatKey ? getEffectiveOptions(progressState.chatKey) : defaultChatOptions();
-  if (options.liveProgressDeletePolicy === "never") return false;
-  if (options.liveProgressDeletePolicy === "on_success") return turnSucceeded;
-  return true;
-}
-
-async function maybeSendLiveProgress(ctx, progressState, event, items) {
-  if (!progressState) return false;
-  const options = getEffectiveOptions(progressState.chatKey || getChatKey(ctx));
-  if (!options.liveProgressEnabled) return false;
-  if (!["brief", "korean-brief"].includes(runtimeValue("telegramLiveProgressMode"))) return false;
-  const progress = buildLiveProgressMessage(event, items, options.liveProgressSource, uiLanguage());
-  if (!progress) return false;
-  if (progress.key === progressState.lastKey) return false;
-
-  const now = Date.now();
-  const intervalMs = Math.max(0, runtimeValue("telegramLiveProgressIntervalMs"));
-  if (!progress.important && progressState.lastSentAt > 0 && now - progressState.lastSentAt < intervalMs) return false;
-
-  progressState.lastSentAt = now;
-  progressState.lastKey = progress.key;
-  if (progressState.active) {
-    progressState.active.lastProgress = stripHtml(progress.html);
-    progressState.active.lastProgressAt = new Date(now).toISOString();
-  }
-  const result = await runTelegramProgressBestEffort(
-    () => replyTrackedProgressHtml(ctx, progressState, progress.html),
-    {
-      onError: (errorSummary) => recordTelegramProgressFailed(progressState, event, errorSummary),
-      logger: console
-    }
-  );
-  return result.ok;
-}
-
-function buildLiveProgressMessage(event, items, source = "agent", language = "en") {
-  const messages = [];
-  if (source === "agent" || source === "both") {
-    const agentMessage = buildAgentLiveProgressMessage(event);
-    if (agentMessage) messages.push(agentMessage);
-  }
-  if (source === "activity" || source === "both") {
-    const activityMessage = buildActivityLiveProgressMessage(event, items, language);
-    if (activityMessage) messages.push(activityMessage);
-  }
-  if (messages.length === 0) return null;
-  if (source !== "both" || messages.length === 1) return messages[0];
-  return {
-    key: messages.map((message) => message.key).join("|"),
-    html: messages.map((message) => message.html).join("\n\n"),
-    important: messages.some((message) => message.important)
-  };
-}
-
-function buildAgentLiveProgressMessage(event) {
-  if (event.type !== "item.started" && event.type !== "item.updated" && event.type !== "item.completed") return null;
-
-  const item = event.item;
-  if (!item) return null;
-
-  if (item.type === "agent_message") {
-    const text = String(item.text || "").trim();
-    if (!text) return null;
-    return {
-      key: `agent-message-${item.id}-${hashString(text)}`,
-      html: formatLiveAgentMessageHtml(text),
-      important: event.type === "item.completed"
-    };
-  }
-  return null;
-}
-
-function buildActivityLiveProgressMessage(event, items, language = "en") {
-  if (event.type === "turn.started") {
-    return { key: "turn-started", html: lt(language, "liveTurnStarted"), important: true };
-  }
-  if (event.type === "turn.completed") {
-    return { key: "turn-completed", html: lt(language, "liveTurnCompleted"), important: true };
-  }
-  if (event.type !== "item.started" && event.type !== "item.updated" && event.type !== "item.completed") return null;
-
-  const item = event.item;
-  if (!item) return null;
-  if (item.type === "reasoning") {
-    return { key: "reasoning", html: lt(language, "liveReasoning"), important: false };
-  }
-  if (item.type === "todo_list") {
-    const remaining = item.items?.filter((todo) => !todo.completed).length ?? 0;
-    return {
-      key: `todo-${remaining}`,
-      html: remaining > 0
-        ? ltf(language, "liveTodoRemaining", { remaining: code(remaining) })
-        : lt(language, "liveTodoOrganizing"),
-      important: false
-    };
-  }
-  if (item.type === "command_execution") {
-    const command = shortCommand(item.command || "");
-    if (item.status === "failed") {
-      return { key: `cmd-failed-${item.id}`, html: ltf(language, "liveCommandFailed", { command: code(command) }), important: true };
-    }
-    if (item.status === "completed") {
-      return { key: `cmd-done-${item.id}`, html: ltf(language, "liveCommandFinished", { command: code(command) }), important: false };
-    }
-    return { key: `cmd-running-${item.id}`, html: ltf(language, "liveCommandRunning", { command: code(command) }), important: false };
-  }
-  if (item.type === "file_change") {
-    const paths = summarizeFileChangePaths(item);
-    if (item.status === "failed") {
-      return { key: `file-failed-${item.id}`, html: lt(language, "liveFileFailed"), important: true };
-    }
-    return { key: `file-done-${item.id}`, html: ltf(language, "liveFileUpdated", { paths: code(paths || lt(language, "liveChangedFiles")) }), important: true };
-  }
-  if (item.type === "mcp_tool_call") {
-    const tool = shortToolName(item);
-    if (item.status === "failed") {
-      return { key: `tool-failed-${item.id}`, html: ltf(language, "liveToolFailed", { tool: code(tool) }), important: true };
-    }
-    if (item.status === "completed") {
-      return { key: `tool-done-${item.id}`, html: ltf(language, "liveToolFinished", { tool: code(tool) }), important: false };
-    }
-    return { key: `tool-running-${item.id}`, html: ltf(language, "liveToolRunning", { tool: code(tool) }), important: false };
-  }
-  if (item.type === "web_search") {
-    if (event.type === "item.completed") return { key: `web-done-${item.id}`, html: lt(language, "liveWebFinished"), important: false };
-    return { key: `web-running-${item.id}`, html: lt(language, "liveWebRunning"), important: false };
-  }
-  if (item.type === "error") {
-    return { key: `item-error-${item.id}`, html: lt(language, "liveItemError"), important: true };
-  }
-  if (item.type === "agent_message" && event.type !== "item.completed") {
-    return { key: "agent-message-draft", html: lt(language, "liveAgentDraft"), important: false };
-  }
-  return null;
-}
-
-function formatLiveAgentMessageHtml(text) {
-  const max = Math.min(Math.max(500, runtimeValue("maxTelegramChars")), 2000);
-  const body = truncate(text.trim(), max);
-  return runtimeValue("telegramFormatCodexAnswers") === "markdown"
-    ? formatCodexAnswerMarkdownHtml(body)
-    : formatCodexAnswerSafeHtml(body);
-}
-
-function hashString(value) {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
-  }
-  return Math.abs(hash).toString(36);
-}
-
-function shortCommand(command) {
-  return truncate(redactText(String(command || "").replace(/\s+/g, " ").trim()) || "command", 90);
-}
-
-function shortToolName(item) {
-  return truncate([item.server, item.tool].filter(Boolean).join("/") || "tool", 80);
-}
-
-function summarizeFileChangePaths(item) {
-  const paths = (item.changes ?? []).map((change) => change.path).filter(Boolean);
-  if (paths.length === 0) return "";
-  const summary = paths.slice(0, 3).join(", ");
-  return paths.length > 3 ? `${summary}, +${paths.length - 3}` : summary;
 }
 
 async function sendPanel(ctx, panel, options = {}) {
@@ -3503,237 +3273,6 @@ function formatOptionsHtml(chatKey) {
   ]);
 }
 
-async function buildStatusDetails(chatKey) {
-  const chat = getChatState(chatKey);
-  const cached = threadCache.get(chatKey);
-  const activeInfo = activeTurns.get(chatKey) ?? null;
-  const threadId = chat.threadId || cached?.id || "";
-  const fallbackSession = threadId ? null : (await listRecentCodexSessions(1))[0] ?? null;
-  const usageSummary = await buildBestCodexUsageSummary(chatKey, threadId || fallbackSession?.id || "");
-  return {
-    threadId,
-    active: Boolean(activeInfo),
-    activeInfo,
-    sideTurns: getSideTurnCount(chatKey),
-    queued: getPendingTurns(chatKey).length,
-    queuePaused: isQueuePaused(chatKey),
-    queueMode: getQueueMode(chatKey),
-    deliverySummary: summarizeWorkerDeliveryStatus(state.worker?.deliveries, chatKey),
-    fallbackSession,
-    usageSummary
-  };
-}
-
-function formatStatusHtml(chatKey, details) {
-  const lines = [
-    b("Codex Telegram Bot"),
-    `Checked: ${code(formatDateTime(new Date()))}`,
-    `Thread: ${code(details.threadId || "not started")}`,
-    `Active turn: ${code(details.active ? "yes" : "no")}`,
-    `Side turns: ${code(details.sideTurns ?? getSideTurnCount(chatKey))}`,
-    `Queue mode: ${code(details.queueMode ?? getQueueMode(chatKey))}`,
-    `Queue paused: ${code(details.queuePaused ? "yes" : "no")}`,
-    `Queued turns: ${code(details.queued ?? getPendingTurns(chatKey).length)}`
-  ];
-  lines.push(...formatPendingDeliveryLines(details.deliverySummary));
-  if (details.activeInfo?.currentTurnStartedAt) {
-    const elapsed = Math.max(0, (Date.now() - Date.parse(details.activeInfo.currentTurnStartedAt)) / 1000);
-    lines.push(
-      `Current turn: ${code(truncate(details.activeInfo.currentText?.replace(/\s+/g, " ") || "unknown", 100))}`,
-      `Elapsed: ${code(formatDurationSeconds(elapsed))}`
-    );
-    if (details.activeInfo.lastProgress) {
-      lines.push(
-        `Last progress: ${code(truncate(details.activeInfo.lastProgress, 100))}`,
-        `Last progress at: ${code(formatDateTime(details.activeInfo.lastProgressAt))}`
-      );
-    }
-  }
-  if (details.fallbackSession) lines.push(`Usage source: latest session ${code(details.fallbackSession.id)}`);
-  if (details.usageSummary) lines.push("", pre(details.usageSummary));
-  lines.push("", formatOptionsHtml(chatKey));
-  return lines.join("\n");
-}
-
-async function formatRecoveryStatusHtml() {
-  const [active, marker, dedupe] = await Promise.all([
-    readActiveTurnSnapshots(config.botRecoveryDir),
-    readRestartMarker(config.botRecoveryDir),
-    readRecoveryDedupe(config.botRecoveryDir)
-  ]);
-  const activeSnapshots = Object.values(active.turns ?? {});
-  const dedupeEntries = Object.entries(dedupe.recentRecoveryKeys ?? {});
-  return formatKeyValueHtml(t("recoveryStatusTitle"), [
-    ["enabled", config.botRestartRecoveryEnabled ? "yes" : "no"],
-    ["active snapshots", activeSnapshots.length],
-    ["restart marker", marker?.restartId || "none"],
-    ["marker mode", marker?.mode || "none"],
-    ["marker recoveries", marker?.recoveries?.length ?? 0],
-    ["stale seconds", config.botRecoveryStaleSeconds],
-    ["suspend after", config.botRecoverySuspendAfter],
-    ["backfill poll", config.botRecoveryBackfillPollMs > 0 ? `${config.botRecoveryBackfillPollMs}ms` : "off"],
-    ["recent recovery keys", dedupeEntries.length],
-    ["last active", activeSnapshots.at(-1)?.chatKey || "none"]
-  ]);
-}
-
-function formatRestartScheduledHtml(marker) {
-  return formatKeyValueHtml(t("restartScheduledTitle"), [
-    ["restart id", marker.restartId],
-    ["active recoveries", marker.recoveries.length],
-    ["delay", `${config.botRestartDelaySeconds}s`],
-    ["drain timeout", `${config.botRestartDrainTimeoutSeconds}s`],
-    ["exit code", marker.exitCode]
-  ]);
-}
-
-function formatRestartRecoveredHtml(marker) {
-  return formatKeyValueHtml(t("recoveryStartupNoticeTitle"), [
-    ["restart id", marker.restartId],
-    ["recoveries", marker.recoveries?.length ?? 0],
-    ["mode", marker.mode || "unknown"]
-  ]);
-}
-
-function formatQueueHtml(chatKey) {
-  const queue = getPendingTurns(chatKey);
-  const deliveryLines = formatPendingDeliveryLines(
-    summarizeWorkerDeliveryStatus(state.worker?.deliveries, chatKey)
-  );
-  if (queue.length === 0) {
-    return [
-      b("Codex queue"),
-      `Active turn: ${code(activeTurns.has(chatKey) ? "yes" : "no")}`,
-      `Side turns: ${code(getSideTurnCount(chatKey))}`,
-      `Mode: ${code(getQueueMode(chatKey))}`,
-      `Paused: ${code(isQueuePaused(chatKey) ? "yes" : "no")}`,
-      ...deliveryLines,
-      t("queueNoTurns")
-    ].join("\n");
-  }
-
-  const lines = [
-    b("Codex queue"),
-    `Active turn: ${code(activeTurns.has(chatKey) ? "yes" : "no")}`,
-    `Side turns: ${code(getSideTurnCount(chatKey))}`,
-    `Mode: ${code(getQueueMode(chatKey))}`,
-    `Paused: ${code(isQueuePaused(chatKey) ? "yes" : "no")}`,
-    `Queued turns: ${code(queue.length)} / ${code(runtimeValue("telegramPendingTurnsMax"))}`,
-    ...deliveryLines,
-    `Auto expiry: ${code(runtimeValue("telegramPendingTurnMaxAgeSeconds") <= 0 ? "off" : formatDurationSeconds(runtimeValue("telegramPendingTurnMaxAgeSeconds")))}`,
-    ""
-  ];
-  for (const [index, turn] of queue.entries()) {
-    const imageSuffix = turn.imagePaths.length > 0 ? `, images:${turn.imagePaths.length}` : "";
-    const expires = runtimeValue("telegramPendingTurnMaxAgeSeconds") <= 0 ? "no expiry" : `expires ${formatDateTime(turn.expiresAt)}`;
-    const kindPrefix = turn.kind === "recovery" ? "[recovery] " : "";
-    lines.push(`${index + 1}. ${code(`${kindPrefix}${truncate(turn.text.replace(/\s+/g, " "), 120)}`)} (${code(turn.id)}, ${code(formatDateTime(turn.enqueuedAt))}, ${code(expires)}${imageSuffix})`);
-  }
-  lines.push("", t("queueButtonsHelp"));
-  return lines.join("\n");
-}
-
-function formatPendingDeliveryLines(summary) {
-  if (!summary || summary.count <= 0) return [];
-  const deliveryKey = summary.status === "uncertain"
-    ? "telegramDeliveryUncertain"
-    : "telegramDeliveryPending";
-  const recoveryKey = summary.recovery === "automatic_replay_disabled"
-    ? "telegramDeliveryReplayDisabled"
-    : summary.recovery === "manual_review_required"
-      ? "telegramDeliveryManualReview"
-      : "telegramDeliverySafeReplay";
-  return [
-    t("deliveryCodexExecutionCompleted"),
-    tf(deliveryKey, { count: summary.count }),
-    t(recoveryKey)
-  ];
-}
-
-function formatQueueModeHtml(chatKey) {
-  return [
-    b("Codex queue mode"),
-    `Current: ${code(getQueueMode(chatKey))}`,
-    "",
-    `${code("safe")}: ${t("queueModeSafeDescription")}`,
-    `${code("interrupt")}: ${t("queueModeInterruptDescription")}`,
-    `${code("side")}: ${t("queueModeSideDescription")}`,
-    "",
-    `Change with ${code("/queue_mode_safe")}, ${code("/queue_mode_interrupt")}, or ${code("/queue_mode_side")}.`
-  ].join("\n");
-}
-
-async function formatDoctorHtml(chatKey) {
-  const [botPackage, sdkPackage, cliVersion, modelsMeta, yoloWrapper] = await Promise.all([
-    readJsonFile(path.join(appRoot, "package.json")),
-    readPackageJson("@openai/codex-sdk"),
-    readCommandOutput(config.codexPath, ["--version"], 5000),
-    readModelsCacheMeta(),
-    readYoloWrapperStatus()
-  ]);
-  const options = getEffectiveOptions(chatKey);
-  const declaredSdk = botPackage?.dependencies?.["@openai/codex-sdk"] || "unknown";
-  const rows = [
-    ["bot version", botPackage?.version || "unknown"],
-    ["node", process.version],
-    ["codex-sdk installed", sdkPackage?.version || "unknown"],
-    ["codex-sdk declared", declaredSdk],
-    ["codex cli", cliVersion.ok ? cliVersion.output : `error: ${cliVersion.error}`],
-    ["codex path", config.codexPath],
-    ["yolo wrapper", yoloWrapper],
-    ["models cache", modelsMeta.status],
-    ["models cache client", modelsMeta.clientVersion],
-    ["models cache fetched", modelsMeta.fetchedAt],
-    ["fast models", modelsMeta.fastModels],
-    ["current model", options.model || "default"],
-    ["current thinking", options.modelReasoningEffort],
-    ["current serviceTier", options.serviceTier || "default"],
-    ["worker mode", runtimeValue("codexWorkerMode")],
-    ["worker socket", config.codexWorkerSocket],
-    ["codex transport", runtimeValue("codexTransport")],
-    ["app-server direct timeout", `${runtimeValue("codexAppServerDirectTimeoutMs")}ms`],
-    ["recovery backfill poll", config.botRecoveryBackfillPollMs > 0 ? `${config.botRecoveryBackfillPollMs}ms` : "off"],
-    ["upgrade smoke test", "/status -> /model -> /fast_status -> message -> /new -> /resume_last"]
-  ];
-  return formatKeyValueHtml("Codex doctor:", rows);
-}
-
-async function formatHealthHtml() {
-  const memory = process.memoryUsage();
-  const [stateCheck, backupCheck, workdirDisk, stateDisk, serviceStatus, workerServiceStatus, uploadPlan] = await Promise.all([
-    checkStateReadWrite(),
-    checkDirectoryWritable(config.backupDir),
-    getDiskSummary(config.codexWorkdir),
-    getDiskSummary(path.dirname(config.stateFile)),
-    readCommandOutput("systemctl", ["--user", "is-active", "codex-telegram-bot.service"], 3000),
-    readCommandOutput("systemctl", ["--user", "is-active", "codex-telegram-worker.service"], 3000),
-    createUploadCleanupPlan({ dryRun: true }).catch(() => null)
-  ]);
-  return formatKeyValueHtml("Bot health:", [
-    ["service", serviceStatus.ok ? serviceStatus.output : "unknown"],
-    ["worker service", workerServiceStatus.ok ? workerServiceStatus.output : "unknown"],
-    ["uptime", formatDurationSeconds(process.uptime())],
-    ["memory rss", formatBytes(memory.rss)],
-    ["memory heap", `${formatBytes(memory.heapUsed)} / ${formatBytes(memory.heapTotal)}`],
-    ["active turns", activeTurns.size],
-    ["side turns", countSideTurns()],
-    ["cached threads", threadCache.size],
-    ["saved chats", Object.keys(state.chats).length],
-    ["live progress", runtimeValue("telegramLiveProgressEnabled") ? `${runtimeValue("telegramLiveProgressMode")}, ${config.telegramLiveProgressSource}, ${config.telegramLiveProgressDeletePolicy}, ${Math.round(runtimeValue("telegramLiveProgressIntervalMs") / 1000)}s interval` : "off"],
-    ["queue expiry", runtimeValue("telegramPendingTurnMaxAgeSeconds") <= 0 ? "off" : formatDurationSeconds(runtimeValue("telegramPendingTurnMaxAgeSeconds"))],
-    ["state read/write", stateCheck],
-    ["backup dir write", backupCheck],
-    ["workdir disk", workdirDisk],
-    ["state disk", stateDisk],
-    ["uploads", uploadPlan ? `${cleanupCount(uploadPlan.candidates.length + uploadPlan.preserved.length)} / ${formatBytes(uploadPlan.totalBytes)}; cleanup ${cleanupCount(uploadPlan.candidates.length)} / ${formatBytes(uploadPlan.candidateBytes)}` : "unavailable"],
-    ["pending turns", countPendingTurns()],
-    ["backup dir", config.backupDir],
-    ["time zone", uiTimeZone()],
-    ["locale", uiLocale()],
-    ["snapshots", runtimeValue("snapshotEnabled") ? `on, ${runtimeValue("snapshotNotifyTime")} ${uiTimeZone()}, ${runtimeValue("snapshotRetentionDays")}d retention` : "off"]
-  ]);
-}
-
 function formatUploadCleanupPlanHtml(plan, record = null) {
   const lines = [
     b("Upload cleanup plan"),
@@ -3831,95 +3370,6 @@ async function formatLogsHtml(ctx, overrideArg = null) {
   const maxBodyLength = Math.max(500, runtimeValue("maxTelegramChars") - 300);
   if (body.length > maxBodyLength) body = `... truncated ...\n${body.slice(-maxBodyLength)}`;
   return `${b("Recent bot logs:")}\n${pre(body || "no logs")}`;
-}
-
-async function readJsonFile(file) {
-  try {
-    return JSON.parse(await fs.readFile(file, "utf8"));
-  } catch {
-    return null;
-  }
-}
-
-async function readPackageJson(packageName) {
-  return readJsonFile(path.join(appRoot, "node_modules", ...packageName.split("/"), "package.json"));
-}
-
-async function readCommandOutput(command, args, timeoutMs) {
-  try {
-    const { stdout, stderr } = await execFileAsync(command, args, { maxBuffer: 1024 * 1024, timeout: timeoutMs });
-    return { ok: true, output: (stdout || stderr).trim() || "no output" };
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-async function readModelsCacheMeta() {
-  try {
-    const stat = await fs.stat(config.codexModelsCacheFile);
-    const parsed = JSON.parse(await fs.readFile(config.codexModelsCacheFile, "utf8"));
-    const models = Array.isArray(parsed?.models) ? parsed.models : [];
-    const fastModels = (await listCodexModels())
-      .filter((model) => model.fastSupported)
-      .map((model) => model.slug);
-    return {
-      status: `found, ${models.length} models, ${formatBytes(stat.size)}`,
-      clientVersion: parsed?.client_version || "unknown",
-      fetchedAt: parsed?.fetched_at || "unknown",
-      fastModels: fastModels.length > 0 ? fastModels.join(", ") : "unknown"
-    };
-  } catch (error) {
-    return {
-      status: `missing or unreadable: ${error instanceof Error ? error.message : String(error)}`,
-      clientVersion: "unknown",
-      fetchedAt: "unknown",
-      fastModels: "unknown"
-    };
-  }
-}
-
-async function readYoloWrapperStatus() {
-  try {
-    const body = await fs.readFile(config.codexPath, "utf8");
-    if (body.includes("--dangerously-bypass-approvals-and-sandbox")) return "enabled";
-    return "not detected";
-  } catch {
-    return "not inspected";
-  }
-}
-
-async function checkStateReadWrite() {
-  try {
-    await fs.readFile(config.stateFile, "utf8");
-    await checkDirectoryWritable(path.dirname(config.stateFile));
-    return "ok";
-  } catch (error) {
-    return `failed: ${error instanceof Error ? error.message : String(error)}`;
-  }
-}
-
-async function checkDirectoryWritable(dir) {
-  const testFile = path.join(dir, `.write-test-${process.pid}-${Date.now()}`);
-  try {
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(testFile, "ok\n", "utf8");
-    await fs.rm(testFile, { force: true });
-    return "ok";
-  } catch (error) {
-    await fs.rm(testFile, { force: true }).catch(() => {});
-    return `failed: ${error instanceof Error ? error.message : String(error)}`;
-  }
-}
-
-async function getDiskSummary(targetPath) {
-  const result = await readCommandOutput("df", ["-Pk", targetPath], 3000);
-  if (!result.ok) return `unknown: ${result.error}`;
-  const line = result.output.split("\n").at(-1);
-  const parts = line?.trim().split(/\s+/) ?? [];
-  if (parts.length < 6) return "unknown";
-  const available = Number(parts[3]) * 1024;
-  const usedPercent = parts[4];
-  return `${formatBytes(available)} free, ${usedPercent} used`;
 }
 
 async function registerTelegramCommands() {
@@ -4140,12 +3590,6 @@ function ltf(language, key, values = {}) {
 
 function cleanupCount(value) {
   return `${value}${t("cleanupCountSuffix")}`;
-}
-
-function countBy(values, getKey) {
-  const counts = {};
-  for (const value of values) counts[getKey(value)] = (counts[getKey(value)] ?? 0) + 1;
-  return counts;
 }
 
 function unique(values) {
