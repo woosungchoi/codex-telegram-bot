@@ -43,8 +43,7 @@ import { TELEGRAM_LANGUAGE_CODES, VALID_LANGUAGES, textFor } from "./i18n.js";
 import {
   appendPrivateFile,
   ensurePrivateDirectory,
-  writePrivateFile,
-  writePrivateFileAtomic
+  writePrivateFile
 } from "./fs/private.js";
 import { parseCodexMaintenanceOutput } from "./maintenance/codex.js";
 import { createCleanupController } from "./maintenance/cleanup_controller.js";
@@ -59,6 +58,12 @@ import {
   serializePendingTurn
 } from "./queue.js";
 import { authorizeTelegramUpdate } from "./security.js";
+import {
+  createRuntimeSettingsController,
+  loadRuntimeState,
+  parseRequiredBoolean,
+  saveRuntimeState
+} from "./runtime/state_store.js";
 import {
   normalizeTelegramId,
   telegramChatActionExtraFromMeta,
@@ -173,8 +178,25 @@ const bot = new Telegraf(config.telegramBotToken, {
   handlerTimeout: Infinity,
   telegram: { agent: telegramApiAgent }
 });
-const state = await loadState(config.stateFile);
 const threadCache = new Map();
+const state = await loadRuntimeState(config.stateFile, {
+  readFile: fs.readFile,
+  defaults: config,
+  parseLanguage,
+  parseTimeZone,
+  parseLocale
+});
+const saveState = saveRuntimeState;
+const {
+  runtimeSeconds,
+  runtimeValue,
+  updateRuntimeSetting
+} = createRuntimeSettingsController({
+  state,
+  defaults: config,
+  threadCache,
+  save: () => saveState(config.stateFile, state)
+});
 const activeTurns = new Map();
 const pendingTurns = new Map();
 const codexClients = new Map();
@@ -2571,133 +2593,6 @@ function isStatusQuestion(text) {
   ].some((keyword) => normalized.includes(keyword));
 }
 
-async function loadState(file) {
-  try {
-    const data = await fs.readFile(file, "utf8");
-    const parsed = JSON.parse(data);
-    return normalizeState(parsed);
-  } catch (error) {
-    if (error?.code === "ENOENT") return normalizeState({});
-    throw error;
-  }
-}
-
-function normalizeState(parsed) {
-  const stateValue = parsed && typeof parsed === "object" ? parsed : {};
-  return {
-    ...stateValue,
-    ui: {
-      language: parseLanguage(stateValue.ui?.language || config.telegramLanguage),
-      timeZone: parseTimeZone(stateValue.ui?.timeZone || config.telegramTimeZone),
-      locale: parseLocale(stateValue.ui?.locale || config.telegramLocale)
-    },
-    runtime: stateValue.runtime && typeof stateValue.runtime === "object" ? sanitizeRuntimeSettings(stateValue.runtime) : {},
-    chats: stateValue.chats && typeof stateValue.chats === "object" ? stateValue.chats : {},
-    queues: stateValue.queues && typeof stateValue.queues === "object" ? stateValue.queues : {},
-    cleanup: {
-      lastDailyDate: stateValue.cleanup?.lastDailyDate ?? "",
-      plans: stateValue.cleanup?.plans && typeof stateValue.cleanup.plans === "object" ? stateValue.cleanup.plans : {}
-    },
-    uploadCleanup: {
-      plans: stateValue.uploadCleanup?.plans && typeof stateValue.uploadCleanup.plans === "object" ? stateValue.uploadCleanup.plans : {}
-    },
-    maintenance: {
-      autoSqliteRepairEnabled: typeof stateValue.maintenance?.autoSqliteRepairEnabled === "boolean"
-        ? stateValue.maintenance.autoSqliteRepairEnabled
-        : config.codexMaintenanceAutoSqliteRepairEnabled,
-      autoHandoffEnabled: typeof stateValue.maintenance?.autoHandoffEnabled === "boolean"
-        ? stateValue.maintenance.autoHandoffEnabled
-        : config.codexMaintenanceAutoHandoffEnabled
-    },
-    worker: {
-      deliveries: stateValue.worker?.deliveries && typeof stateValue.worker.deliveries === "object"
-        ? stateValue.worker.deliveries
-        : {}
-    },
-    snapshots: {
-      lastDailyDate: stateValue.snapshots?.lastDailyDate ?? ""
-    }
-  };
-}
-
-function sanitizeRuntimeSettings(value) {
-  const sanitized = {};
-  for (const [key, raw] of Object.entries(value || {})) {
-    try {
-      setRuntimeValue(sanitized, key, raw);
-    } catch {
-      // Ignore stale or invalid runtime overrides from older state files.
-    }
-  }
-  return sanitized;
-}
-
-function runtimeValue(key) {
-  return state.runtime?.[key] ?? config[key];
-}
-
-function runtimeSeconds(key) {
-  return Math.round(Number(runtimeValue(key) || 0) / 1000);
-}
-
-function setRuntimeValue(target, key, rawValue) {
-  if (rawValue == null || rawValue === "default") {
-    delete target[key];
-    return;
-  }
-  const value = String(rawValue).trim();
-  if (key === "telegramReactionsEnabled" || key === "telegramLiveProgressEnabled" || key === "cleanupEnabled" || key === "snapshotEnabled") {
-    target[key] = parseRequiredBoolean(value, key);
-  } else if (key === "telegramFormatCodexAnswers") {
-    target[key] = parseCodexAnswerFormat(value);
-  } else if (key === "codexTransport") {
-    if (!VALID.codexTransport.has(value)) throw new Error("codexTransport must be sdk or app-server-direct.");
-    target[key] = value;
-  } else if (key === "codexWorkerMode") {
-    if (!VALID.codexWorkerMode.has(value)) throw new Error("codexWorkerMode must be sidecar or inline.");
-    target[key] = value;
-  } else if (key === "telegramLiveProgressMode") {
-    if (!["brief", "korean-brief"].includes(value)) throw new Error("telegramLiveProgressMode must be brief or korean-brief.");
-    target[key] = value;
-  } else if (key === "cleanupNotifyTime" || key === "snapshotNotifyTime") {
-    target[key] = parseTimeOfDay(value);
-  } else if (key === "telegramCompletionNoticeSeconds" || key === "telegramPendingTurnsMax" || key === "telegramPendingTurnMaxAgeSeconds" || key === "cleanupRetentionDays" || key === "cleanupQuarantineDays" || key === "cleanupPlanTtlHours" || key === "snapshotRetentionDays" || key === "logsMaxLines" || key === "maxTelegramChars" || key === "codexAppServerDirectTimeoutMs" || key === "codexWorkerConnectTimeoutMs" || key === "codexWorkerEventPollMs") {
-    target[key] = parseStrictNonnegativeInteger(value, key);
-  } else if (key === "telegramLiveProgressIntervalMs" || key === "progressEditIntervalMs") {
-    const parsed = parseStrictNonnegativeInteger(value, key);
-    target[key] = parsed >= 1000 ? parsed : parsed * 1000;
-  } else {
-    throw new Error(`Unknown runtime setting: ${key}`);
-  }
-}
-
-async function updateRuntimeSetting(key, rawValue) {
-  if (!state.runtime || typeof state.runtime !== "object") state.runtime = {};
-  const previousTransport = codexTransport();
-  const previousWorkerMode = codexWorkerMode();
-  const value = String(rawValue || "").replaceAll("_", ":");
-  setRuntimeValue(state.runtime, key, value);
-  if (key === "codexTransport" && codexTransport() !== previousTransport) threadCache.clear();
-  if (key === "codexWorkerMode" && codexWorkerMode() !== previousWorkerMode) threadCache.clear();
-  await saveState(config.stateFile, state);
-}
-
-function parseStrictNonnegativeInteger(value, label) {
-  const parsed = Number(String(value ?? "").trim());
-  if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${label} must be a non-negative integer.`);
-  return parsed;
-}
-
-function parseTimeOfDay(value) {
-  const normalized = String(value || "").trim().replaceAll("_", ":");
-  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(normalized)) throw new Error("Time must use HH:MM.");
-  return normalized;
-}
-
-async function saveState(file, value) {
-  await writePrivateFileAtomic(file, `${JSON.stringify(value, null, 2)}\n`);
-}
-
 async function ensureDirectory(dir, label) {
   const stat = await fs.stat(dir);
   if (!stat.isDirectory()) throw new Error(`${label} is not a directory: ${dir}`);
@@ -5079,19 +4974,6 @@ function ltf(language, key, values = {}) {
 
 function cleanupCount(value) {
   return `${value}${t("cleanupCountSuffix")}`;
-}
-
-function parseRequiredBoolean(value, label) {
-  const normalized = value.trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(normalized)) return true;
-  if (["0", "false", "no", "off"].includes(normalized)) return false;
-  throw new Error(`${label} must be on or off.`);
-}
-
-function parseCodexAnswerFormat(value) {
-  const normalized = value?.trim().toLowerCase() || "markdown";
-  if (["off", "safe", "markdown"].includes(normalized)) return normalized;
-  throw new Error("TELEGRAM_FORMAT_CODEX_ANSWERS must be off, safe, or markdown.");
 }
 
 function countBy(values, getKey) {
