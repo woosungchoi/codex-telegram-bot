@@ -2,6 +2,82 @@
 
 All notable public changes are documented here.
 
+## 1.2.9 - 2026-07-21
+
+### Runtime architecture
+
+- Reduced `src/runtime.js` from 7,512 lines to 1,267 lines while preserving it
+  as the explicit composition root for the Telegram bot. Runtime behavior is
+  now organized behind focused controllers instead of hundreds of unrelated
+  top-level helpers sharing one module.
+- Extracted chat option handling, Codex session and turn execution, queue and
+  side-turn state, worker delivery, restart recovery, Telegram input and
+  response handling, live progress, status diagnostics, model presentation,
+  settings callbacks, maintenance, backup, cleanup, and panel rendering into
+  independently testable modules.
+- Added dedicated execution and route composition modules. Codex execution,
+  recovery journaling, worker polling, and turn lifecycle wiring now live in
+  one execution boundary, while command, callback, middleware, and ordinary
+  message registration live in one routing boundary.
+- Kept `src/runtime.js` intentionally declarative after the extraction. It now
+  owns process startup, dependency construction, and lifecycle ordering rather
+  than duplicating domain behavior in another abstraction layer.
+
+### Cleanup artifact retention audit
+
+- Added an audit-only cleanup artifact retention command that produces a
+  canonical, SHA-256-integrity-protected manifest without deleting data,
+  enabling an operator to review every candidate, exclusion, and blocking
+  finding before any future retention action is considered.
+- Limited candidates to closed, expired, or restore-complete top-level cleanup
+  artifact directories older than the retention window while preserving the
+  newest seven artifacts. The audit rejects nested symlinks, special files,
+  filesystem crossings, malformed manifests, active approvals, restore
+  markers, configured restore references, and same-user process references.
+- Made retention fail closed for invalid state, incomplete artifacts,
+  uninspectable process references, or a candidate set exceeding the one-GiB
+  review budget. Budget overflow aborts the entire plan instead of silently
+  truncating the candidate list.
+- Added cleanup JSONL log inspection with monthly private-gzip rotation plans,
+  strict archive filename/content validation, and a 180-day archive retention
+  recommendation. The audit records plans only; no deletion path or automatic
+  timer is enabled by this release.
+- Hardened generated cleanup restore scripts so an active restore reference is
+  published and cleared around restoration, and the manifest bytes verified
+  by the restore path are the same bytes pinned by the recorded SHA-256 digest.
+
+### Safety and compatibility
+
+- Preserved the existing Telegram commands, callback payloads, model and
+  reasoning selection behavior, queue modes, worker sidecar protocol, restart
+  recovery records, persisted chat state, and localized panel output across
+  the structural refactor.
+- Replaced source-text assertions with behavior-focused controller and router
+  tests so future internal movement does not require tests to understand the
+  physical layout of `src/runtime.js`.
+- Added focused coverage for state normalization, queue persistence, worker
+  event reconstruction, Codex stream recovery, startup scheduling, Telegram
+  routing, panel rendering, cleanup planning, command registration, redaction,
+  localization, and service-facing response behavior.
+- Detected a missing queue-state dependency during the post-merge live startup
+  smoke, stopped the restart loop, injected the persisted state explicitly,
+  and added a regression test that hydrates queued turns from the injected
+  store before completing the release.
+- Preserved the public dependency baseline with `@openai/codex-sdk` and the
+  package-local `@openai/codex` CLI at 0.144.6 and ESLint at 10.7.0 while
+  replaying the implementation commits from the private service checkout.
+
+### Verification
+
+- Passed syntax checks for 191 JavaScript files, validation for all three
+  locale files, ESLint, package/workflow formatting checks, 455 deterministic
+  tests, and the moderate-level npm audit with zero known vulnerabilities.
+- Rebuilt both code graphs after the refactor and reviewed the high-impact
+  session, execution, recovery, queue, and Telegram routing boundaries.
+- Restarted the local bot from the final merged commit and confirmed it remains
+  active with a stable process, no additional restart attempts, and no new
+  warning-level startup logs.
+
 ## 1.2.8 - 2026-07-21
 
 ### Selection flows
