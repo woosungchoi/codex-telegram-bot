@@ -18,7 +18,6 @@ import {
   appServerThreadReadEvents,
   readAppServerThread
 } from "./codex/app_server.js";
-import { buildInput, mergeReplyContext } from "./codex/input.js";
 import {
   findCodexModel,
   isReasoningEffortSupported,
@@ -33,7 +32,8 @@ import { buildStyleInstructionPrompt } from "./codex/prompts.js";
 import { readCodexSessionBackfill } from "./codex/session_backfill.js";
 import { isCodexSkillsView, replyCodexSkillsStatus } from "./codex/skills_status.js";
 import { applyCodexStreamEvent, codexStreamItems, codexStreamResult, createCodexStreamState } from "./codex/stream.js";
-import { createCodexStreamWatchdog, isStreamIdleTimeout, STREAM_IDLE_TIMEOUT_MESSAGE } from "./codex/watchdog.js";
+import { createCodexStreamWatchdog, STREAM_IDLE_TIMEOUT_MESSAGE } from "./codex/watchdog.js";
+import { createTurnRuntimeController } from "./codex/turn_controller.js";
 import { analyzeContextPressure, resolveAutoCompactTokenLimit } from "./codex/compact.js";
 import {
   CODEX_TRANSPORT_APP_SERVER_DIRECT,
@@ -57,7 +57,6 @@ import {
   enqueueTurn,
   hydratePendingQueues,
   moveTurn,
-  planIncomingTurn,
   pruneExpiredTurns,
   removeRecoveryTurns,
   removeTurn,
@@ -75,7 +74,6 @@ import {
   createTelegramApiAgent,
   editOrReplyTelegramHtml,
   replyTelegramHtml,
-  runTelegramFinalDelivery,
   runTelegramProgressBestEffort,
   sendTelegramHtml,
   summarizeTelegramError
@@ -388,13 +386,88 @@ const {
   },
   sleep
 });
+let runtimeRecoveryController = null;
 const {
-  handleProcessSignal,
-  handleRestartCommand,
-  isRestartScheduled,
-  scheduleStartupRecovery,
-  startRecoveryScheduler
-} = createRuntimeRecoveryController({
+  handleCodexMessage,
+  runPreparedTurnQueue,
+  startPreparedTurnQueue
+} = createTurnRuntimeController({
+  settings: {
+    maxPendingTurns: () => runtimeValue("telegramPendingTurnsMax"),
+    pendingTurnMaxAgeSeconds: () => runtimeValue("telegramPendingTurnMaxAgeSeconds"),
+    thinkingReaction: config.telegramThinkingReaction,
+    stoppedReaction: config.telegramStoppedReaction,
+    errorReaction: config.telegramErrorReaction,
+    completeReaction: config.telegramCompleteReaction
+  },
+  activeTurns,
+  queue: {
+    createItemId: createQueueItemId,
+    dequeue: dequeuePendingTurn,
+    enqueue: enqueuePendingTurn,
+    enqueueFront: enqueuePendingTurnFront,
+    getMode: getQueueMode,
+    getPending: getPendingTurns,
+    hasPendingFinalDelivery,
+    isPaused: isQueuePaused,
+    pruneExpired: pruneExpiredPendingTurns
+  },
+  lifecycle: {
+    isRecoveryActive,
+    isRestartScheduled: () => runtimeRecoveryController?.isRestartScheduled() ?? false
+  },
+  context: {
+    applyPersonaPrompt,
+    buildReplyContext,
+    ensureTurnContext,
+    getChatKey,
+    telegramMessageMeta
+  },
+  codex: {
+    formatTurn,
+    getChatThreadId: (chatKey) => getChatState(chatKey).threadId,
+    getOrCreateThread,
+    maybeNotifyContextPressure,
+    rememberThread,
+    runTurn: runCodexTurn,
+    startThread: startCodexThread
+  },
+  worker: {
+    enabled: useWorkerSidecar,
+    processPreparedTurn: processPreparedTurnViaWorker
+  },
+  recovery: {
+    recordActiveTurnCompleted,
+    recordActiveTurnFailed,
+    recordActiveTurnStarted,
+    recordTelegramReplyCompleted,
+    recordTelegramReplyFailed,
+    recordTelegramReplyReady,
+    recordTelegramReplyStarted,
+    restoreThreadForTurn: restoreRecoveryThreadForTurn
+  },
+  progress: {
+    createState: createLiveProgressState,
+    deleteMessages: deleteTrackedProgressMessages,
+    shouldDelete: shouldDeleteLiveProgress
+  },
+  telegram: {
+    reactQuietly,
+    replyCodexAnswer,
+    replyHtml
+  },
+  status: {
+    buildStatusDetails,
+    formatStatusHtml,
+    isStatusQuestion
+  },
+  sideTurns: {
+    track: trackSideTurn,
+    untrack: untrackSideTurn
+  },
+  text: t
+});
+runtimeRecoveryController = createRuntimeRecoveryController({
   settings: {
     enabled: config.botRestartRecoveryEnabled,
     recoveryDir: config.botRecoveryDir,
@@ -470,6 +543,12 @@ const {
   text: t,
   sleep
 });
+const {
+  handleProcessSignal,
+  handleRestartCommand,
+  scheduleStartupRecovery,
+  startRecoveryScheduler
+} = runtimeRecoveryController;
 
 hydratePendingTurnsFromState();
 
@@ -1346,294 +1425,6 @@ await bootstrapBot({
   startRecoveryScheduler,
   handleSignal: handleProcessSignal
 });
-
-async function handleCodexMessage(ctx, text, loadImages) {
-  const chatKey = getChatKey(ctx);
-  await pruneExpiredPendingTurns(chatKey, ctx);
-  const pendingDelivery = hasPendingFinalDelivery(chatKey);
-  if (isStatusQuestion(text) && (activeTurns.has(chatKey) || pendingDelivery || getPendingTurns(chatKey).length > 0)) {
-    await replyHtml(ctx, formatStatusHtml(chatKey, await buildStatusDetails(chatKey)));
-    return;
-  }
-  if (isRestartScheduled() || isRecoveryActive(chatKey)) {
-    await handleSafeQueuedMessage(ctx, chatKey, text, loadImages);
-    return;
-  }
-
-  const incomingPlan = planIncomingTurn({
-    active: activeTurns.has(chatKey),
-    pendingDelivery,
-    paused: isQueuePaused(chatKey),
-    pendingCount: getPendingTurns(chatKey).length,
-    queueMode: getQueueMode(chatKey)
-  });
-  if (incomingPlan === "enqueue_front_interrupt") {
-    await handleInterruptMessage(ctx, chatKey, text, loadImages);
-    return;
-  }
-  if (incomingPlan === "start_side") {
-    await handleSideMessage(ctx, chatKey, text, loadImages);
-    return;
-  }
-  if (incomingPlan === "enqueue_back") {
-    await handleSafeQueuedMessage(ctx, chatKey, text, loadImages);
-    return;
-  }
-
-  const active = { abortController: null, stopRequested: false };
-  activeTurns.set(chatKey, active);
-  try {
-    const preparedTurn = await prepareCodexTurn(ctx, text, loadImages);
-    if (active.interruptBeforeStart) {
-      const nextTurn = await dequeuePendingTurn(chatKey, ctx);
-      if (nextTurn) startPreparedTurnQueueInBackground(chatKey, nextTurn, active);
-      else activeTurns.delete(chatKey);
-      return;
-    }
-    startPreparedTurnQueueInBackground(chatKey, preparedTurn, active);
-  } catch (error) {
-    await replyHtml(ctx, `<b>Failed to prepare Codex input</b>\n${code(error instanceof Error ? error.message : String(error))}`);
-    const nextTurn = await dequeuePendingTurn(chatKey, ctx);
-    if (nextTurn) startPreparedTurnQueueInBackground(chatKey, nextTurn, active);
-    else activeTurns.delete(chatKey);
-  }
-}
-
-async function handleSafeQueuedMessage(ctx, chatKey, text, loadImages) {
-  let preparedTurn;
-  try {
-    preparedTurn = await prepareCodexTurn(ctx, text, loadImages);
-  } catch (error) {
-    await replyHtml(ctx, `<b>Failed to prepare Codex input</b>\n${code(error instanceof Error ? error.message : String(error))}`);
-    return;
-  }
-  const queued = await enqueuePendingTurn(chatKey, preparedTurn);
-  if (!queued.ok) {
-    await replyHtml(ctx, `${b("Codex queue is full.")}\nMax queued turns: ${code(runtimeValue("telegramPendingTurnsMax"))}\nUse ${code("/queue")} or ${code("/cancelqueue")}.`);
-    return;
-  }
-  const paused = isQueuePaused(chatKey) ? "\nQueue is paused. Use /queue_resume to continue." : "";
-  await replyHtml(ctx, `Queued Codex turn: ${code(`#${queued.position}`)}${paused}\nUse ${code("/queue")} to inspect or ${code("/cancelqueue")} to clear.`);
-}
-
-async function handleInterruptMessage(ctx, chatKey, text, loadImages) {
-  let preparedTurn;
-  try {
-    preparedTurn = await prepareCodexTurn(ctx, text, loadImages);
-  } catch (error) {
-    await replyHtml(ctx, `<b>Failed to prepare Codex input</b>\n${code(error instanceof Error ? error.message : String(error))}`);
-    return;
-  }
-
-  const active = activeTurns.get(chatKey);
-  if (!active) {
-    await startPreparedTurnQueue(chatKey, preparedTurn);
-    return;
-  }
-
-  const queued = await enqueuePendingTurnFront(chatKey, preparedTurn);
-  if (!queued.ok) {
-    await replyHtml(ctx, `${b("Codex queue is full.")}\nMax queued turns: ${code(runtimeValue("telegramPendingTurnsMax"))}\nUse ${code("/queue")} or ${code("/cancelqueue")}.`);
-    return;
-  }
-
-  active.interruptRequested = true;
-  if (active.abortController) active.abortController.abort();
-  else active.interruptBeforeStart = true;
-  await replyHtml(ctx, `${b(t("interruptRequestedTitle"))}\n${t("interruptRequestedDetail")}`);
-}
-
-async function handleSideMessage(ctx, chatKey, text, loadImages) {
-  let preparedTurn;
-  try {
-    preparedTurn = await prepareCodexTurn(ctx, text, loadImages);
-  } catch (error) {
-    await replyHtml(ctx, `<b>Failed to prepare side input</b>\n${code(error instanceof Error ? error.message : String(error))}`);
-    return;
-  }
-
-  processSideTurn(chatKey, preparedTurn).catch(async (error) => {
-    await replyHtml(ctx, `<b>Side turn failed</b>\n${code(error instanceof Error ? error.message : String(error))}`).catch(() => {});
-  });
-  await replyHtml(ctx, `${b(t("sideTurnStartedTitle"))}\n${t("sideTurnStartedDetail")}`);
-}
-
-async function startPreparedTurnQueue(chatKey, preparedTurn) {
-  const active = { abortController: null, stopRequested: false };
-  activeTurns.set(chatKey, active);
-  startPreparedTurnQueueInBackground(chatKey, preparedTurn, active);
-}
-
-function startPreparedTurnQueueInBackground(chatKey, preparedTurn, active) {
-  runPreparedTurnQueue(chatKey, preparedTurn, active).catch(async (error) => {
-    activeTurns.delete(chatKey);
-    const ctx = ensureTurnContext(preparedTurn);
-    await replyHtml(ctx, `<b>Queued Codex turn failed</b>\n${code(error instanceof Error ? error.message : String(error))}`).catch(() => {});
-  });
-}
-
-async function processSideTurn(chatKey, preparedTurn) {
-  const ctx = ensureTurnContext(preparedTurn);
-  const abortController = new AbortController();
-  trackSideTurn(chatKey, abortController);
-  let finalReaction = "";
-  await reactQuietly(ctx, config.telegramThinkingReaction);
-  const typingInterval = setInterval(() => {
-    ctx.sendChatAction("typing").catch(() => {});
-  }, 4500);
-
-  try {
-    const input = buildInput(applySideThreadPrompt(preparedTurn.inputText), preparedTurn.imagePaths);
-    const thread = startCodexThread(chatKey);
-    const turn = await runCodexTurn(ctx, chatKey, thread, input, abortController.signal, undefined, null, { rememberThreadId: false });
-    const response = formatTurn(turn);
-    await replyHtml(ctx, b("Side reply"));
-    await replyCodexAnswer(ctx, response || "Side Codex turn completed without a final message.");
-    finalReaction = config.telegramCompleteReaction;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    finalReaction = abortController.signal.aborted ? config.telegramStoppedReaction : config.telegramErrorReaction;
-    await replyHtml(ctx, `<b>Side Codex failed</b>\n${code(message)}`);
-  } finally {
-    clearInterval(typingInterval);
-    untrackSideTurn(chatKey, abortController);
-    await reactQuietly(ctx, finalReaction, finalReaction === config.telegramCompleteReaction);
-  }
-}
-
-function applySideThreadPrompt(inputText) {
-  return [
-    "This is a side reply while the main Telegram Codex turn continues.",
-    "Answer the user directly. Avoid file changes or write commands; if the request requires changing files, say it should be queued in safe mode instead.",
-    "",
-    inputText
-  ].join("\n");
-}
-
-async function prepareCodexTurn(ctx, text, loadImages) {
-  const replyContext = await buildReplyContext(ctx);
-  const imagePaths = [...replyContext.imagePaths, ...await loadImages()];
-  const inputText = applyPersonaPrompt(mergeReplyContext(text, replyContext));
-  const enqueuedAt = new Date();
-  const messageMeta = telegramMessageMeta(ctx);
-  return {
-    id: createQueueItemId(),
-    ctx,
-    chatKey: getChatKey(ctx),
-    chatId: ctx.chat?.id ?? ctx.from?.id,
-    ...messageMeta,
-    kind: "user",
-    text,
-    inputText,
-    imagePaths,
-    enqueuedAt: enqueuedAt.toISOString(),
-    expiresAt: new Date(enqueuedAt.getTime() + runtimeValue("telegramPendingTurnMaxAgeSeconds") * 1000).toISOString()
-  };
-}
-
-async function runPreparedTurnQueue(chatKey, firstTurn, active) {
-  let nextTurn = firstTurn;
-  while (nextTurn) {
-    active.interruptBeforeStart = false;
-    active.abortController = new AbortController();
-    await processPreparedTurn(chatKey, nextTurn, active);
-    if (active.stopRequested) break;
-    if (isQueuePaused(chatKey)) break;
-    nextTurn = await dequeuePendingTurn(chatKey, nextTurn.ctx);
-  }
-
-  activeTurns.delete(chatKey);
-}
-
-async function processPreparedTurn(chatKey, preparedTurn, active) {
-  const startedAt = Date.now();
-  let finalReaction = "";
-  const ctx = ensureTurnContext(preparedTurn);
-  active.currentTurnStartedAt = new Date(startedAt).toISOString();
-  active.currentText = preparedTurn.text;
-  active.currentQueueItemId = preparedTurn.id || "";
-  active.lastProgress = "";
-  active.lastProgressAt = "";
-  active.currentPreparedTurn = preparedTurn;
-  active.recoveryEligible = true;
-  const liveProgress = createLiveProgressState(active);
-  liveProgress.chatKey = chatKey;
-  let deliveryCompleted = false;
-  await restoreRecoveryThreadForTurn(chatKey, preparedTurn);
-  await recordActiveTurnStarted(chatKey, preparedTurn);
-  await reactQuietly(ctx, config.telegramThinkingReaction);
-  const typingInterval = setInterval(() => {
-    ctx.sendChatAction("typing").catch(() => {});
-  }, 4500);
-
-  try {
-    let execution;
-    try {
-      execution = useWorkerSidecar()
-        ? await processPreparedTurnViaWorker(ctx, chatKey, preparedTurn, active, liveProgress)
-        : await processPreparedTurnInline(ctx, chatKey, preparedTurn, active, liveProgress);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      finalReaction = active.abortController?.signal?.aborted ? config.telegramStoppedReaction : config.telegramErrorReaction;
-      if (active.interruptRequested && active.abortController?.signal?.aborted) {
-        await replyHtml(ctx, `${b(t("codexTurnInterruptedTitle"))}\n${t("codexTurnInterruptedDetail")}`);
-        active.interruptRequested = false;
-      } else if (preparedTurn.kind === "recovery" && isStreamIdleTimeout(error)) {
-        await recordActiveTurnFailed(chatKey, STREAM_IDLE_TIMEOUT_MESSAGE);
-        await replyHtml(ctx, `${b(t("recoveryStreamIdleTimeoutTitle"))}\n${t("recoveryStreamIdleTimeoutDetail")}`);
-      } else {
-        await recordActiveTurnFailed(chatKey, message);
-        await replyHtml(ctx, `<b>Codex failed</b>\n${code(message)}`);
-      }
-      return;
-    }
-
-    const response = formatTurn(execution.turn);
-    const replyText = response || "Codex completed without a final message.";
-    const delivery = await runTelegramFinalDelivery({
-      onReady: () => recordTelegramReplyReady(chatKey, execution, replyText),
-      onStarted: () => recordTelegramReplyStarted(chatKey, execution, replyText),
-      send: () => replyCodexAnswer(ctx, replyText),
-      onCompleted: () => recordTelegramReplyCompleted(chatKey, execution, replyText),
-      onFailed: (error, context) => recordTelegramReplyFailed(chatKey, execution, error, {
-        ambiguous: context.requestStarted
-      })
-    });
-    if (!delivery.ok) {
-      active.stopRequested = true;
-      active.deliveryPending = true;
-      if (delivery.recordError) {
-        console.warn("Telegram final delivery failure could not be recorded:", summarizeTelegramError(delivery.recordError));
-      }
-      console.warn("Telegram final reply delivery failed:", delivery.errorSummary);
-      return;
-    }
-
-    await recordActiveTurnCompleted(chatKey, execution.threadId || getChatState(chatKey).threadId || "");
-    deliveryCompleted = true;
-    finalReaction = config.telegramCompleteReaction;
-  } finally {
-    if (shouldDeleteLiveProgress(liveProgress, deliveryCompleted)) await deleteTrackedProgressMessages(ctx, liveProgress);
-    clearInterval(typingInterval);
-    await reactQuietly(ctx, finalReaction, finalReaction === config.telegramCompleteReaction);
-  }
-}
-
-async function processPreparedTurnInline(ctx, chatKey, preparedTurn, active, liveProgress) {
-  const input = buildInput(preparedTurn.inputText, preparedTurn.imagePaths);
-  const thread = getOrCreateThread(chatKey);
-  await maybeNotifyContextPressure(ctx, chatKey, thread);
-  const turn = await runCodexTurn(ctx, chatKey, thread, input, active.abortController.signal, undefined, liveProgress, {
-    turnKind: preparedTurn.kind || "user"
-  });
-  await rememberThread(chatKey, thread);
-  return {
-    turn,
-    threadId: thread.id || getChatState(chatKey).threadId || "",
-    executionMode: "inline",
-    workerJobId: ""
-  };
-}
 
 async function runCodexTurn(ctx, chatKey, thread, input, signal, workingMessageId, liveProgress = null, options = {}) {
   const linkedAbort = createLinkedAbortController(signal);
