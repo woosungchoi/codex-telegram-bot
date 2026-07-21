@@ -71,5 +71,10 @@ test("cleanup backup copies are hardened without following symlinks", async () =
 });
 
 test("cleanup restore script points at manifest path", () => {
-  assert.match(cleanupRestoreScript("/tmp/manifest.jsonl"), /Path\("\/tmp\/manifest\.jsonl"\)/);
+  const source = cleanupRestoreScript("/tmp/manifest.jsonl");
+  assert.match(source, /Path\("\/tmp\/manifest\.jsonl"\)/);
+  assert.match(source, /\.restore-active\.json/);
+  assert.match(source, /restore-complete\.json/);
+  assert.match(source, /manifestSha256/);
+  assert.match(source, /finally:/);
 });
