@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createQueueRuntimeController } from "../src/queue/runtime_controller.js";
 
 function createFixture(overrides = {}) {
-  const state = { queues: {}, worker: { deliveries: {} } };
+  const state = overrides.state ?? { queues: {}, worker: { deliveries: {} } };
   const chats = new Map();
   const pendingTurns = new Map();
   const sideTurns = new Map();
@@ -51,6 +51,24 @@ test("queue runtime persists enqueue, reorder, dequeue, and clear transitions", 
   assert.equal(await fixture.controller.clearPendingTurns("chat"), 1);
   assert.deepEqual(fixture.state.queues, {});
   assert.equal(fixture.saves(), 5);
+});
+
+test("queue runtime hydrates persisted turns from its injected state", () => {
+  const state = {
+    queues: {
+      chat: [{
+        id: "persisted",
+        inputText: "resume this turn"
+      }]
+    },
+    worker: { deliveries: {} }
+  };
+  const fixture = createFixture({ state });
+
+  fixture.controller.hydratePendingTurnsFromState();
+
+  assert.equal(fixture.pendingTurns.get("chat")?.[0]?.id, "persisted");
+  assert.equal(fixture.state.queues.chat[0].inputText, "resume this turn");
 });
 
 test("queue mode and pause state use safe defaults and persist updates", async () => {

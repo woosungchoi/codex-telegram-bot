@@ -249,6 +249,7 @@ const {
   trackSideTurn,
   untrackSideTurn
 } = createQueueRuntimeController({
+  state,
   activeTurns,
   pendingTurns,
   sideTurns,
