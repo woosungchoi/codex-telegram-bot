@@ -62,5 +62,8 @@
     "@openai/codex": "0.145.0",
     "eslint": "10.8.0",
     "prettier": "3.9.6"
+  },
+  "overrides": {
+    "brace-expansion": "5.0.8"
   }
 }
