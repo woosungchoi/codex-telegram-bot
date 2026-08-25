@@ -60,7 +60,7 @@
   },
   "devDependencies": {
     "@openai/codex": "0.149.1",
-    "eslint": "10.8.1",
+    "eslint": "10.9.0",
     "prettier": "3.9.6"
   },
   "overrides": {
