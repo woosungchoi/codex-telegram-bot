@@ -2,6 +2,82 @@
 
 All notable public changes are documented here.
 
+## 1.2.11 - 2026-08-28
+
+### Scheduled cleanup modes
+
+- Added `CLEANUP_EXECUTION_MODE` with `manual`, `quarantine`, `delete`, and
+  `both` values. The default is `manual`, so existing installations continue
+  to receive approval plans until an operator deliberately enables automation.
+- Connected the daily scheduler to the selected mode. Automatic modes create a
+  fresh cleanup inventory at `CLEANUP_NOTIFY_TIME`, apply only the selected
+  candidate groups, and persist the normal once-per-day completion marker.
+- Kept `/cleanup` and approval-button plans intact for ad hoc review, candidate
+  sampling, and operators who prefer an approval-first workflow.
+- Added result-only daily reports for automatic runs with action, target,
+  quarantined, deleted, skipped, and failed counts plus artifact paths when an
+  operation produced a manifest and restore script.
+- Report successful zero-candidate runs so operators can distinguish a clean
+  day from a scheduler, inventory, or Telegram notification failure.
+
+### Destructive-action safety and recoverability
+
+- Route automatic actions through the same cleanup application path used by
+  approved manual plans, avoiding a second or less restrictive deletion path.
+- Re-check connected and currently running thread identifiers immediately
+  before quarantine; sessions that became protected after planning are
+  skipped at execution time.
+- Enforce containment under the configured Codex sessions root for quarantine
+  and under the quarantine root for permanent deletion.
+- Preserve the existing retention and quarantine-age gates. Newly quarantined
+  sessions are not folded into the same run's pre-existing permanent-delete
+  candidate set.
+- Back up every eligible permanent-delete candidate into the private cleanup
+  artifact before removal, then finalize the operation manifest and generated
+  restore script.
+- Record automatic plan, apply, notification-error, and apply-error events.
+  Partial failures remain visible in the result report instead of being
+  collapsed into a generic success state.
+
+### Runtime settings and Telegram UX
+
+- Added focused Cleanup runtime controls for approval-first, daily quarantine,
+  daily delete, daily both, and configured-default behavior.
+- Added a one-time danger confirmation before Telegram can persist `delete` or
+  `both`. Once enabled, scheduled runs execute without a daily confirmation as
+  requested by the selected mode.
+- Validate environment and persisted runtime values against the four supported
+  modes and reject unknown values with an explicit allowed-value message.
+- Display the effective execution mode beside cleanup time and retention data
+  in both the Runtime overview and the focused Cleanup panel.
+- Added complete English, Korean, and Traditional Chinese labels and warnings,
+  plus `.env.example`, English README, and Korean README documentation.
+
+### Dependencies and platform coverage
+
+- Updated `@openai/codex-sdk` and the matching Codex CLI development dependency
+  from `0.144.6` to `0.150.1` through the existing automated update workflow.
+- Updated Markdown-it from `14.3.0` to `15.0.0`, including its current parser,
+  entity, linkification, URL, and Unicode helper dependency line.
+- Updated ESLint from `10.7.0` to `10.9.0` and refreshed its configuration
+  helper and minimatch dependency line.
+- Pinned `brace-expansion` `5.0.9` through npm overrides to retain the patched
+  transitive dependency selected by the audit hardening update.
+- Expanded CI coverage from Node.js 18/20/22 to Node.js 18/20/22/24/26 while
+  retaining Node.js 18 as the declared package runtime floor.
+
+### Compatibility and verification
+
+- Preserved cleanup retention defaults, manual callback payloads, persisted
+  chat and runtime state, command behavior, and the existing cleanup artifact
+  format.
+- Added controller tests for automatic `both`, successful zero-candidate runs,
+  mode validation, scheduler dispatch, danger confirmation, and the complete
+  runtime-menu mode set.
+- Validated syntax, all locale catalogs, ESLint, Prettier, the complete
+  deterministic test suite, the moderate-level npm audit, and the publishable
+  package file set before tagging the release.
+
 ## 1.2.10 - 2026-07-21
 
 ### Focused runtime boundaries
