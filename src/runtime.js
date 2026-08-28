@@ -673,6 +673,7 @@ const {
 
 const {
   fastPanelHtml,
+  runtimeCleanupPanelHtml,
   runtimePanelHtml,
   sendPanel,
   settingsPanelHtml
@@ -797,6 +798,7 @@ const {
     startDrain: startQueueDrainIfIdle
   },
   panels: {
+    runtimeCleanupHtml: runtimeCleanupPanelHtml,
     runtimeHtml: runtimePanelHtml,
     settingsHtml: settingsPanelHtml
   },
@@ -804,6 +806,7 @@ const {
     inline: inlineKeyboard,
     queue: queueKeyboard,
     runtime: runtimeKeyboard,
+    runtimeCleanup: runtimeCleanupKeyboard,
     runtimeCodex: runtimeCodexKeyboard,
     settings: settingsKeyboard,
     withClose: withMenuCloseButton
@@ -982,7 +985,7 @@ const {
     readMeta: readSessionMeta
   },
   cleanup: {
-    sendDailyPlan: (...args) => sendDailyCleanupPlan(...args)
+    runDaily: (...args) => runDailyCleanup(...args)
   },
   maintenance: {
     autoHandoffEnabled: maintenanceAutoHandoffEnabled,
@@ -1014,8 +1017,8 @@ const {
 const {
   applyCleanupPlan,
   createCleanupPlan,
-  sendCleanupPlan,
-  sendDailyCleanupPlan
+  runDailyCleanup,
+  sendCleanupPlan
 } = createCleanupController({
   stateStore: {
     plans: state.cleanup.plans,
@@ -1049,7 +1052,8 @@ const {
     formatText: tf,
     formatBytes,
     formatDateTime,
-    formatCount: cleanupCount
+    formatCount: cleanupCount,
+    formatResult: formatCleanupResultHtml
   }
 });
 executionRuntime = createExecutionComposition({

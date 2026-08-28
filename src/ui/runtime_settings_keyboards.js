@@ -119,6 +119,23 @@ export function createRuntimeSettingsKeyboardViews({ text, withMenuCloseButton }
         { text: t("off"), callback_data: "set:runtime_cleanup:off" },
         { text: t("default"), callback_data: "set:runtime_cleanup:default" }
       ],
+      [
+        { text: t("cleanupModeManual"), callback_data: "set:runtime_cleanupmode:manual" },
+        { text: t("cleanupModeQuarantine"), callback_data: "set:runtime_cleanupmode:quarantine" }
+      ],
+      [
+        {
+          text: t("cleanupModeDelete"),
+          callback_data: "set:runtime_cleanupmode:delete",
+          style: "danger"
+        },
+        {
+          text: t("cleanupModeBoth"),
+          callback_data: "set:runtime_cleanupmode:both",
+          style: "danger"
+        }
+      ],
+      [{ text: t("cleanupModeDefault"), callback_data: "set:runtime_cleanupmode:default" }],
       timePresetButtons("runtime_cleanuptime"),
       [
         { text: "Keep 7d", callback_data: "set:runtime_cleanupretention:7" },

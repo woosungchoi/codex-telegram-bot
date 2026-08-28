@@ -11,6 +11,7 @@ import {
   writePrivateFile
 } from "../fs/private.js";
 import { b, code } from "../telegram/html.js";
+import { parseCleanupExecutionMode } from "./cleanup_mode.js";
 
 export function createCleanupController({
   stateStore,
@@ -26,7 +27,8 @@ export function createCleanupController({
     formatText: tf,
     formatBytes,
     formatDateTime,
-    formatCount
+    formatCount,
+    formatResult
   } = formatting;
 
   async function createCleanupPlan(source) {
@@ -91,6 +93,73 @@ export function createCleanupController({
           message: error instanceof Error ? error.message : String(error),
           at: now().toISOString()
         });
+      }
+    }
+  }
+
+  async function runDailyCleanup(rawMode) {
+    const mode = parseCleanupExecutionMode(rawMode, "cleanup execution mode");
+    if (mode === "manual") {
+      await sendDailyCleanupPlan();
+      return { ok: true, mode, action: null };
+    }
+
+    let plan;
+    let result = emptyCleanupResult();
+    try {
+      plan = await createCleanupPlan("daily-auto");
+      await stateStore.save();
+      const targetCount = mode === "quarantine"
+        ? plan.quarantineCandidates.length
+        : mode === "delete"
+          ? plan.deleteCandidates.length
+          : plan.quarantineCandidates.length + plan.deleteCandidates.length;
+      result = targetCount > 0
+        ? await applyCleanupPlan(plan, mode)
+        : emptyCleanupResult();
+      delete stateStore.plans[plan.id];
+      await stateStore.appendLog({
+        type: "apply",
+        source: "daily-auto",
+        automatic: true,
+        action: mode,
+        planId: plan.id,
+        result,
+        at: now().toISOString()
+      });
+      await stateStore.save();
+      await sendDailyCleanupResult(mode, result, plan);
+      return { ok: result.errors.length === 0, mode, action: mode, plan, result };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      result = { ...result, errors: [...result.errors, message] };
+      await stateStore.appendLog({
+        type: "apply_error",
+        source: "daily-auto",
+        automatic: true,
+        action: mode,
+        planId: plan?.id || null,
+        message,
+        at: now().toISOString()
+      }).catch(() => {});
+      await stateStore.save().catch(() => {});
+      await sendDailyCleanupResult(mode, result, plan || emptyCleanupPlan());
+      return { ok: false, mode, action: mode, plan, result };
+    }
+  }
+
+  async function sendDailyCleanupResult(action, result, plan) {
+    for (const chatId of policy.notifyChatIds) {
+      try {
+        await telegram.sendHtmlMessage(chatId, formatResult(action, result, plan));
+      } catch (error) {
+        await stateStore.appendLog({
+          type: "notify_error",
+          source: "daily-auto",
+          chatId,
+          message: error instanceof Error ? error.message : String(error),
+          at: now().toISOString()
+        }).catch(() => {});
       }
     }
   }
@@ -308,6 +377,7 @@ export function createCleanupController({
     cleanupKeyboard,
     createCleanupPlan,
     formatCleanupPlanHtml,
+    runDailyCleanup,
     sendCleanupPlan,
     sendDailyCleanupPlan,
     summarizeCleanupPlan
@@ -321,4 +391,19 @@ function isPathInside(candidatePath, rootPath) {
 
 function sum(values) {
   return values.reduce((total, value) => total + value, 0);
+}
+
+function emptyCleanupResult() {
+  return {
+    quarantined: 0,
+    deleted: 0,
+    skipped: 0,
+    errors: [],
+    manifest: "none",
+    restoreScript: "none"
+  };
+}
+
+function emptyCleanupPlan() {
+  return { quarantineCandidates: [], deleteCandidates: [] };
 }

@@ -67,7 +67,7 @@ export function createRuntimePanelPresenter({
       [
         "cleanup",
         settings.runtimeValue("cleanupEnabled")
-          ? `${settings.runtimeValue("cleanupNotifyTime")} ${localization.timeZone()}`
+          ? `${settings.runtimeValue("cleanupNotifyTime")} ${localization.timeZone()} · ${settings.runtimeValue("cleanupExecutionMode")}`
           : "off"
       ],
       [
@@ -115,6 +115,7 @@ export function createRuntimePanelPresenter({
   function runtimeCleanupPanelHtml() {
     return formatting.keyValue("Cleanup runtime:", [
       ["enabled", settings.runtimeValue("cleanupEnabled")],
+      ["execution mode", settings.runtimeValue("cleanupExecutionMode")],
       ["notify time", `${settings.runtimeValue("cleanupNotifyTime")} ${localization.timeZone()}`],
       ["retention days", settings.runtimeValue("cleanupRetentionDays")],
       ["quarantine days", settings.runtimeValue("cleanupQuarantineDays")],

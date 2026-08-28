@@ -4,6 +4,7 @@ import {
   parseOptionalBoolean,
   parseTelegramIdCsv
 } from "./parsers.js";
+import { parseCleanupExecutionMode } from "../maintenance/cleanup_mode.js";
 
 export function readCodexMaintenanceConfig(env, paths) {
   return {
@@ -71,6 +72,7 @@ export function readCleanupConfig(env, paths, allowedUserIds) {
   );
   return {
     cleanupEnabled: parseOptionalBoolean(env.CLEANUP_ENABLED) ?? true,
+    cleanupExecutionMode: parseCleanupExecutionMode(env.CLEANUP_EXECUTION_MODE),
     cleanupNotifyTime: env.CLEANUP_NOTIFY_TIME?.trim() || "09:00",
     cleanupNotifyChatIds: cleanupNotifyChatIds.length > 0
       ? cleanupNotifyChatIds

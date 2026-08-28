@@ -75,6 +75,7 @@ export function createRuntimeStatusSupport({
       backupDir: config.backupDir,
       cleanupQuarantineDir: config.cleanupQuarantineDir,
       cleanupEnabled: settings.runtimeValue("cleanupEnabled"),
+      cleanupExecutionMode: settings.runtimeValue("cleanupExecutionMode"),
       cleanupNotifyTime: settings.runtimeValue("cleanupNotifyTime"),
       cleanupRetentionDays: settings.runtimeValue("cleanupRetentionDays"),
       cleanupQuarantineDays: settings.runtimeValue("cleanupQuarantineDays"),

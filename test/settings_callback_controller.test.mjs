@@ -32,6 +32,7 @@ function createFixture() {
       startDrain: async (...args) => calls.push(["startDrain", ...args])
     },
     panels: {
+      runtimeCleanupHtml: () => "cleanup runtime",
       runtimeHtml: () => "runtime",
       settingsHtml: () => "settings"
     },
@@ -39,6 +40,7 @@ function createFixture() {
       inline: (rows) => ({ rows }),
       queue: () => ({ panel: "queue" }),
       runtime: () => ({ panel: "runtime" }),
+      runtimeCleanup: () => ({ panel: "cleanup" }),
       runtimeCodex: () => ({ panel: "codex" }),
       settings: () => ({ panel: "settings" }),
       withClose: (keyboard) => keyboard
@@ -93,6 +95,37 @@ test("queue callback rejects an unknown mode without mutating queue state", asyn
 test("runtime callback mappings preserve the existing wire format", () => {
   assert.equal(mapSandboxValue("ro"), "read-only");
   assert.equal(runtimeSettingKey("runtime_workermode"), "codexWorkerMode");
+  assert.equal(runtimeSettingKey("runtime_cleanupmode"), "cleanupExecutionMode");
   assert.equal(runtimeSettingValue("runtime_cleanuptime", "03_30"), "03:30");
   assert.throws(() => runtimeSettingKey("runtime_unknown"), /Unknown runtime action/);
+});
+
+test("destructive cleanup modes require one setting confirmation", async () => {
+  const { calls, controller } = createFixture();
+
+  await controller.handleSettingButton({}, "runtime_cleanupmode", "both");
+  assert.equal(calls.some(([name]) => name === "runtime"), false);
+  const confirmationKeyboard = calls.at(-1)[3];
+  assert.equal(
+    confirmationKeyboard.rows.flat().find((button) => button.style === "danger").callback_data,
+    "set:runtime_cleanupmode_confirm:both"
+  );
+
+  await controller.handleSettingButton({}, "runtime_cleanupmode_confirm", "both");
+  assert.deepEqual(calls.find(([name]) => name === "runtime"), [
+    "runtime",
+    "cleanupExecutionMode",
+    "both"
+  ]);
+  assert.equal(calls.at(-1)[3].panel, "cleanup");
+});
+
+test("manual and quarantine cleanup modes update without destructive confirmation", async () => {
+  const { calls, controller } = createFixture();
+  await controller.handleSettingButton({}, "runtime_cleanupmode", "quarantine");
+  assert.deepEqual(calls.find(([name]) => name === "runtime"), [
+    "runtime",
+    "cleanupExecutionMode",
+    "quarantine"
+  ]);
 });

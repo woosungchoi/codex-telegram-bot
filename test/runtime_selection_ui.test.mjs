@@ -132,6 +132,26 @@ test("queue and maintenance keyboards keep their dynamic runtime state", () => {
   );
 });
 
+test("cleanup runtime menu exposes manual and three automatic execution modes", () => {
+  const cleanupButtons = buttons(keyboardViews.runtimeCleanupKeyboard());
+  assert.deepEqual(
+    cleanupButtons
+      .filter(({ callback_data: callbackData }) => callbackData?.startsWith("set:runtime_cleanupmode:"))
+      .map(({ callback_data: callbackData }) => callbackData),
+    [
+      "set:runtime_cleanupmode:manual",
+      "set:runtime_cleanupmode:quarantine",
+      "set:runtime_cleanupmode:delete",
+      "set:runtime_cleanupmode:both",
+      "set:runtime_cleanupmode:default"
+    ]
+  );
+  assert.equal(
+    cleanupButtons.find(({ callback_data: callbackData }) => callbackData === "set:runtime_cleanupmode:both").style,
+    "danger"
+  );
+});
+
 test("selection and processing keyboards do not offer menu close", () => {
   const selection = keyboardViews.withSelectionCancel(
     keyboardViews.emptyInlineKeyboard(),

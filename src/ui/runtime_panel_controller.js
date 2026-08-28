@@ -52,6 +52,7 @@ export function createRuntimePanelController({
 
   return {
     fastPanelHtml: presenter.fastPanelHtml,
+    runtimeCleanupPanelHtml: presenter.runtimeCleanupPanelHtml,
     runtimePanelHtml: presenter.runtimePanelHtml,
     sendPanel,
     settingsPanelHtml: presenter.settingsPanelHtml

@@ -71,6 +71,12 @@ test("runtime setting validation supports defaults and rejects invalid values", 
   const target = { cleanupEnabled: true };
   setRuntimeValue(target, "cleanupEnabled", "default");
   assert.deepEqual(target, {});
+  setRuntimeValue(target, "cleanupExecutionMode", "both");
+  assert.equal(target.cleanupExecutionMode, "both");
+  assert.throws(
+    () => setRuntimeValue(target, "cleanupExecutionMode", "automatic"),
+    /cleanupExecutionMode must be one of: manual, quarantine, delete, both/
+  );
   assert.throws(
     () => setRuntimeValue(target, "cleanupNotifyTime", "25:00"),
     /Time must use HH:MM/

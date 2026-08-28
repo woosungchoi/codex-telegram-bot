@@ -13,6 +13,7 @@ const RUNTIME_SETTING_KEYS = Object.freeze({
   runtime_liveprogressmode: "telegramLiveProgressMode",
   runtime_liveprogressinterval: "telegramLiveProgressIntervalMs",
   runtime_cleanup: "cleanupEnabled",
+  runtime_cleanupmode: "cleanupExecutionMode",
   runtime_cleanuptime: "cleanupNotifyTime",
   runtime_cleanupretention: "cleanupRetentionDays",
   runtime_cleanupquarantine: "cleanupQuarantineDays",
@@ -98,6 +99,33 @@ export function createSettingsCallbackController({
     const chatKey = telegram.getChatKey(ctx);
     if (await telegram.rejectCallbackIfActive(ctx, chatKey)) return;
     try {
+      if (key === "runtime_cleanupmode" && ["delete", "both"].includes(value)) {
+        await telegram.editOrReplyHtml(
+          ctx,
+          `${b(localization.text("cleanupModeConfirmTitle"))}\n\n${localization.text("cleanupModeConfirmBody")}`,
+          keyboards.withClose(keyboards.inline([
+            [{
+              text: localization.text("cleanupModeConfirmButton"),
+              callback_data: `set:runtime_cleanupmode_confirm:${value}`,
+              style: "danger"
+            }],
+            [{ text: localization.text("cancel"), callback_data: "p:settings_runtime_cleanup" }]
+          ]))
+        );
+        return;
+      }
+      if (key === "runtime_cleanupmode_confirm") {
+        if (!["delete", "both"].includes(value)) {
+          throw new Error(`Unsupported destructive cleanup mode: ${value}`);
+        }
+        await settings.updateRuntimeSetting("cleanupExecutionMode", value);
+        await telegram.editOrReplyHtml(
+          ctx,
+          `${b(localization.text("runtimeUpdated"))}\n\n${panels.runtimeCleanupHtml()}`,
+          keyboards.runtimeCleanup()
+        );
+        return;
+      }
       if (key === "fast") {
         await chats.setOption(chatKey, "serviceTier", value === "on" ? "fast" : "default");
       } else if (key === "sandbox") {
@@ -121,10 +149,11 @@ export function createSettingsCallbackController({
           runtimeSettingKey(key),
           runtimeSettingValue(key, value)
         );
+        const cleanupSetting = key.startsWith("runtime_cleanup");
         await telegram.editOrReplyHtml(
           ctx,
-          `${b(localization.text("runtimeUpdated"))}\n\n${panels.runtimeHtml()}`,
-          keyboards.runtime()
+          `${b(localization.text("runtimeUpdated"))}\n\n${cleanupSetting ? panels.runtimeCleanupHtml() : panels.runtimeHtml()}`,
+          cleanupSetting ? keyboards.runtimeCleanup() : keyboards.runtime()
         );
         return;
       } else if (key === "skipgit") {

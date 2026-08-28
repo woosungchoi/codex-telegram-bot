@@ -111,6 +111,7 @@ test("readConfig preserves the complete flat default contract", () => {
     telegramLiveProgressSource: "agent",
     telegramLiveProgressDeletePolicy: "on_success",
     cleanupEnabled: true,
+    cleanupExecutionMode: "manual",
     cleanupNotifyTime: "09:00",
     cleanupNotifyChatIds: ["42"],
     cleanupRetentionDays: 14,
@@ -263,6 +264,10 @@ test("readConfig rejects negative integer env values", () => {
 });
 
 test("readConfig rejects invalid enum env values", () => {
+  assert.throws(
+    () => readTestConfig({ CLEANUP_EXECUTION_MODE: "automatic" }),
+    /CLEANUP_EXECUTION_MODE must be one of: manual, quarantine, delete, both/
+  );
   assert.throws(
     () => readTestConfig({ TELEGRAM_FORMAT_CODEX_ANSWERS: "rich" }),
     /TELEGRAM_FORMAT_CODEX_ANSWERS must be off, safe, or markdown/

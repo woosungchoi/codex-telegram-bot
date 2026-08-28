@@ -29,7 +29,7 @@ export function createCleanupScheduler({
     if (state.cleanup.lastDailyDate === clock.dateKey) return;
     if (clock.time < settings.runtimeValue("cleanupNotifyTime")) return;
 
-    await cleanup.sendDailyPlan();
+    await cleanup.runDaily(settings.runtimeValue("cleanupExecutionMode"));
     await runAutomaticCodexMaintenanceIfEnabled();
     await runDailyUploadCleanupIfEnabled();
     state.cleanup.lastDailyDate = clock.dateKey;

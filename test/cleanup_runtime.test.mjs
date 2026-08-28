@@ -28,6 +28,7 @@ function createFixture() {
       },
       runtimeValue(key) {
         if (key === "cleanupEnabled") return true;
+        if (key === "cleanupExecutionMode") return "manual";
         if (key === "cleanupNotifyTime") return "03:00";
         if (key === "cleanupRetentionDays" || key === "cleanupQuarantineDays") return 7;
         return undefined;
@@ -37,7 +38,7 @@ function createFixture() {
     activeTurns: new Map(),
     threadCache: new Map([["two", { id: "22222222-2222-2222-2222-222222222222" }]]),
     sessions: { listFiles: async () => [], readMeta: async () => null },
-    cleanup: { sendDailyPlan: async () => calls.push(["dailyPlan"]) },
+    cleanup: { runDaily: async (...args) => calls.push(["dailyCleanup", ...args]) },
     maintenance: {
       autoHandoffEnabled: () => false,
       autoSqliteRepairEnabled: () => false,
@@ -90,9 +91,9 @@ test("daily cleanup runs once, prunes expired plans, and persists the date", asy
   assert.equal(state.cleanup.lastDailyDate, "2026-07-21");
   assert.equal(state.cleanup.plans.expired, undefined);
   assert.ok(state.cleanup.plans.current);
-  assert.deepEqual(calls, [["dailyPlan"], ["save"]]);
+  assert.deepEqual(calls, [["dailyCleanup", "manual"], ["save"]]);
   await controller.runDailyCleanupCheck();
-  assert.deepEqual(calls, [["dailyPlan"], ["save"]]);
+  assert.deepEqual(calls, [["dailyCleanup", "manual"], ["save"]]);
 });
 
 test("cleanup callback rendering keeps the action and candidate totals", () => {

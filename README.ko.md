@@ -114,8 +114,9 @@ chat/thread metadata, queue, upload, recovery 기록, backup이 포함될 수 �
 - `TELEGRAM_LIVE_PROGRESS_MODE`: 진행 알림 문구 모드, 기본값 `brief`; legacy `korean-brief`도 계속 허용됩니다.
 - `TELEGRAM_LIVE_PROGRESS_SOURCE`: `agent`, `activity`, `both`; Codex comment, tool/file activity, 또는 둘 다 사용할지 선택, 기본값 `agent`
 - `TELEGRAM_LIVE_PROGRESS_DELETE_POLICY`: `always`, `on_success`, `never`; 임시 진행 메시지를 언제 삭제할지 선택, 기본값 `on_success`
-- `CLEANUP_ENABLED`: 매일 Codex thread cleanup 후보 알림 사용 여부, 기본값 `true`
-- `CLEANUP_NOTIFY_TIME`: `TELEGRAM_TIME_ZONE` 기준 cleanup 알림 시간, 기본값 `09:00`
+- `CLEANUP_ENABLED`: 매일 Codex thread cleanup 실행 여부, 기본값 `true`
+- `CLEANUP_EXECUTION_MODE`: `manual`, `quarantine`, `delete`, `both` 중 선택. 자동 모드는 매일 실행 후 결과만 보고하며 기본값은 `manual`
+- `CLEANUP_NOTIFY_TIME`: `TELEGRAM_TIME_ZONE` 기준 cleanup 실행 시간, 기본값 `09:00`
 - `CLEANUP_NOTIFY_CHAT_IDS`: 선택값. daily cleanup 알림을 보낼 numeric chat id 목록. group/supergroup의 음수 chat id도 허용됩니다.
 - `CLEANUP_RETENTION_DAYS`: 이 일수보다 오래된 session을 격리 후보로 표시, 기본값 `14`
 - `CLEANUP_QUARANTINE_DAYS`: 격리 후 이 일수보다 오래된 session을 영구 삭제 후보로 표시, 기본값 `7`
@@ -349,8 +350,9 @@ service를 restart해 반영하는 것을 권장합니다.
 
 ## Session Cleanup
 
-봇은 `TELEGRAM_TIME_ZONE` 기준 `CLEANUP_NOTIFY_TIME` 이후 하루에 한 번 cleanup reminder를 보냅니다.
-이 단계에서는 approval plan만 만들며, Telegram inline button을 누르기 전에는 파일을 이동하거나 삭제하지 않습니다.
+봇은 `TELEGRAM_TIME_ZONE` 기준 `CLEANUP_NOTIFY_TIME` 이후 하루에 한 번 cleanup을 실행합니다.
+`CLEANUP_EXECUTION_MODE=manual`은 기존 approval plan과 Telegram inline button을 사용합니다.
+`quarantine`, `delete`, `both`는 해당 작업을 자동 실행하고 최종 결과만 보고합니다.
 
 기본 정책:
 
@@ -360,6 +362,7 @@ service를 restart해 반영하는 것을 권장합니다.
 - Approval plan은 `CLEANUP_PLAN_TTL_HOURS` 뒤 만료됩니다.
 
 수동 검토는 `/cleanup`으로 할 수 있습니다.
+Cleanup runtime 메뉴에서도 실행 모드를 바꿀 수 있습니다. `delete` 또는 `both`로 변경할 때는 한 번 확인하지만, 이후 매일 실행할 때는 다시 묻지 않습니다.
 
 다운로드한 Telegram 이미지 입력은 Codex로 보내기 전에 `UPLOAD_DIR` 아래에 저장됩니다.
 `/cleanup_uploads`는 `UPLOAD_RETENTION_DAYS`보다 오래되었거나 `UPLOAD_MAX_BYTES` 아래로 줄이기 위해 선택된 파일을 미리 보여주며, 실제 삭제는 inline `Confirm upload cleanup` 버튼을 누를 때만 실행됩니다. 기존 `/cleanup_uploads_confirm` typed command는 `/cleanup_uploads` 안내만 하고 파일을 삭제하지 않습니다.

@@ -3,6 +3,7 @@ import {
   CODEX_TRANSPORT_SDK
 } from "../codex/thread_factory.js";
 import { writePrivateFileAtomic } from "../fs/private.js";
+import { parseCleanupExecutionMode } from "../maintenance/cleanup_mode.js";
 
 export async function loadRuntimeState(file, options) {
   try {
@@ -122,6 +123,8 @@ export function setRuntimeValue(target, key, rawValue) {
     target[key] = parseRequiredBoolean(value, key);
   } else if (key === "telegramFormatCodexAnswers") {
     target[key] = parseCodexAnswerFormat(value);
+  } else if (key === "cleanupExecutionMode") {
+    target[key] = parseCleanupExecutionMode(value, key);
   } else if (key === "codexTransport") {
     if (![CODEX_TRANSPORT_SDK, CODEX_TRANSPORT_APP_SERVER_DIRECT].includes(value)) {
       throw new Error("codexTransport must be sdk or app-server-direct.");

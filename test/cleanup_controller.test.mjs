@@ -58,7 +58,13 @@ function createHarness({ root, sessionScan, deleteCandidates = [], protectedIds 
       formatText: (key, values) => `${key}:${JSON.stringify(values)}`,
       formatBytes: (value) => `${value}B`,
       formatDateTime: (value) => value,
-      formatCount: (value) => String(value)
+      formatCount: (value) => String(value),
+      formatResult: (action, result, plan) => JSON.stringify({
+        action,
+        result,
+        quarantineCount: plan.quarantineCandidates.length,
+        deleteCount: plan.deleteCandidates.length
+      })
     },
     now: () => new Date(FIXED_NOW),
     random: () => 0.5
@@ -217,4 +223,60 @@ test("cleanup controller skips sessions that become protected after planning", a
   assert.equal(result.skipped, 1);
   assert.equal(result.quarantined, 0);
   assert.equal(await fs.readFile(source, "utf8"), "active\n");
+});
+
+test("automatic daily cleanup runs both actions and sends only the result report", async (t) => {
+  const root = await createFixture(t);
+  const source = path.join(root, "sessions", "thread-auto.jsonl");
+  const deletion = path.join(root, "quarantine", "old", "thread-delete.jsonl");
+  await fs.mkdir(path.dirname(source), { recursive: true });
+  await fs.mkdir(path.dirname(deletion), { recursive: true });
+  await fs.writeFile(source, "session\n");
+  await fs.writeFile(deletion, "delete\n");
+  const harness = createHarness({
+    root,
+    sessionScan: {
+      protectedCount: 3,
+      recentCount: 4,
+      candidates: [{ threadId: "thread-auto", path: source, ageDays: 31, bytes: 8 }]
+    },
+    deleteCandidates: [{
+      threadId: "thread-delete",
+      path: deletion,
+      quarantineAgeDays: 15,
+      bytes: 7
+    }]
+  });
+
+  const run = await harness.controller.runDailyCleanup("both");
+
+  assert.equal(run.ok, true);
+  assert.equal(run.result.quarantined, 1);
+  assert.equal(run.result.deleted, 1);
+  assert.equal(Object.keys(harness.plans).length, 0);
+  assert.equal(harness.sent.length, 1);
+  assert.equal(harness.sent[0][0], "send");
+  assert.equal(harness.sent[0].length, 3);
+  assert.deepEqual(JSON.parse(harness.sent[0][2]), {
+    action: "both",
+    result: run.result,
+    quarantineCount: 1,
+    deleteCount: 1
+  });
+  assert.ok(harness.logs.some((entry) => (
+    entry.type === "apply" && entry.automatic === true && entry.action === "both"
+  )));
+});
+
+test("automatic daily cleanup reports a successful zero-candidate run", async (t) => {
+  const root = await createFixture(t);
+  const harness = createHarness({ root });
+
+  const run = await harness.controller.runDailyCleanup("quarantine");
+
+  assert.equal(run.ok, true);
+  assert.equal(run.result.quarantined, 0);
+  assert.equal(run.result.manifest, "none");
+  assert.equal(harness.sent.length, 1);
+  assert.equal(Object.keys(harness.plans).length, 0);
 });

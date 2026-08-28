@@ -125,8 +125,9 @@ Edit `.env`:
 - `TELEGRAM_LIVE_PROGRESS_MODE`: progress wording mode, default `brief`; legacy `korean-brief` is still accepted
 - `TELEGRAM_LIVE_PROGRESS_SOURCE`: `agent`, `activity`, or `both`; choose Codex comments, tool/file activity, or both, default `agent`
 - `TELEGRAM_LIVE_PROGRESS_DELETE_POLICY`: `always`, `on_success`, or `never`; choose when temporary progress messages are deleted, default `on_success`
-- `CLEANUP_ENABLED`: enable the daily Codex thread cleanup reminder, default `true`
-- `CLEANUP_NOTIFY_TIME`: daily reminder time in `TELEGRAM_TIME_ZONE`, default `09:00`
+- `CLEANUP_ENABLED`: enable the daily Codex thread cleanup run, default `true`
+- `CLEANUP_EXECUTION_MODE`: `manual`, `quarantine`, `delete`, or `both`; automatic modes execute daily and send a result report, default `manual`
+- `CLEANUP_NOTIFY_TIME`: daily cleanup time in `TELEGRAM_TIME_ZONE`, default `09:00`
 - `CLEANUP_NOTIFY_CHAT_IDS`: optional comma-separated numeric chat ids for daily cleanup reminders. Negative group/supergroup chat ids are allowed.
 - `CLEANUP_RETENTION_DAYS`: sessions older than this become quarantine candidates, default `14`
 - `CLEANUP_QUARANTINE_DAYS`: quarantined sessions older than this become permanent delete candidates, default `7`
@@ -448,10 +449,10 @@ state, but the running services should be restarted after switching them.
 
 ## Session Cleanup
 
-The bot sends one cleanup reminder per day after `CLEANUP_NOTIFY_TIME` in
-`TELEGRAM_TIME_ZONE`.
-It only creates an approval plan; it does not move or delete files until a
-Telegram inline button is pressed.
+The bot runs cleanup once per day after `CLEANUP_NOTIFY_TIME` in
+`TELEGRAM_TIME_ZONE`. `CLEANUP_EXECUTION_MODE=manual` sends the existing approval
+plan and waits for a Telegram inline button. `quarantine`, `delete`, and `both`
+execute that action automatically and send only the final result report.
 
 Default policy:
 
@@ -461,6 +462,9 @@ Default policy:
 - Approval plans expire after `CLEANUP_PLAN_TTL_HOURS`.
 
 Manual review is available with `/cleanup`.
+The Cleanup runtime menu can change the execution mode. Selecting `delete` or
+`both` requires a one-time confirmation when changing the setting; daily runs
+do not ask again.
 
 Downloaded Telegram image inputs are stored under `UPLOAD_DIR` before they are
 sent to Codex. `/cleanup_uploads` previews files older than
