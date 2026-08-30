@@ -35,7 +35,7 @@ function createFixture({ streamEvents = true } = {}) {
     },
     recovery: {
       appendEvent: async (event) => { recorded.push(event.type); },
-      recordActiveTurnFailed: async () => {},
+      recordActiveTurnFailed: async () => { recorded.push("failed"); },
       recordBackfill: async () => {},
       recordFinalResponse: async () => { recorded.push("final"); },
       recordFirstItem: async () => { recorded.push("first"); },
@@ -99,4 +99,38 @@ test("streamed Codex turns persist thread id and preserve journal ordering", asy
     "turn_completed",
     "closed"
   ]);
+});
+
+test("streamed Codex turns continue through transient reconnect notices", async () => {
+  const { executor, recorded } = createFixture();
+  async function* events() {
+    yield { type: "thread.started", thread_id: "thread-1" };
+    yield {
+      type: "error",
+      message: "Reconnecting... 2/5 (stream disconnected before completion: websocket closed by server before response.completed)"
+    };
+    yield { type: "item.completed", item: { id: "a", type: "agent_message", text: "done" } };
+    yield { type: "turn.completed" };
+  }
+  const thread = { runStreamed: async () => ({ events: events() }) };
+
+  const result = await executor.runCodexTurn({}, "chat", thread, "hello", null);
+
+  assert.equal(result.finalResponse, "done");
+  assert.equal(recorded.includes("failed"), false);
+  assert.equal(recorded.includes("turn_completed"), true);
+});
+
+test("streamed Codex turns still reject terminal stream errors", async () => {
+  const { executor, recorded } = createFixture();
+  async function* events() {
+    yield { type: "error", message: "terminal stream failure" };
+  }
+  const thread = { runStreamed: async () => ({ events: events() }) };
+
+  await assert.rejects(
+    executor.runCodexTurn({}, "chat", thread, "hello", null),
+    /terminal stream failure/
+  );
+  assert.equal(recorded.includes("failed"), true);
 });

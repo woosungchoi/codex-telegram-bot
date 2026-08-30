@@ -37,7 +37,9 @@ export function applyCodexStreamEvent(state, event) {
     return { type: "error", message: errorMessage(event.error, "Codex turn failed.") };
   }
   if (event.type === "error") {
-    return { type: "error", message: errorMessage(event, "Codex stream error.") };
+    const message = errorMessage(event, "Codex stream error.");
+    if (isReconnectNotice(message)) return { type: "reconnecting", message };
+    return { type: "error", message };
   }
   return { type: "unknown", eventType: event?.type || "unknown" };
 }
@@ -191,4 +193,8 @@ function errorMessage(error, fallback) {
   if (typeof error?.error === "string" && error.error.trim()) return error.error;
   if (typeof error === "string" && error.trim()) return error;
   return fallback;
+}
+
+function isReconnectNotice(message) {
+  return /^Reconnecting\.\.\. \d+\/\d+ \(stream disconnected before completion: .+\)$/.test(message);
 }
