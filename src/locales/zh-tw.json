@@ -290,6 +290,7 @@
   "recoveryIdleDetail": "Codex stream 已有一段時間沒有新的進度事件。Bot 會繼續等待；若達到硬性上限，會安全停止復原。",
   "recoveryStreamIdleTimeoutTitle": "重啟復原已停止。",
   "recoveryStreamIdleTimeoutDetail": "Codex stream 閒置超過硬性上限，因此復原 turn 已停止。部分工作可能已經進行；繼續前請先檢查狀態。",
+  "codexBadRequestRecoveryDetail": "Codex API 拒絕了這個 turn。如果錯誤發生在檢查圖片之後，請先確認已完成的工作，再使用 /new，從目前的檔案狀態繼續。請一次檢查一張縮小的圖片，不要批次傳送高解析度圖片。",
   "pdfUploadedTitle": "PDF 已上傳",
   "pdfUploadedDetail": "未啟動 Codex turn。請回覆此 PDF，或在下一個請求中提及已上傳的 PDF。",
   "pdfUploadedFile": "檔案",

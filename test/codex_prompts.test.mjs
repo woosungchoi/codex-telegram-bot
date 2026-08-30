@@ -20,6 +20,13 @@ test("default style instructions include English rich Markdown guidance", () => 
   assert.match(prompt, /For long explanatory comparisons, prefer bullets or short key\/value sections/);
 });
 
+test("style instructions prevent oversized batched image tool output", () => {
+  const prompt = buildStyleInstructionPrompt({ language: "en" });
+  assert.match(prompt, /never return multiple images in one tool result/);
+  assert.match(prompt, /resized thumbnail or default detail/);
+  assert.match(prompt, /Do not batch full-resolution base64 image data/);
+});
+
 test("default style instructions include Korean rich Markdown guidance", () => {
   const prompt = buildStyleInstructionPrompt({ language: "ko" });
   assert.match(prompt, /응답 스타일 지침:/);

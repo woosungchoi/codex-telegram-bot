@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { setImmediate as waitForImmediate } from "node:timers/promises";
 import { createTurnRuntimeController } from "../src/codex/turn_controller.js";
 
-function createHarness({ queueMode = "safe", workerEnabled = false } = {}) {
+function createHarness({ queueMode = "safe", workerEnabled = false, runTurnError = null } = {}) {
   const activeTurns = new Map();
   const pending = new Map();
   const calls = [];
@@ -72,6 +72,7 @@ function createHarness({ queueMode = "safe", workerEnabled = false } = {}) {
       rememberThread: record("remember-thread"),
       runTurn: async (...args) => {
         calls.push(["run-turn", ...args]);
+        if (runTurnError) throw runTurnError;
         return { finalResponse: "answer" };
       },
       startThread: () => ({ id: "side-thread" })
@@ -228,6 +229,36 @@ test("prepared inline turns preserve recovery and final-delivery ordering", asyn
     "complete",
     true
   ]);
+});
+
+test("bad request failures include image-safe new-thread recovery guidance", async () => {
+  const { calls, controller, ctx, replies } = createHarness({
+    runTurnError: new Error('{"detail":"Bad Request"}')
+  });
+  const active = {
+    abortController: new AbortController(),
+    stopRequested: false
+  };
+  const preparedTurn = {
+    id: "turn-1",
+    ctx,
+    kind: "user",
+    text: "inspect images",
+    inputText: "prompt",
+    imagePaths: []
+  };
+
+  await controller.processPreparedTurn("chat:42", preparedTurn, active);
+
+  assert.match(replies.at(-1), /<b>Codex failed<\/b>/);
+  assert.match(replies.at(-1), /\{&quot;detail&quot;:&quot;Bad Request&quot;\}/);
+  assert.match(replies.at(-1), /codexBadRequestRecoveryDetail/);
+  assert.equal(calls.filter(([name]) => name === "run-turn").length, 1);
+  assert.deepEqual(calls.find(([name]) => name === "active-failed").slice(1), [
+    "chat:42",
+    '{"detail":"Bad Request"}'
+  ]);
+  assert.equal(calls.some(([name]) => name === "answer"), false);
 });
 
 test("side prompt explicitly prevents writes while the main turn continues", () => {

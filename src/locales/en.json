@@ -297,6 +297,7 @@
   "recoveryIdleDetail": "No new Codex stream progress event has arrived for a while. The bot will keep waiting, then stop recovery safely if the hard limit is reached.",
   "recoveryStreamIdleTimeoutTitle": "Restart recovery stopped.",
   "recoveryStreamIdleTimeoutDetail": "The Codex stream stayed idle past the hard limit, so the recovery turn was stopped. Some work may already have progressed; check the state before continuing.",
+  "codexBadRequestRecoveryDetail": "The Codex API rejected this turn. If this followed image inspection, check what already completed, then use /new and continue from the current file state. Inspect one resized image at a time instead of batching high-detail images.",
   "completionNotice": "Done",
   "handoffNoThreadError": "No Codex thread is available for handoff. Connect a thread first with /resume or /new.",
   "handoffSessionFileNotFound": "Session file not found: {threadId}",

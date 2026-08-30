@@ -4,6 +4,16 @@ import { runTelegramFinalDelivery, summarizeTelegramError } from "../telegram/ap
 import { b, code } from "../telegram/html.js";
 import { planIncomingTurn } from "../queue.js";
 
+function isCodexBadRequest(message) {
+  const normalized = String(message ?? "").trim();
+  if (normalized.toLowerCase() === "bad request") return true;
+  try {
+    return JSON.parse(normalized)?.detail === "Bad Request";
+  } catch {
+    return false;
+  }
+}
+
 export function createTurnRuntimeController({
   settings,
   activeTurns,
@@ -22,6 +32,14 @@ export function createTurnRuntimeController({
   now = () => new Date(),
   timers = { setInterval, clearInterval }
 }) {
+  function formatCodexFailure(title, message) {
+    const lines = [b(title), code(message)];
+    if (isCodexBadRequest(message)) {
+      lines.push("", t("codexBadRequestRecoveryDetail"));
+    }
+    return lines.join("\n");
+  }
+
   async function handleCodexMessage(ctx, text, loadImages) {
     const chatKey = context.getChatKey(ctx);
     await queue.pruneExpired(chatKey, ctx);
@@ -230,7 +248,7 @@ export function createTurnRuntimeController({
       finalReaction = abortController.signal.aborted
         ? settings.stoppedReaction
         : settings.errorReaction;
-      await telegram.replyHtml(ctx, `<b>Side Codex failed</b>\n${code(message)}`);
+      await telegram.replyHtml(ctx, formatCodexFailure("Side Codex failed", message));
     } finally {
       timers.clearInterval(typingInterval);
       sideTurns.untrack(chatKey, abortController);
@@ -334,7 +352,7 @@ export function createTurnRuntimeController({
           );
         } else {
           await recovery.recordActiveTurnFailed(chatKey, message);
-          await telegram.replyHtml(ctx, `<b>Codex failed</b>\n${code(message)}`);
+          await telegram.replyHtml(ctx, formatCodexFailure("Codex failed", message));
         }
         return;
       }

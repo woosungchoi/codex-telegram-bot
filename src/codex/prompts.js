@@ -73,6 +73,13 @@ export const DEFAULT_RICH_MARKDOWN_PROMPTS = {
   ].join("\n")
 };
 
+export const IMAGE_TOOL_OUTPUT_SAFETY_PROMPT = [
+  "Image tool-output safety instructions:",
+  "- When inspecting local images through programmatic tools, never return multiple images in one tool result.",
+  "- Use a resized thumbnail or default detail and inspect one image at a time. Request original or high detail for only one image when it is essential.",
+  "- Do not batch full-resolution base64 image data into tool output."
+].join("\n");
+
 export function defaultPersonaPrompt(language = "en") {
   return DEFAULT_PERSONA_PROMPTS[language] || DEFAULT_PERSONA_PROMPTS.en;
 }
@@ -84,6 +91,7 @@ export function defaultRichMarkdownPrompt(language = "en") {
 export function buildStyleInstructionPrompt({ language = "en", personaPrompt = "" } = {}) {
   return [
     personaPrompt || defaultPersonaPrompt(language),
-    defaultRichMarkdownPrompt(language)
+    defaultRichMarkdownPrompt(language),
+    IMAGE_TOOL_OUTPUT_SAFETY_PROMPT
   ].filter(Boolean).join("\n\n");
 }
