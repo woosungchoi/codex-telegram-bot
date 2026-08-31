@@ -1,6 +1,79 @@
+import { open as openFile } from "node:fs/promises";
 import process from "node:process";
 import { resolveAutoCompactTokenLimit } from "../codex/compact.js";
 import { formatCodexUsageSummary } from "../status_usage.js";
+
+const SESSION_TAIL_CHUNK_BYTES = 64 * 1024;
+const MAX_SESSION_RECORD_BYTES = 1024 * 1024;
+
+function parseTokenCountRecord(record) {
+  if (record.length === 0) return null;
+  try {
+    const parsed = JSON.parse(record.toString("utf8"));
+    if (parsed?.payload?.type !== "token_count") return null;
+    return {
+      tokenCount: parsed.payload,
+      sampledAt: parsed.timestamp || parsed.time || parsed.created_at || ""
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function readChunk(fileHandle, position, length) {
+  const buffer = Buffer.allocUnsafe(length);
+  let bytesRead = 0;
+  while (bytesRead < length) {
+    const result = await fileHandle.read(
+      buffer,
+      bytesRead,
+      length - bytesRead,
+      position + bytesRead
+    );
+    if (!result.bytesRead) break;
+    bytesRead += result.bytesRead;
+  }
+  return buffer.subarray(0, bytesRead);
+}
+
+async function readLatestTokenCountFromTail(file, openSessionFile) {
+  const fileHandle = await openSessionFile(file, "r");
+  try {
+    const { size } = await fileHandle.stat();
+    let position = Number(size);
+    let suffix = Buffer.alloc(0);
+    let skippingOversizedRecord = false;
+
+    while (position > 0) {
+      const length = Math.min(SESSION_TAIL_CHUNK_BYTES, position);
+      position -= length;
+      const chunk = await readChunk(fileHandle, position, length);
+      if (chunk.length === 0) break;
+
+      const combined = suffix.length > 0 ? Buffer.concat([chunk, suffix]) : chunk;
+      let recordEnd = combined.length;
+      for (let index = combined.length - 1; index >= 0; index -= 1) {
+        if (combined[index] !== 0x0a) continue;
+        if (!skippingOversizedRecord) {
+          const sample = parseTokenCountRecord(combined.subarray(index + 1, recordEnd));
+          if (sample) return sample;
+        }
+        skippingOversizedRecord = false;
+        recordEnd = index;
+      }
+
+      suffix = Buffer.from(combined.subarray(0, recordEnd));
+      if (suffix.length > MAX_SESSION_RECORD_BYTES) {
+        suffix = Buffer.alloc(0);
+        skippingOversizedRecord = true;
+      }
+    }
+
+    return skippingOversizedRecord ? null : parseTokenCountRecord(suffix);
+  } finally {
+    await fileHandle.close();
+  }
+}
 
 export function createRuntimeStatusSupport({
   settings,
@@ -9,7 +82,7 @@ export function createRuntimeStatusSupport({
   sessions,
   localization,
   formatting,
-  readFile,
+  openSessionFile = openFile,
   now = () => new Date()
 }) {
   async function buildAppSummary() {
@@ -130,23 +203,7 @@ export function createRuntimeStatusSupport({
   async function readLatestTokenCount(threadId) {
     const file = await sessions.findFile(threadId);
     if (!file) return null;
-    let latest = null;
-    const lines = (await readFile(file, "utf8")).split("\n");
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const parsed = JSON.parse(line);
-        if (parsed?.payload?.type === "token_count") {
-          latest = {
-            tokenCount: parsed.payload,
-            sampledAt: parsed.timestamp || parsed.time || parsed.created_at || ""
-          };
-        }
-      } catch {
-        // Ignore partial or non-JSON session lines.
-      }
-    }
-    return latest;
+    return readLatestTokenCountFromTail(file, openSessionFile);
   }
 
   async function buildBestCodexUsageSummary(chatKey, threadId) {

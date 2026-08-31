@@ -59,7 +59,12 @@ export function createWorkerRuntimeController({
   ) {
     const client = worker.getClient();
     const job = createWorkerJobPayload(chatKey, preparedTurn);
-    await turn.maybeNotifyContextPressure(ctx, chatKey, { id: job.threadId });
+    try {
+      await turn.maybeNotifyContextPressure(ctx, chatKey, { id: job.threadId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.warn("worker context pressure check failed; continuing with job:", message);
+    }
     const started = await client.startJob(job);
     active.workerJobId = started.jobId;
     active.workerEventSeq = workerDeliveryCursor(chatKey, started.jobId);

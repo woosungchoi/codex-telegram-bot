@@ -20,11 +20,14 @@ test("default style instructions include English rich Markdown guidance", () => 
   assert.match(prompt, /For long explanatory comparisons, prefer bullets or short key\/value sections/);
 });
 
-test("style instructions prevent oversized batched image tool output", () => {
+test("style instructions keep image tool output bounded and rotate long image sessions", () => {
   const prompt = buildStyleInstructionPrompt({ language: "en" });
   assert.match(prompt, /never return multiple images in one tool result/);
-  assert.match(prompt, /resized thumbnail or default detail/);
-  assert.match(prompt, /Do not batch full-resolution base64 image data/);
+  assert.match(prompt, /Never include raw image bytes, data URLs, or base64/);
+  assert.match(prompt, /path, pixel dimensions, byte size, and SHA-256 hash/);
+  assert.match(prompt, /one small low-resolution thumbnail/);
+  assert.match(prompt, /at most 10 images in one conversation thread/);
+  assert.match(prompt, /fresh \/new thread/);
 });
 
 test("default style instructions include Korean rich Markdown guidance", () => {

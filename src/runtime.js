@@ -497,7 +497,7 @@ const {
   formatting: {
     redactValue
   },
-  readFile: fs.readFile
+  openSessionFile: fs.open
 });
 const {
   formatConfigHtml,

@@ -76,8 +76,9 @@ export const DEFAULT_RICH_MARKDOWN_PROMPTS = {
 export const IMAGE_TOOL_OUTPUT_SAFETY_PROMPT = [
   "Image tool-output safety instructions:",
   "- When inspecting local images through programmatic tools, never return multiple images in one tool result.",
-  "- Use a resized thumbnail or default detail and inspect one image at a time. Request original or high detail for only one image when it is essential.",
-  "- Do not batch full-resolution base64 image data into tool output."
+  "- Never include raw image bytes, data URLs, or base64 in programmatic tool results. Save each image to a local file and return only its path, pixel dimensions, byte size, and SHA-256 hash.",
+  "- If visual inspection is essential, include at most one small low-resolution thumbnail (maximum 512 px on the longest edge and 256 KB), never the original image bytes.",
+  "- Inspect at most 10 images in one conversation thread. Then stop with a concise checkpoint and tell the user to continue in a fresh /new thread using the saved paths; do not replay prior image data."
 ].join("\n");
 
 export function defaultPersonaPrompt(language = "en") {

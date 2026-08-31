@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createWorkerRuntimeController } from "../src/worker/runtime_controller.js";
 
-function createHarness({ events = [], terminalJob = null } = {}) {
+function createHarness({ events = [], terminalJob = null, contextError = null } = {}) {
   const chat = { threadId: "thread-existing", outputSchema: { type: "object" } };
   const deliveries = {};
   const calls = [];
@@ -49,7 +49,12 @@ function createHarness({ events = [], terminalJob = null } = {}) {
     },
     turn: {
       createQueueItemId: () => "generated-id",
-      maybeNotifyContextPressure: record("context"),
+      maybeNotifyContextPressure: contextError
+        ? async (...args) => {
+          calls.push(["context", ...args]);
+          throw contextError;
+        }
+        : record("context"),
       maybeSendLiveProgress: record("progress"),
       recordActiveTurnFailed: record("active-failed"),
       recordCodexStreamFinalResponseSeen: record("final-seen"),
@@ -176,6 +181,26 @@ test("sidecar turn starts one job and sends at most one cancellation request", a
   assert.equal(active.workerEventSeq, 5);
   assert.equal(calls.filter(([name]) => name === "start").length, 1);
   assert.equal(calls.filter(([name]) => name === "cancel").length, 1);
+});
+
+test("sidecar turn starts the worker job when context pressure lookup fails", async () => {
+  const { calls, controller } = createHarness({
+    events: completedEvents(),
+    contextError: new RangeError("Invalid string length")
+  });
+
+  const result = await controller.processPreparedTurnViaWorker(
+    {},
+    "chat:44",
+    { id: "turn-1", text: "continue", kind: "user" },
+    { abortController: new AbortController() },
+    null
+  );
+
+  assert.equal(result.workerJobId, "job-1");
+  assert.equal(calls.filter(([name]) => name === "start").length, 1);
+  assert.ok(calls.findIndex(([name]) => name === "context") < calls.findIndex(([name]) => name === "start"));
+  assert.match(calls.find(([name]) => name === "warn")[1], /context pressure check failed/i);
 });
 
 test("failed worker terminal events close the stream with an error outcome", async () => {
