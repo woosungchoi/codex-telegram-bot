@@ -9,7 +9,10 @@ import {
   createWorkerRecoveryTurn,
   isWorkerCancelledMessage
 } from "../src/recovery/runtime_controller.js";
-import { replaceActiveTurnSnapshot } from "../src/recovery/state.js";
+import {
+  readActiveTurnSnapshots,
+  replaceActiveTurnSnapshot
+} from "../src/recovery/state.js";
 
 async function createHarness(t, {
   enabled = true,
@@ -28,6 +31,8 @@ async function createHarness(t, {
   const deliveries = {};
   const deliveryTransitions = [];
   const drains = [];
+  const queuedRecoveryTurns = [];
+  const startedPreparedTurns = [];
   const answerReplies = [];
   const completed = [];
   const reactions = [];
@@ -55,9 +60,9 @@ async function createHarness(t, {
       save: async () => {}
     },
     queue: {
-      enqueueFrontForced: async () => {},
-      dequeue: async () => null,
-      startPrepared: async () => {},
+      enqueueFrontForced: async (_chatKey, preparedTurn) => queuedRecoveryTurns.unshift(preparedTurn),
+      dequeue: async () => queuedRecoveryTurns.shift() || null,
+      startPrepared: async (...args) => startedPreparedTurns.push(args),
       startDrain: async (...args) => drains.push(args)
     },
     worker: {
@@ -127,6 +132,7 @@ async function createHarness(t, {
     reactions,
     recoveryDir,
     replies,
+    startedPreparedTurns,
     stops,
     warnings
   };
@@ -276,4 +282,64 @@ test("running worker snapshots resume through final delivery and queue drain", a
     ]
   );
   assert.equal(harness.reactions.at(-1)[1], "done");
+});
+test("startup recovery converts a restart-failed worker job into a new recovery turn", async (t) => {
+  const workerJob = {
+    id: "job-restarted",
+    status: "failed",
+    threadId: "thread-1",
+    transport: "sdk"
+  };
+  const harness = await createHarness(t, { workerEnabled: true, workerJob });
+  await replaceActiveTurnSnapshot(harness.recoveryDir, "chat-1", {
+    chatKey: "chat-1",
+    chatId: "chat-1",
+    inputPreview: "finish the interrupted work",
+    recoveryEligible: false,
+    recoveryReason: "worker restarted before job completed",
+    startedAt: new Date().toISOString(),
+    threadId: "thread-1",
+    workerEventSeq: 9,
+    workerJobId: "job-restarted"
+  });
+
+  assert.equal(await harness.controller.scheduleStartupRecovery({ source: "startup" }), true);
+
+  assert.equal(harness.startedPreparedTurns.length, 1);
+  const recoveryTurn = harness.startedPreparedTurns[0][1];
+  assert.equal(recoveryTurn.kind, "recovery");
+  assert.equal(recoveryTurn.recovery.threadId, "thread-1");
+  assert.match(recoveryTurn.inputText, /finish the interrupted work/);
+  const snapshots = await readActiveTurnSnapshots(harness.recoveryDir);
+  assert.equal(snapshots.turns["chat-1"].workerJobId, "");
+  assert.equal(snapshots.turns["chat-1"].recoveryEligible, true);
+  assert.equal(
+    harness.events.some(({ type }) => type === "worker_restart_recovery_armed"),
+    true
+  );
+});
+
+test("startup recovery does not override an explicit user stop after a worker restart", async (t) => {
+  const workerJob = {
+    id: "job-stopped",
+    status: "failed",
+    failureReason: "worker_restart",
+    error: "worker restarted before job completed",
+    threadId: "thread-1"
+  };
+  const harness = await createHarness(t, { workerEnabled: true, workerJob });
+  await replaceActiveTurnSnapshot(harness.recoveryDir, "chat-1", {
+    chatKey: "chat-1",
+    recoveryEligible: false,
+    recoveryReason: "user_stop",
+    startedAt: new Date().toISOString(),
+    threadId: "thread-1",
+    workerJobId: "job-stopped"
+  });
+
+  assert.equal(await harness.controller.scheduleStartupRecovery({ source: "startup" }), false);
+  assert.equal(harness.startedPreparedTurns.length, 0);
+  const snapshots = await readActiveTurnSnapshots(harness.recoveryDir);
+  assert.equal(snapshots.turns["chat-1"].workerJobId, "job-stopped");
+  assert.equal(snapshots.turns["chat-1"].recoveryReason, "user_stop");
 });

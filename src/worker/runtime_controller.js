@@ -4,6 +4,7 @@ import {
   codexStreamResult,
   createCodexStreamState
 } from "../codex/stream.js";
+import { createRecoveryTurn } from "../recovery/startup.js";
 import { upsertActiveTurnSnapshot } from "../recovery/state.js";
 import {
   markWorkerDeliveryStreaming,
@@ -11,7 +12,12 @@ import {
   normalizeWorkerDeliveryEntry,
   workerDeliveryKey
 } from "./delivery.js";
-import { isTerminalWorkerEvent, isTerminalWorkerStatus } from "./replay.js";
+import {
+  isTerminalWorkerEvent,
+  isTerminalWorkerStatus,
+  isWorkerRestartFailure,
+  WORKER_RESTART_FAILURE_REASON
+} from "./replay.js";
 
 const RETRYABLE_WORKER_TRANSPORT_CODES = new Set([
   "ECONNREFUSED",
@@ -66,35 +72,116 @@ export function createWorkerRuntimeController({
     liveProgress
   ) {
     const client = worker.getClient();
-    const job = createWorkerJobPayload(chatKey, preparedTurn);
+    let currentTurn = preparedTurn;
+    let restartAttempt = 0;
+    const restartAttemptLimit = Math.max(
+      0,
+      Number(settings.workerRestartRecoveryAttempts ?? 3) || 0
+    );
+    const initialJob = createWorkerJobPayload(chatKey, preparedTurn);
     try {
-      await turn.maybeNotifyContextPressure(ctx, chatKey, { id: job.threadId });
+      await turn.maybeNotifyContextPressure(ctx, chatKey, { id: initialJob.threadId });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.warn("worker context pressure check failed; continuing with job:", message);
     }
-    const started = await client.startJob(job);
-    active.workerJobId = started.jobId;
-    active.workerEventSeq = workerDeliveryCursor(chatKey, started.jobId);
-    await recordWorkerJobStarted(chatKey, { ...job, id: started.jobId });
 
-    const cancelWorker = () => cancelWorkerJobOnce(active, started.jobId);
-    if (active.abortController.signal.aborted) cancelWorker();
-    else active.abortController.signal.addEventListener("abort", cancelWorker, { once: true });
+    while (true) {
+      const job = restartAttempt === 0 ? initialJob : createWorkerJobPayload(chatKey, currentTurn);
+      active.workerCancelRequested = false;
+      const started = await client.startJob(job);
+      active.workerJobId = started.jobId;
+      active.workerEventSeq = workerDeliveryCursor(chatKey, started.jobId);
+      await recordWorkerJobStarted(chatKey, { ...job, id: started.jobId });
 
-    try {
-      const result = await waitForWorkerJob(
-        ctx,
-        chatKey,
-        started.jobId,
-        active,
-        liveProgress,
-        { turnKind: preparedTurn.kind || "user" }
-      );
-      return { ...result, executionMode: "sidecar", workerJobId: started.jobId };
-    } finally {
-      active.abortController.signal.removeEventListener("abort", cancelWorker);
+      const cancelWorker = () => cancelWorkerJobOnce(active, started.jobId);
+      if (active.abortController.signal.aborted) cancelWorker();
+      else active.abortController.signal.addEventListener("abort", cancelWorker, { once: true });
+
+      try {
+        const result = await waitForWorkerJob(
+          ctx,
+          chatKey,
+          started.jobId,
+          active,
+          liveProgress,
+          { turnKind: currentTurn.kind || "user" }
+        );
+        return { ...result, executionMode: "sidecar", workerJobId: started.jobId };
+      } catch (error) {
+        if (
+          settings.recoveryEnabled !== true
+          || active.abortController.signal.aborted
+          || !isWorkerRestartFailure(error)
+          || restartAttempt >= restartAttemptLimit
+        ) throw error;
+
+        restartAttempt += 1;
+        currentTurn = createWorkerRestartRecoveryTurn(
+          chatKey,
+          currentTurn,
+          started.jobId,
+          restartAttempt
+        );
+        active.currentPreparedTurn = currentTurn;
+        active.currentQueueItemId = currentTurn.id;
+        active.currentText = currentTurn.text;
+        await recovery.appendEvent({
+          type: "worker_restart_recovery_started",
+          chatKey,
+          jobId: started.jobId,
+          nextJobId: currentTurn.id,
+          threadId: currentTurn.recovery?.threadId || "",
+          attempt: restartAttempt,
+          attemptLimit: restartAttemptLimit
+        });
+        logger.warn(
+          `worker restarted during ${started.jobId}; continuing as ${currentTurn.id} `
+          + `(${restartAttempt}/${restartAttemptLimit})`
+        );
+      } finally {
+        active.abortController.signal.removeEventListener("abort", cancelWorker);
+      }
     }
+  }
+
+  function createWorkerRestartRecoveryTurn(chatKey, preparedTurn, workerJobId, attempt) {
+    const chat = chatStore.get(chatKey);
+    const priorRecovery = preparedTurn.recovery || {};
+    const inputPreview = compactRecoveryPreview(
+      priorRecovery.inputPreview || preparedTurn.text || preparedTurn.inputText || ""
+    );
+    const candidate = {
+      chatKey,
+      chatId: preparedTurn.chatId ?? chatKey,
+      messageThreadId: preparedTurn.messageThreadId,
+      replyToMessageId: preparedTurn.replyToMessageId,
+      originMessageId: preparedTurn.originMessageId,
+      originUpdateId: preparedTurn.originUpdateId,
+      queueItemId: priorRecovery.queueItemId || preparedTurn.id || workerJobId,
+      threadId: chat.threadId || priorRecovery.threadId || "",
+      reason: WORKER_RESTART_FAILURE_REASON,
+      attempt,
+      inputPreview,
+      startedAt: priorRecovery.startedAt || preparedTurn.enqueuedAt || "",
+      lastEventAt: now().toISOString(),
+      workerJobId
+    };
+    const recoveryTurn = createRecoveryTurn(candidate, {
+      restartId: `worker-${turn.createQueueItemId()}`,
+      workingDirectory: settings.workingDirectory,
+      serviceName: "codex-telegram-worker.service",
+      restartSubject: "codex-telegram-worker",
+      now: now()
+    });
+    recoveryTurn.recovery = {
+      ...recoveryTurn.recovery,
+      attempt,
+      inputPreview,
+      queueItemId: candidate.queueItemId,
+      workerJobId
+    };
+    return recoveryTurn;
   }
 
   async function waitForWorkerJob(ctx, chatKey, jobId, active, liveProgress, options = {}) {
@@ -146,6 +233,7 @@ export function createWorkerRuntimeController({
             terminal = {
               type: `worker.job.${job.status}`,
               status: job.status,
+              reason: job.failureReason || "",
               message: job.error || ""
             };
             break;
@@ -217,7 +305,9 @@ export function createWorkerRuntimeController({
 
       if (terminal?.type === "worker.job.failed") {
         streamOutcome = "error";
-        throw new Error(terminal.message || "Codex worker job failed.");
+        const error = new Error(terminal.message || "Codex worker job failed.");
+        if (terminal.reason) error.code = terminal.reason;
+        throw error;
       }
       if (terminal?.type === "worker.job.cancelled") {
         streamOutcome = "cancelled";
@@ -325,4 +415,8 @@ function isRetryableWorkerPollError(error) {
   if (RETRYABLE_WORKER_TRANSPORT_CODES.has(code)) return true;
   const message = error instanceof Error ? error.message : String(error);
   return /^worker (?:request timed out|connection closed): job\/events\b/i.test(message);
+}
+
+function compactRecoveryPreview(value) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 240);
 }

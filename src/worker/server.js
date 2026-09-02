@@ -4,6 +4,10 @@ import { PRIVATE_FILE_MODE } from "../fs/private.js";
 import { createFrameReader, encodeFrame, errorResponse, okResponse } from "./protocol.js";
 import { createWorkerStore } from "./store.js";
 import { runWorkerJob } from "./executor.js";
+import {
+  WORKER_RESTART_FAILURE_MESSAGE,
+  WORKER_RESTART_FAILURE_REASON
+} from "./replay.js";
 
 export function createWorkerServer({
   config,
@@ -147,12 +151,24 @@ async function reconcileOrphanedJobs(store) {
     const jobId = String(entry?.id || indexId);
     const job = await store.readJobState(jobId);
     if (!isTerminalWorkerStatus(job?.status)) {
+      const completedAt = new Date().toISOString();
+      await store.writeJobState({
+        ...(entry ?? {}),
+        ...(job ?? {}),
+        id: jobId,
+        status: "failed",
+        failureReason: WORKER_RESTART_FAILURE_REASON,
+        error: WORKER_RESTART_FAILURE_MESSAGE,
+        completedAt
+      });
       await store.appendJobEvent(jobId, {
         type: "worker.job.failed",
         status: "failed",
         chatKey: job?.chatKey ?? entry?.chatKey,
         threadId: job?.threadId ?? entry?.threadId ?? "",
-        message: "worker restarted before job completed"
+        reason: WORKER_RESTART_FAILURE_REASON,
+        message: WORKER_RESTART_FAILURE_MESSAGE,
+        at: completedAt
       });
     }
     await store.removeActiveJob(indexId);

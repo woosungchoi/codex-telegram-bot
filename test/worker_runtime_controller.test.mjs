@@ -4,6 +4,10 @@ import { createWorkerRuntimeController } from "../src/worker/runtime_controller.
 
 function createHarness({
   events = [],
+  eventsByJob = null,
+  startJobIds = ["job-1"],
+  recoveryEnabled = false,
+  workerRestartRecoveryAttempts = 3,
   terminalJob = null,
   contextError = null,
   eventErrors = []
@@ -12,17 +16,21 @@ function createHarness({
   const deliveries = {};
   const calls = [];
   let eventReadCount = 0;
+  let startCount = 0;
   const client = {
     async startJob(job) {
       calls.push(["start", job]);
-      return { jobId: "job-1" };
+      const jobId = startJobIds[startCount] || `job-${startCount + 1}`;
+      startCount += 1;
+      return { jobId };
     },
     async readJobEvents(jobId, afterSeq) {
       calls.push(["events", jobId, afterSeq]);
       const error = eventErrors[eventReadCount];
       eventReadCount += 1;
       if (error) throw error;
-      return { events: events.filter((event) => event.seq > afterSeq) };
+      const jobEvents = eventsByJob?.[jobId] || events;
+      return { events: jobEvents.filter((event) => event.seq > afterSeq) };
     },
     async getJobStatus(jobId) {
       calls.push(["status", jobId]);
@@ -36,8 +44,10 @@ function createHarness({
   const record = (name) => async (...args) => calls.push([name, ...args]);
   const controller = createWorkerRuntimeController({
     settings: {
-      recoveryEnabled: false,
+      recoveryEnabled,
       recoveryDir: "/unused",
+      workerRestartRecoveryAttempts,
+      workingDirectory: "/workspace",
       eventPollMs: () => 1
     },
     deliveryStore: {
@@ -76,7 +86,7 @@ function createHarness({
     },
     recovery: {
       appendEvent: record("recovery"),
-      write: async (write) => write()
+      write: recoveryEnabled ? async () => {} : async (write) => write()
     },
     sleep: record("sleep"),
     now: () => new Date("2026-07-21T04:05:06.000Z"),
@@ -231,6 +241,81 @@ test("sidecar turn starts the worker job when context pressure lookup fails", as
   assert.equal(calls.filter(([name]) => name === "start").length, 1);
   assert.ok(calls.findIndex(([name]) => name === "context") < calls.findIndex(([name]) => name === "start"));
   assert.match(calls.find(([name]) => name === "warn")[1], /context pressure check failed/i);
+});
+
+test("sidecar turn continues in the same thread after the worker restarts", async () => {
+  const { calls, controller } = createHarness({
+    eventsByJob: {
+      "job-1": [{
+        seq: 1,
+        type: "worker.job.failed",
+        status: "failed",
+        message: "worker restarted before job completed"
+      }],
+      "job-2": completedEvents()
+    },
+    startJobIds: ["job-1", "job-2"],
+    recoveryEnabled: true
+  });
+
+  const result = await controller.processPreparedTurnViaWorker(
+    {},
+    "chat:44",
+    { id: "turn-1", text: "finish the interrupted change", kind: "user" },
+    { abortController: new AbortController() },
+    null
+  );
+
+  const starts = calls.filter(([name]) => name === "start");
+  assert.equal(result.workerJobId, "job-2");
+  assert.equal(result.turn.finalResponse, "final answer");
+  assert.equal(starts.length, 2);
+  assert.equal(starts[1][1].kind, "recovery");
+  assert.equal(starts[1][1].threadId, "thread-existing");
+  assert.deepEqual(starts[1][1].imagePaths, []);
+  assert.match(starts[1][1].inputText, /codex-telegram-worker restarted/i);
+  assert.match(starts[1][1].inputText, /finish the interrupted change/);
+  assert.equal(
+    calls.filter(([name]) => name === "stream-closed").map((call) => call[2].outcome).join(","),
+    "error,completed"
+  );
+  assert.equal(calls.filter(([name]) => name === "active-failed").length, 0);
+  assert.equal(
+    calls.some(([name, event]) => name === "recovery" && event.type === "worker_restart_recovery_started"),
+    true
+  );
+});
+
+test("worker restart continuation stops at the configured attempt limit", async () => {
+  const restarted = [{
+    seq: 1,
+    type: "worker.job.failed",
+    status: "failed",
+    reason: "worker_restart",
+    message: "worker process exited"
+  }];
+  const { calls, controller } = createHarness({
+    eventsByJob: { "job-1": restarted, "job-2": restarted },
+    startJobIds: ["job-1", "job-2", "job-3"],
+    recoveryEnabled: true,
+    workerRestartRecoveryAttempts: 1
+  });
+
+  await assert.rejects(
+    () => controller.processPreparedTurnViaWorker(
+      {},
+      "chat:44",
+      { id: "turn-1", text: "continue", kind: "user" },
+      { abortController: new AbortController() },
+      null
+    ),
+    /worker process exited/
+  );
+  assert.equal(calls.filter(([name]) => name === "start").length, 2);
+  assert.equal(
+    calls.filter(([name, event]) => name === "recovery" && event.type === "worker_restart_recovery_started").length,
+    1
+  );
 });
 
 test("failed worker terminal events close the stream with an error outcome", async () => {

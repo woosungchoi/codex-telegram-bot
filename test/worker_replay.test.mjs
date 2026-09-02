@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { reconstructCompletedWorkerJob } from "../src/worker/replay.js";
+import {
+  isWorkerRestartFailure,
+  reconstructCompletedWorkerJob
+} from "../src/worker/replay.js";
 
 function createClient(events, job = { id: "job-1", status: "completed", lastSeq: events.length }) {
   const calls = [];
@@ -70,4 +73,10 @@ test("worker replay refuses a failed Codex stream even if no worker terminal eve
     { seq: 1, type: "turn.failed", error: { message: "bad turn" } }
   ]);
   await assert.rejects(() => reconstructCompletedWorkerJob(client, "job-1"), /bad turn/);
+});
+
+test("worker restart failures are recognized by stable reason or legacy message", () => {
+  assert.equal(isWorkerRestartFailure({ failureReason: "worker_restart" }), true);
+  assert.equal(isWorkerRestartFailure(new Error("worker restarted before job completed")), true);
+  assert.equal(isWorkerRestartFailure(new Error("ordinary worker failure")), false);
 });

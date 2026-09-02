@@ -4,6 +4,9 @@ import {
   createCodexStreamState
 } from "../codex/stream.js";
 
+export const WORKER_RESTART_FAILURE_REASON = "worker_restart";
+export const WORKER_RESTART_FAILURE_MESSAGE = "worker restarted before job completed";
+
 export async function reconstructCompletedWorkerJob(client, jobId) {
   const streamState = createCodexStreamState();
   let cursor = 0;
@@ -61,4 +64,15 @@ export function isTerminalWorkerEvent(event) {
 
 export function isTerminalWorkerStatus(status) {
   return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+export function isWorkerRestartFailure(value) {
+  const reason = String(value?.reason ?? value?.failureReason ?? value?.code ?? "");
+  if (reason === WORKER_RESTART_FAILURE_REASON) return true;
+  const message = value instanceof Error
+    ? value.message
+    : typeof value === "string"
+      ? value
+      : value?.message ?? value?.error ?? "";
+  return String(message).trim().toLowerCase() === WORKER_RESTART_FAILURE_MESSAGE;
 }

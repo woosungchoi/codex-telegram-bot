@@ -1,9 +1,10 @@
 export function buildRecoveryPrompt(candidate, options = {}) {
   const serviceName = options.serviceName || "codex-telegram-bot.service";
+  const restartSubject = options.restartSubject || "codex-telegram-bot";
   const workdir = options.workingDirectory || "";
   return [
     "<system_recovery_instruction>",
-    "codex-telegram-bot restarted while the previous Telegram Codex turn was active.",
+    `${restartSubject} restarted while the previous Telegram Codex turn was active.`,
     "You are running automatically after restart in the same Codex thread.",
     "",
     "Do not blindly re-run unfinished tool calls.",

@@ -8,8 +8,16 @@ import {
   selectWorkerDeliveryCandidates,
   workerDeliveryDigestMatches
 } from "../worker/delivery.js";
-import { reconstructCompletedWorkerJob } from "../worker/replay.js";
-import { readActiveTurnSnapshots, removeActiveTurnSnapshot } from "./state.js";
+import {
+  isWorkerRestartFailure,
+  reconstructCompletedWorkerJob,
+  WORKER_RESTART_FAILURE_REASON
+} from "../worker/replay.js";
+import {
+  readActiveTurnSnapshots,
+  removeActiveTurnSnapshot,
+  replaceActiveTurnSnapshot
+} from "./state.js";
 
 export function createWorkerRuntimeRecoveryController({
   settings,
@@ -40,6 +48,7 @@ export function createWorkerRuntimeRecoveryController({
     }
 
     const jobs = await readWorkerJobsForRecovery(deliveries, snapshots, importantJobIds, source);
+    await armWorkerRestartRecoveries(snapshots, jobs, source);
     const activeSnapshotJobIds = Object.values(snapshots)
       .map((snapshot) => String(snapshot?.workerJobId || ""))
       .filter(Boolean);
@@ -123,6 +132,38 @@ export function createWorkerRuntimeRecoveryController({
       })) started += 1;
     }
     return started;
+  }
+
+  async function armWorkerRestartRecoveries(snapshots, jobs, source) {
+    for (const [chatKey, snapshot] of Object.entries(snapshots)) {
+      const jobId = String(snapshot?.workerJobId || "");
+      const job = jobs[jobId];
+      const snapshotIdentifiesRestart = isWorkerRestartFailure(snapshot?.recoveryReason);
+      if (
+        !jobId
+        || job?.status !== "failed"
+        || (!isWorkerRestartFailure(job) && !snapshotIdentifiesRestart)
+        || (snapshot?.recoveryEligible === false && !snapshotIdentifiesRestart)
+      ) continue;
+
+      const armed = {
+        ...snapshot,
+        workerJobId: "",
+        workerEventSeq: 0,
+        recoveryEligible: true,
+        recoveryReason: WORKER_RESTART_FAILURE_REASON,
+        lastKnownStatus: "worker_restart_recovery_armed"
+      };
+      snapshots[chatKey] = armed;
+      await replaceActiveTurnSnapshot(settings.recoveryDir, chatKey, armed);
+      await turn.appendRecoveryEvent({
+        type: "worker_restart_recovery_armed",
+        chatKey,
+        jobId,
+        threadId: snapshot.threadId || job.threadId || "",
+        source
+      });
+    }
   }
 
   async function readWorkerJobsForRecovery(deliveries, snapshots, importantJobIds, source) {

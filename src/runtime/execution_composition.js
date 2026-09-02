@@ -89,6 +89,8 @@ export function createExecutionComposition(r) {
     settings: {
       recoveryEnabled: r.config.botRestartRecoveryEnabled,
       recoveryDir: r.config.botRecoveryDir,
+      workerRestartRecoveryAttempts: r.config.botRecoverySuspendAfter,
+      workingDirectory: r.config.codexWorkdir,
       eventPollMs: () => r.runtimeValue("codexWorkerEventPollMs")
     },
     deliveryStore: {

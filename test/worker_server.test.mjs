@@ -118,8 +118,14 @@ test("worker startup marks persisted orphaned jobs failed", async () => {
   try {
     assert.deepEqual(await client.status(), { status: "ok", activeJobs: [], runningJobIds: [] });
     assert.equal((await store.readJobState("job-orphan")).status, "failed");
+    assert.equal((await store.readJobState("job-orphan")).failureReason, "worker_restart");
+    assert.equal(
+      (await store.readJobState("job-orphan")).error,
+      "worker restarted before job completed"
+    );
     const events = await store.readJobEvents("job-orphan", { afterSeq: 0 });
     assert.equal(events.at(-1).type, "worker.job.failed");
+    assert.equal(events.at(-1).reason, "worker_restart");
   } finally {
     await worker.close();
   }
