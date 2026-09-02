@@ -2,10 +2,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createWorkerRuntimeController } from "../src/worker/runtime_controller.js";
 
-function createHarness({ events = [], terminalJob = null, contextError = null } = {}) {
+function createHarness({
+  events = [],
+  terminalJob = null,
+  contextError = null,
+  eventErrors = []
+} = {}) {
   const chat = { threadId: "thread-existing", outputSchema: { type: "object" } };
   const deliveries = {};
   const calls = [];
+  let eventReadCount = 0;
   const client = {
     async startJob(job) {
       calls.push(["start", job]);
@@ -13,6 +19,9 @@ function createHarness({ events = [], terminalJob = null, contextError = null } 
     },
     async readJobEvents(jobId, afterSeq) {
       calls.push(["events", jobId, afterSeq]);
+      const error = eventErrors[eventReadCount];
+      eventReadCount += 1;
+      if (error) throw error;
       return { events: events.filter((event) => event.seq > afterSeq) };
     },
     async getJobStatus(jobId) {
@@ -158,6 +167,27 @@ test("worker event polling persists monotonic cursors and reconstructs the turn"
   assert.equal(calls.filter(([name]) => name === "first-item").length, 1);
   assert.equal(calls.filter(([name]) => name === "final-seen").length, 1);
   assert.equal(calls.filter(([name]) => name === "stream-closed").length, 1);
+  assert.equal(calls.find(([name]) => name === "stream-closed")[2].outcome, "completed");
+});
+
+test("worker event polling retries transient transport failures", async () => {
+  const { calls, controller } = createHarness({
+    events: completedEvents(),
+    eventErrors: [new Error("worker request timed out: job/events")]
+  });
+
+  const result = await controller.waitForWorkerJob(
+    {},
+    "chat:44",
+    "job-1",
+    { abortController: new AbortController() },
+    null
+  );
+
+  assert.equal(result.turn.finalResponse, "final answer");
+  assert.equal(calls.filter(([name]) => name === "events").length, 2);
+  assert.equal(calls.filter(([name]) => name === "sleep").length, 1);
+  assert.match(calls.find(([name]) => name === "warn")[1], /worker event polling retry/i);
   assert.equal(calls.find(([name]) => name === "stream-closed")[2].outcome, "completed");
 });
 

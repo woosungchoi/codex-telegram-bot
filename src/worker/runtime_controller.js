@@ -13,6 +13,14 @@ import {
 } from "./delivery.js";
 import { isTerminalWorkerEvent, isTerminalWorkerStatus } from "./replay.js";
 
+const RETRYABLE_WORKER_TRANSPORT_CODES = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ENOENT",
+  "EPIPE",
+  "ETIMEDOUT"
+]);
+
 export function createWorkerRuntimeController({
   settings,
   deliveryStore,
@@ -101,6 +109,7 @@ export function createWorkerRuntimeController({
     let terminal = null;
     let threadId = chatStore.get(chatKey).threadId || "";
     let streamOutcome = "completed";
+    let pollFailureCount = 0;
     await turn.recordCodexStreamStarted(chatKey, options.turnKind || "user");
 
     try {
@@ -109,7 +118,22 @@ export function createWorkerRuntimeController({
           cancelWorkerJobOnce(active, jobId);
         }
 
-        const response = await client.readJobEvents(jobId, cursor);
+        let response;
+        try {
+          response = await client.readJobEvents(jobId, cursor);
+          pollFailureCount = 0;
+        } catch (error) {
+          if (!isRetryableWorkerPollError(error)) throw error;
+          pollFailureCount += 1;
+          if (pollFailureCount === 1 || pollFailureCount % 10 === 0) {
+            logger.warn(
+              `worker event polling retry (${pollFailureCount}) for ${jobId}:`,
+              error instanceof Error ? error.message : String(error)
+            );
+          }
+          await sleep(settings.eventPollMs());
+          continue;
+        }
         const events = response.events || [];
         if (events.length === 0) {
           const status = await client.getJobStatus(jobId).catch(() => null);
@@ -294,4 +318,11 @@ export function createWorkerRuntimeController({
     waitForWorkerJob,
     workerDeliveryCursor
   };
+}
+
+function isRetryableWorkerPollError(error) {
+  const code = String(error?.code ?? error?.cause?.code ?? "").toUpperCase();
+  if (RETRYABLE_WORKER_TRANSPORT_CODES.has(code)) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /^worker (?:request timed out|connection closed): job\/events\b/i.test(message);
 }
