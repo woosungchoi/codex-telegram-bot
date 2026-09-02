@@ -35,17 +35,24 @@ export function createWorkerServer({
   }
 
   const server = net.createServer((socket) => {
+    socket.on("error", (error) => {
+      if (error?.code === "ECONNRESET" || error?.code === "EPIPE") return;
+      logger.warn?.("worker client socket failed:", error instanceof Error ? error.message : String(error));
+    });
+    const writeResponse = (response) => {
+      if (!socket.destroyed && socket.writable) socket.write(encodeFrame(response));
+    };
     createFrameReader(socket, async (request) => {
       const id = request?.id || null;
       try {
         const result = await dispatch(request);
-        socket.write(encodeFrame(okResponse(id, result)));
+        writeResponse(okResponse(id, result));
       } catch (error) {
-        socket.write(encodeFrame(errorResponse(id, error)));
+        writeResponse(errorResponse(id, error));
       }
     }, {
       onError: (error) => {
-        socket.write(encodeFrame(errorResponse(null, error)));
+        writeResponse(errorResponse(null, error));
       }
     });
   });

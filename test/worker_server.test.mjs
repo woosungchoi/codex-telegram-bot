@@ -55,6 +55,49 @@ test("worker server writes heartbeat events for running jobs", async () => {
   }
 });
 
+test("worker server survives socket errors and a client disconnect before a response is ready", async (t) => {
+  let releaseRead;
+  const readGate = new Promise((resolve) => {
+    releaseRead = resolve;
+  });
+  t.after(() => releaseRead());
+  const { config, worker, client } = await startServer(async () => {}, {
+    prepareStore: async (store) => {
+      const readJobEvents = store.readJobEvents;
+      store.readJobEvents = async (...args) => {
+        await readGate;
+        return readJobEvents(...args);
+      };
+    }
+  });
+  try {
+    const socketErrorResult = new Promise((resolve) => {
+      worker.server.once("connection", (socket) => {
+        try {
+          socket.emit("error", Object.assign(new Error("injected reset"), { code: "ECONNRESET" }));
+          resolve(null);
+        } catch (error) {
+          resolve(error);
+        }
+      });
+    });
+    const impatientClient = createWorkerClient({
+      ...config,
+      codexWorkerConnectTimeoutMs: 5
+    });
+    await assert.rejects(
+      () => impatientClient.readJobEvents("job-disconnected", 0),
+      /worker request timed out/
+    );
+    assert.equal(await socketErrorResult, null);
+    releaseRead();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal((await client.status()).status, "ok");
+  } finally {
+    await worker.close();
+  }
+});
+
 test("worker server records shutdown for active jobs", async () => {
   const executeJob = async ({ signal }) => {
     if (!signal.aborted) {
