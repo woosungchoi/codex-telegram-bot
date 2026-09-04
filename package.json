@@ -43,13 +43,14 @@
     "node": ">=18"
   },
   "scripts": {
+    "audit:ci": "node scripts/npm_audit_gate.mjs",
     "start": "node src/bot.js",
     "start:worker": "node src/worker.js",
     "check": "node scripts/check-syntax.mjs && npm run validate:locales",
     "lint": "eslint \"src/**/*.js\" \"scripts/**/*.mjs\" \"test/**/*.mjs\" eslint.config.js --max-warnings=0",
     "format:check": "prettier --check package.json package-lock.json .github/workflows/*.yml",
     "validate:locales": "node scripts/validate-locales.mjs",
-    "verify": "npm run check && npm run lint && npm run format:check && npm test && npm audit --audit-level=moderate",
+    "verify": "npm run check && npm run lint && npm run format:check && npm test",
     "test": "node --test"
   },
   "dependencies": {

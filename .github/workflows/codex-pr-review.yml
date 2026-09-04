@@ -84,10 +84,11 @@ jobs:
             echo "authenticated=true" >> "$GITHUB_OUTPUT"
           else
             echo "authenticated=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Codex access token rejected::codex login rejected CODEX_ACCESS_TOKEN. Rotate or remove the repository secret."
             {
               echo "### Codex PR Review"
               echo
-              echo "Skipped because Codex OAuth login failed. Refresh or remove \`CODEX_ACCESS_TOKEN\` to keep this optional reviewer healthy."
+              echo "Skipped because Codex OAuth login failed. The configured \`CODEX_ACCESS_TOKEN\` may be malformed, expired, or revoked; rotate or remove it to keep this optional reviewer healthy."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 

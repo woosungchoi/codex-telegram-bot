@@ -47,6 +47,40 @@ test("classifies common CI failures with evidence and commands", async () => {
   }
 });
 
+test("does not mistake successful commands for lint, test, format, or permission failures", () => {
+  const log = [
+    '> eslint "src/**/*.js" --max-warnings=0',
+    "> prettier --check package.json .github/workflows/*.yml",
+    "All matched files use Prettier code style!",
+    "> node --test",
+    "ℹ tests 481",
+    "ℹ pass 481",
+    "ℹ fail 0",
+    "✔ private filesystem helpers enforce owner-only permissions",
+    "npm warn audit 503 Service Unavailable",
+    "npm error audit endpoint returned an error",
+  ].join("\n");
+
+  const types = classifyFailure(log).map((item) => item.type);
+  assert.deepEqual(types, ["registry-network-transient"]);
+});
+
+test("distinguishes vulnerability reports from audit infrastructure failures", () => {
+  const vulnerabilities = classifyFailure("# npm audit report\n2 vulnerabilities (1 moderate, 1 high)");
+  assert.ok(vulnerabilities.some((item) => item.type === "audit-failure"));
+  assert.ok(!vulnerabilities.some((item) => item.type === "registry-network-transient"));
+
+  const invalidTree = classifyFailure(
+    "npm warn audit 400 Bad Request\nmessage: 'Invalid package tree, run npm install'\nnpm error audit endpoint returned an error",
+  );
+  assert.deepEqual(invalidTree.map((item) => item.type), ["registry-network-transient"]);
+
+  const timeout = classifyFailure(
+    "network timeout at: https://registry.npmjs.org/-/npm/v1/security/advisories/bulk",
+  );
+  assert.deepEqual(timeout.map((item) => item.type), ["registry-network-transient"]);
+});
+
 test("redacts secret-like values before markdown output", () => {
   const input = [
     "token=ghp_abcdefghijklmnopqrstuvwxyz1234567890",

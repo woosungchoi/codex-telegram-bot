@@ -135,11 +135,12 @@ jobs:
             echo "authenticated=true" >> "$GITHUB_OUTPUT"
           else
             echo "authenticated=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Codex access token rejected::codex login rejected CODEX_ACCESS_TOKEN. Rotate or remove the repository secret."
             {
               echo
               echo "## Codex AI 추가 진단"
               echo
-              echo "Skipped because Codex OAuth login failed. Refresh or remove \`CODEX_ACCESS_TOKEN\` if AI diagnosis is needed. Authless CI diagnosis above is still available."
+              echo "Skipped because Codex OAuth login failed. The configured \`CODEX_ACCESS_TOKEN\` may be malformed, expired, or revoked; rotate or remove it if AI diagnosis is needed. Authless CI diagnosis above is still available."
             } >> ci-diagnosis-summary.md
           fi
 

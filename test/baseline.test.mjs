@@ -42,13 +42,20 @@ test("public package metadata and assets stay intact", async () => {
 
 test("public CI keeps baseline verification commands", async () => {
   const workflow = await fs.readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-  assert.match(workflow, /npm ci/);
+  const pkg = await readJson("package.json");
+  assert.match(workflow, /npm ci --audit=false/);
   assert.match(workflow, /npm run verify/);
+  assert.match(workflow, /name: Security audit/);
+  assert.match(workflow, /node-version: 24/);
+  assert.match(workflow, /npm install --global npm@11\.17\.0/);
+  assert.match(workflow, /npm run audit:ci/);
   assert.match(workflow, /raven-actions\/actionlint@v2/);
   assert.match(workflow, /npm pack --dry-run --json/);
   assert.match(workflow, /npm run build --if-present/);
   assert.match(workflow, /node-version: \[18, 20, 22, 24, 26\]/);
   assert.match(workflow, /node-version: \$\{\{ matrix\.node-version \}\}/);
+  assert.doesNotMatch(pkg.scripts.verify, /npm audit/);
+  assert.equal(pkg.scripts["audit:ci"], "node scripts/npm_audit_gate.mjs");
 });
 
 test("optional Codex workflows degrade gracefully", async () => {
@@ -75,6 +82,8 @@ test("optional Codex workflows degrade gracefully", async () => {
     assert.match(workflow, /id: codex-login/);
     assert.match(workflow, /authenticated=false/);
     assert.match(workflow, /Codex OAuth login failed/);
+    assert.match(workflow, /Codex access token rejected/);
+    assert.match(workflow, /malformed, expired, or revoked/);
   }
 
   assert.match(dependencyUpdate, /npm view @openai\/codex version 2>\/dev\/null \|\| true/);

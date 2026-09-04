@@ -240,7 +240,7 @@ This repository includes GitHub Actions for CI, optional Codex review,
 authless failed-CI diagnosis, dependency update PRs, and guarded dependency PR
 auto-merge.
 
-- `CI`: runs `npm ci`, `npm run verify`, `actionlint`, `npm pack --dry-run --json`, and `npm run build --if-present` on pull requests and pushes to `main`.
+- `CI`: runs the deterministic Node matrix with `npm ci --audit=false`, `npm run verify`, `actionlint`, `npm pack --dry-run --json`, and `npm run build --if-present`. A separate Node 24 `Security audit` job retries npm registry timeouts and `429`/`5xx` failures without masking real vulnerability reports.
 - `Codex PR Review`: runs `codex review` on pull requests and updates one PR comment when Codex OAuth login is available. It is intentionally optional and should not be a required merge check.
 - `Codex CI Diagnosis`: when `CI` fails, always posts deterministic diagnostics from GitHub Actions metadata, failed jobs, failed steps, and failed log excerpts. When Codex OAuth login is available, it appends an optional AI diagnosis. If the failed run is not attached to a PR, the diagnosis is written to the workflow step summary instead.
 - `Codex Dependency Update`: checks the latest `@openai/codex-sdk` and
@@ -255,7 +255,7 @@ auto-merge.
 Recommended `main` branch protection keeps the deterministic CI matrix as the
 required gate and leaves helper workflows report-only:
 
-- Required status checks: `Check Node 18`, `Check Node 20`, `Check Node 22`
+- Required status checks: `Check Node 18`, `Check Node 20`, `Check Node 22`, `Security audit`
 - Not required: `Codex PR Review`, `Codex CI Diagnosis`, `Dependency PR Auto Merge`
 
 The normal pull-request flow is:

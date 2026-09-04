@@ -220,7 +220,7 @@ Telegram 조작 경로:
 
 이 저장소에는 CI, Codex PR review, 실패한 CI 진단용 GitHub Actions가 포함되어 있습니다.
 
-- `CI`: `npm ci`, `npm run verify`, `actionlint`, `npm pack --dry-run --json`, `npm run build --if-present`를 실행합니다.
+- `CI`: Node 매트릭스에서 `npm ci --audit=false`, `npm run verify`, `actionlint`, `npm pack --dry-run --json`, `npm run build --if-present`를 실행합니다. 별도의 Node 24 `Security audit` job은 실제 취약점 보고서는 실패시키되 npm 레지스트리의 타임아웃과 `429`/`5xx` 오류는 제한적으로 재시도합니다.
 - `Codex PR Review`: Codex OAuth login이 가능할 때 pull request에서 `codex review`를 실행하고 PR comment 하나를 생성/수정합니다.
 - `Codex CI Diagnosis`: `CI`가 실패하면 GitHub Actions metadata, 실패 job/step, 실패 log excerpt 기반의 deterministic 기본 진단을 항상 남깁니다. Codex OAuth login이 가능할 때만 optional AI 추가 진단을 append합니다.
 - `Codex Dependency Update`: 최신 `@openai/codex-sdk`와 `@openai/codex`를
@@ -235,7 +235,7 @@ repository secret이 설정된 경우에 실행됩니다.
 gh secret set CODEX_ACCESS_TOKEN --body "$CODEX_ACCESS_TOKEN"
 ```
 
-secret이 설정되어 있지 않거나 만료되어도 Codex AI 단계만 정상적으로 skip됩니다. 기본 CI,
+secret이 설정되어 있지 않거나 잘못된 형식이거나 만료·폐기되어도 Codex AI 단계만 명확한 경고와 함께 정상적으로 skip됩니다. 기본 CI,
 deterministic CI 진단, dependency update, auto-merge safety check는 계속 실행됩니다.
 
 Dependabot도 `@openai/codex-sdk`와 `@openai/codex`는 매일, 다른 npm dependency는 매주 확인하도록 설정되어 있습니다.
