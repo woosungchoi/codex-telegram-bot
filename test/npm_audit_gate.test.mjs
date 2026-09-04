@@ -72,6 +72,8 @@ test("retries transient failures and succeeds when the registry recovers", async
     retryDelayMs: 1,
     run: async () => results.shift(),
     wait: async (milliseconds) => waits.push(milliseconds),
+    warn: () => {},
+    write: () => {},
   });
 
   assert.equal(outcome.ok, true);
@@ -82,6 +84,7 @@ test("retries transient failures and succeeds when the registry recovers", async
 
 test("reports a soft failure after bounded registry retries", async () => {
   let calls = 0;
+  const warnings = [];
   const outcome = await runAuditGate({
     attempts: 2,
     retryDelayMs: 1,
@@ -94,12 +97,15 @@ test("reports a soft failure after bounded registry retries", async () => {
       };
     },
     wait: async () => {},
+    warn: (message) => warnings.push(message),
+    write: () => {},
   });
 
   assert.equal(outcome.ok, true);
   assert.equal(outcome.softFailed, true);
   assert.equal(outcome.attempts, 2);
   assert.equal(calls, 2);
+  assert.ok(warnings.some((message) => message.startsWith("::warning ")));
 });
 
 test("does not retry or mask reported vulnerabilities", async () => {
@@ -118,6 +124,8 @@ test("does not retry or mask reported vulnerabilities", async () => {
       };
     },
     wait: async () => {},
+    warn: () => {},
+    write: () => {},
   });
 
   assert.equal(outcome.ok, false);

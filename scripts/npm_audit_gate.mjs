@@ -98,6 +98,8 @@ export async function runAuditGate({
   auditLevel = "moderate",
   run = runNpm,
   wait = delay,
+  warn = console.warn,
+  write = writeAttemptOutput,
 } = {}) {
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const result = await run([
@@ -114,7 +116,7 @@ export async function runAuditGate({
     if (/Invalid package tree/i.test(outputText(result))) {
       const tree = await run(["ls", "--all", "--json"]);
       packageTreeValid = tree.code === 0;
-      if (!packageTreeValid) writeAttemptOutput(tree);
+      if (!packageTreeValid) write(tree);
     }
 
     const classification = classifyAuditAttempt({
@@ -122,15 +124,15 @@ export async function runAuditGate({
       packageTreeValid,
     });
     if (classification.kind === "passed") {
-      writeAttemptOutput(result);
+      write(result);
       return { ok: true, attempts: attempt, ...classification };
     }
     if (classification.kind !== "transient") {
-      writeAttemptOutput(result);
+      write(result);
       return { ok: false, attempts: attempt, ...classification };
     }
 
-    console.warn(
+    warn(
       `npm audit infrastructure failure (${classification.reason}), attempt ${attempt}/${attempts}.`,
     );
     if (attempt < attempts) {
@@ -138,7 +140,7 @@ export async function runAuditGate({
       continue;
     }
 
-    console.warn(
+    warn(
       `::warning title=npm audit unavailable::Security audit could not reach a healthy registry endpoint after ${attempts} attempts (${classification.reason}).`,
     );
     return { ok: true, attempts: attempt, softFailed: true, ...classification };
