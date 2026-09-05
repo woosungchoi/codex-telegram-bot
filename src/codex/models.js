@@ -33,7 +33,10 @@ export async function readCodexModelCatalog(cacheFile) {
     const models = uniqueModels(
       rawModels
         .filter(
-          (model) => model?.slug && (model.visibility === "list" || model.supported_in_api !== false)
+          (model) => model?.slug && (
+            model.visibility === "list"
+            || (model.visibility == null && model.supported_in_api !== false)
+          )
         )
         .sort((left, right) => (left.priority ?? 999) - (right.priority ?? 999))
         .map(normalizeModel)

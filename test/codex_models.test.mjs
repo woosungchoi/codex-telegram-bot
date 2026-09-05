@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as modelHelpers from "../src/codex/models.js";
-import { reasoningSelectionKeyboard } from "../src/ui/keyboards.js";
+import { modelSelectionKeyboard, reasoningSelectionKeyboard } from "../src/ui/keyboards.js";
 
 const {
   readCodexModelCatalog,
@@ -145,6 +145,43 @@ test("gpt-5.6 alias resolves Sol while exact slugs take precedence", async () =>
         supportedReasoning: []
       };
       assert.equal(findCodexModel([...models, exactAlias], "gpt-5.6"), exactAlias);
+    }
+  );
+});
+
+test("model picker includes Astra and excludes hidden API-supported models", async () => {
+  await withCache(
+    {
+      models: [
+        { slug: "gpt-reserve", visibility: "hide", supported_in_api: true, priority: 0 },
+        { slug: "codex-auto-review", visibility: "hide", supported_in_api: true, priority: 1 },
+        {
+          slug: "gpt-6-astra",
+          display_name: "GPT-6-Astra",
+          visibility: "list",
+          supported_in_api: true,
+          priority: 2,
+          default_reasoning_level: "medium",
+          supported_reasoning_levels: SOL_EFFORTS
+        },
+        { slug: "gpt-5.3-codex-spark", visibility: "list", supported_in_api: false, priority: 3 },
+        { slug: "legacy-model", supported_in_api: true, priority: 4 },
+        { slug: "api-unavailable", supported_in_api: false },
+        { slug: "hidden-model", visibility: "hidden", supported_in_api: true }
+      ]
+    },
+    async (cacheFile) => {
+      const models = await readCodexModelCatalog(cacheFile);
+      assert.deepEqual(models.map(({ slug }) => slug), [
+        "gpt-6-astra", "gpt-5.3-codex-spark", "legacy-model"
+      ]);
+      assert.deepEqual(efforts(findCodexModel(models, "gpt-6-astra")), SOL_EFFORTS);
+      const buttons = modelSelectionKeyboard(models).reply_markup.inline_keyboard.flat();
+      assert.deepEqual(buttons[0], {
+        text: "GPT-6-Astra",
+        callback_data: "model:set:gpt-6-astra"
+      });
+      assert.ok(buttons.every(({ callback_data: data }) => !/reserve|auto-review|hidden/.test(data)));
     }
   );
 });
