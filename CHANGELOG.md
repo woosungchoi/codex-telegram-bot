@@ -2,6 +2,12 @@
 
 All notable public changes are documented here.
 
+## Unreleased
+
+- Honor proxy environment variables for Telegram API requests, remote upload
+  attachments, and Telegram file downloads, including lowercase precedence,
+  authenticated proxies, and `NO_PROXY` bypasses on Node 18 and newer.
+
 ## 1.2.11 - 2026-08-28
 
 ### Scheduled cleanup modes

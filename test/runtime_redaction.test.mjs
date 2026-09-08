@@ -26,3 +26,11 @@ test("runtime redactor preserves object shape", () => {
     safe: true
   });
 });
+
+test("runtime redactor removes credentials from proxy URL errors", () => {
+  const redactor = createRuntimeRedactor({});
+  assert.equal(
+    redactor.redactText("failed https://user:secret%40value@proxy.example:3128; http://safe.example/path"),
+    "failed https://[REDACTED]@proxy.example:3128; http://safe.example/path"
+  );
+});

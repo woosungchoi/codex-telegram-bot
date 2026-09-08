@@ -178,6 +178,37 @@ For local release-style verification, run:
 npm run verify
 ```
 
+### HTTP(S) proxies
+
+Telegram API calls (including polling and uploads), remote upload attachments,
+and downloaded Telegram images/PDFs honor `HTTP_PROXY`, `HTTPS_PROXY`, and
+`NO_PROXY` from the process environment or `.env`. Lowercase variants
+(`http_proxy`, `https_proxy`, `no_proxy`) take precedence when non-empty.
+`ALL_PROXY` / `all_proxy` is the fallback when no protocol-specific proxy is set.
+
+```dotenv
+HTTP_PROXY=http://127.0.0.1:7890
+HTTPS_PROXY=http://127.0.0.1:7890
+NO_PROXY=localhost,127.0.0.1,[::1]
+```
+
+Telegram uses HTTPS, so set **`HTTPS_PROXY`**, even for an `http://` proxy server;
+`HTTP_PROXY` alone only applies to HTTP URLs. Authenticated proxies may use
+`http://username:password@proxy.example:3128` (URL-encode special characters).
+Keep credentials private in `.env`, never in a committed file or shared logs.
+
+`NO_PROXY` supports comma/space-separated hosts, optional ports, domain suffixes
+such as `.example.com`, and `*` to bypass all proxies. Matching URLs connect
+directly; failed proxy connections do **not** silently fall back to direct access.
+This works on all supported Node versions without `NODE_USE_ENV_PROXY=1`.
+Restart the bot after changing `.env`. This configures the bot's Telegram
+networking; Codex subprocesses and external tools retain their own proxy behavior.
+
+**Node 26 note:** Telegraf 4.16.3's existing multipart stream can stall on Node 26,
+even without a proxy. Use Node 24 LTS for file uploads until that upstream
+compatibility issue is resolved. Proxy API/download tests still run on Node 26;
+only the affected multipart integration test is marked as skipped there.
+
 ## Codex Worker, Transport, and Recovery
 
 The default runtime is `CODEX_WORKER_MODE=sidecar` with

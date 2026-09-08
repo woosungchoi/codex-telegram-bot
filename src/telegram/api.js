@@ -1,4 +1,4 @@
-import https from "node:https";
+import { ProxyAgent } from "proxy-agent";
 import { stripHtml } from "./html.js";
 
 export const TELEGRAM_AUTO_SELECT_FAMILY_ATTEMPT_TIMEOUT_MS = 1_000;
@@ -20,7 +20,7 @@ const RICH_REJECTION_PATTERN = /(?:sendrichmessage|rich_message|rich message|uns
 const MAX_ERROR_DESCRIPTION_CHARS = 500;
 
 export function createTelegramApiAgent({ attemptTimeoutMs = TELEGRAM_AUTO_SELECT_FAMILY_ATTEMPT_TIMEOUT_MS } = {}) {
-  return new https.Agent({
+  return new ProxyAgent({
     keepAlive: true,
     keepAliveMsecs: 10_000,
     autoSelectFamilyAttemptTimeout: attemptTimeoutMs
@@ -29,6 +29,7 @@ export function createTelegramApiAgent({ attemptTimeoutMs = TELEGRAM_AUTO_SELECT
 
 export function sanitizeTelegramErrorMessage(value) {
   return String(value ?? "")
+    .replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/]+@/gi, "$1[REDACTED]@")
     .replace(/\/bot[^/\s]+\//gi, "/bot[REDACTED]/")
     .replace(/\b\d{5,}:[a-zA-Z0-9_-]{10,}\b/g, "[REDACTED_TELEGRAM_TOKEN]")
     .slice(0, MAX_ERROR_DESCRIPTION_CHARS);
