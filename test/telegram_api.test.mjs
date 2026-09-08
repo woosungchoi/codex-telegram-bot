@@ -85,6 +85,14 @@ test("Telegram token segments are redacted from URLs and standalone strings", ()
   assert.match(sanitized, /\[REDACTED_TELEGRAM_TOKEN\]/);
 });
 
+test("Telegram error summaries redact proxy URL credentials", () => {
+  const summary = summarizeTelegramError(new Error(
+    "Unsupported protocol for proxy URL: custom://user:secret%40value@proxy.example:3128"
+  ));
+  assert.equal(summary.description,
+    "Unsupported protocol for proxy URL: custom://[REDACTED]@proxy.example:3128");
+});
+
 test("transport errors are classified from errno, code, and nested causes", () => {
   for (const code of ["ETIMEDOUT", "ENETUNREACH", "ECONNRESET", "EAI_AGAIN", "ENOTFOUND"]) {
     assert.equal(isTelegramTransportError(Object.assign(new Error(code), { code })), true, code);

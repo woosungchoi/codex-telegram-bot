@@ -1,4 +1,5 @@
 import path from "node:path";
+import fetch from "node-fetch";
 import { buildStyleInstructionPrompt } from "../codex/prompts.js";
 import { ensurePrivateDirectory, writePrivateFile } from "../fs/private.js";
 import {
@@ -17,12 +18,13 @@ import {
 
 export function createTelegramRuntimeContext({
   bot,
+  agent,
   settings,
   chats,
   persistence,
   localization,
   formatting,
-  fetchImpl = globalThis.fetch,
+  fetchImpl = fetch,
   now = Date.now
 }) {
   function telegramNotifyExtra(meta = {}) {
@@ -118,7 +120,7 @@ export function createTelegramRuntimeContext({
 
   async function downloadTelegramFileRecord(ctx, fileId, ext) {
     const link = await ctx.telegram.getFileLink(fileId);
-    const response = await fetchImpl(link.href);
+    const response = await fetchImpl(link.href, { agent });
     if (!response.ok) throw new Error(`Telegram file download failed: ${response.status}`);
     const bytes = Buffer.from(await response.arrayBuffer());
     if (settings.uploadMaxBytes > 0 && bytes.length > settings.uploadMaxBytes) {

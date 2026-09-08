@@ -111,7 +111,7 @@ const { redactText, redactValue } = createRuntimeRedactor(config);
 const telegramApiAgent = createTelegramApiAgent();
 const bot = new Telegraf(config.telegramBotToken, {
   handlerTimeout: Infinity,
-  telegram: { agent: telegramApiAgent }
+  telegram: { agent: telegramApiAgent, attachmentAgent: telegramApiAgent }
 });
 const threadCache = new Map();
 const state = await loadRuntimeState(config.stateFile, {
@@ -202,6 +202,7 @@ const {
   telegramNotifyExtra
 } = createTelegramRuntimeContext({
   bot,
+  agent: telegramApiAgent,
   settings: {
     personaPrompt: config.codexPersonaPrompt,
     uploadMaxBytes: config.uploadMaxBytes,

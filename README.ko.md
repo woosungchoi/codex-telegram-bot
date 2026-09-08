@@ -167,6 +167,38 @@ npm start
 npm run verify
 ```
 
+### HTTP(S) 프록시
+
+Telegram API 호출(폴링·업로드 포함), URL로 지정한 업로드 첨부파일,
+Telegram 이미지·PDF 다운로드에 프로세스 환경변수 또는 `.env`의
+`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`를 적용합니다. 값이 있는 소문자 변수
+(`http_proxy`, `https_proxy`, `no_proxy`)가 대문자보다 우선합니다.
+프로토콜별 설정이 없으면 `ALL_PROXY` / `all_proxy`를 사용합니다.
+
+```dotenv
+HTTP_PROXY=http://127.0.0.1:7890
+HTTPS_PROXY=http://127.0.0.1:7890
+NO_PROXY=localhost,127.0.0.1,[::1]
+```
+
+Telegram은 HTTPS를 사용하므로 프록시 서버 주소가 `http://`여도
+**`HTTPS_PROXY`를 설정**하세요. `HTTP_PROXY`만 설정하면 HTTP URL에만 적용됩니다.
+인증 프록시는 `http://username:password@proxy.example:3128` 형식으로 지정하며,
+특수문자는 URL 인코딩하세요. 자격 증명은 비공개 `.env`에만 보관하고
+커밋하거나 로그를 공유하지 마세요.
+
+`NO_PROXY`는 쉼표·공백으로 구분한 호스트, 선택적 포트, `.example.com` 같은
+도메인 접미사, 전체 우회를 위한 `*`를 지원합니다. 일치하는 URL은 직접 연결하며,
+프록시 연결 실패 시에는 임의로 직접 연결하지 않습니다.
+지원하는 모든 Node 버전에서 `NODE_USE_ENV_PROXY=1` 없이 동작합니다.
+`.env` 변경 후 봇을 재시작하세요. 이 설정은 봇의 Telegram 통신에 적용되며,
+Codex 하위 프로세스와 외부 도구의 프록시 동작은 각 도구의 설정을 따릅니다.
+
+**Node 26 참고:** 기존 Telegraf 4.16.3의 멀티파트 스트림이 프록시 없이도
+Node 26에서 멈출 수 있습니다. 해당 상위 라이브러리 호환성 문제가 해결되기
+전까지 파일 업로드에는 Node 24 LTS를 사용하세요. 프록시 API·다운로드 테스트는
+Node 26에서도 실행하며, 영향을 받는 멀티파트 통합 테스트만 건너뛰도록 명시했습니다.
+
 ## Codex Worker, Transport, Recovery
 
 기본 런타임은 `CODEX_WORKER_MODE=sidecar`와 `CODEX_TRANSPORT=sdk`입니다.

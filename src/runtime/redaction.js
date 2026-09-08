@@ -1,6 +1,9 @@
 export function createRuntimeRedactor(config) {
   function redactText(value) {
-    let text = String(value);
+    let text = String(value).replace(
+      /(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/]+@/gi,
+      "$1[REDACTED]@"
+    );
     if (config.telegramBotToken) {
       text = text.replaceAll(config.telegramBotToken, "[REDACTED_TELEGRAM_TOKEN]");
     }
