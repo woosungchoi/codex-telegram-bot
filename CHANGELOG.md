@@ -4,9 +4,166 @@ All notable public changes are documented here.
 
 ## Unreleased
 
-- Honor proxy environment variables for Telegram API requests, remote upload
-  attachments, and Telegram file downloads, including lowercase precedence,
-  authenticated proxies, and `NO_PROXY` bypasses on Node 18 and newer.
+## 1.2.12 - 2026-09-09
+
+This release collects 19 public commits since `v1.2.11`, focused on reliable
+Telegram networking, interrupted-worker recovery, bounded session-log reads,
+and clearer CI diagnostics.
+
+### Telegram proxy support and credential protection
+
+- Honor `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` for Telegram API calls,
+  including long polling and uploads, remote URL attachments, and downloaded
+  Telegram images and PDFs. This resolves [#59](https://github.com/woosungchoi/codex-telegram-bot/issues/59)
+  through [#60](https://github.com/woosungchoi/codex-telegram-bot/pull/60).
+- Share the same proxy-aware agent between Telegraf API requests, remote
+  attachments, and file downloads so the three network paths use consistent
+  routing instead of mixing proxied and direct connections.
+- Respect non-empty lowercase proxy variables before uppercase equivalents,
+  with `ALL_PROXY` / `all_proxy` as the protocol-specific fallback.
+- Support authenticated proxy URLs and `NO_PROXY` host, port, domain-suffix,
+  and wildcard bypass rules. Preserve direct connections when no proxy is
+  configured or a URL matches an explicit bypass.
+- Report proxy connection failures without silently retrying through a direct
+  connection, and preserve TLS certificate validation for HTTPS proxies.
+- Redact URL-embedded usernames and passwords from Telegram error summaries
+  and runtime diagnostics while retaining the existing bot-token redaction.
+- Document proxy setup, credential handling, lowercase precedence, bypasses,
+  and the need to set `HTTPS_PROXY` for Telegram in both English and Korean.
+  Add commented proxy examples to `.env.example`.
+
+### Worker restart recovery and connection resilience
+
+- Retry transient worker event-polling failures, including connection resets,
+  refused or missing sockets, broken pipes, and timeouts, instead of failing an
+  otherwise running Codex turn on the first transport interruption.
+- Preserve the event cursor while polling reconnects and reset the consecutive
+  failure counter after a successful read. Log the first and every tenth
+  polling failure to keep prolonged outage diagnostics useful without logging
+  every retry.
+- Persist an explicit `worker_restart` failure reason and completion timestamp
+  when reconciling jobs orphaned by a worker restart, and include that reason
+  in the terminal event used by the bot.
+- Continue eligible turns in the same Codex thread after a worker restart,
+  using a recovery prompt that identifies the worker service and asks Codex
+  to inspect completed work before continuing rather than blindly replaying
+  unfinished tool calls.
+- Bound restart-continuation attempts through the existing
+  `BOT_RECOVERY_SUSPEND_AFTER` setting. Respect disabled recovery, explicit
+  cancellation, and the configured attempt limit.
+- Re-arm persisted snapshots of restart-failed worker jobs during startup
+  recovery, clearing the obsolete job identifier and event cursor while
+  recording a dedicated recovery event.
+- Keep context-pressure lookup failures from preventing an otherwise valid
+  worker job from starting; emit a warning and continue execution.
+- Handle disconnected worker clients without crashing the server on expected
+  `ECONNRESET` or `EPIPE` socket errors, and avoid writing RPC responses to
+  sockets that are already destroyed or no longer writable.
+
+### Codex streaming and model selection
+
+- Treat recognized Codex `Reconnecting...` stream-disconnection notices as
+  intermediate reconnect events, allowing the SDK stream to recover and
+  deliver its final answer. Genuine terminal stream errors still fail.
+- Honor the model catalog's explicit picker visibility: show `visibility=list`
+  entries and exclude hidden entries even when they are API-supported.
+- Retain the compatibility fallback for catalogs that omit visibility, while
+  preserving priority ordering, deduplication, and supported reasoning-effort
+  validation.
+- Add picker regression coverage for visible Astra entries and hidden reserve,
+  automatic-review, and API-only entries, without hardcoding a new model as
+  the installation default.
+
+### Large-session handling and image-output guidance
+
+- Read token-usage records backward from the session log in 64 KiB chunks,
+  stopping at the latest valid record instead of loading and splitting the
+  entire session file in memory.
+- Skip oversized session records while scanning, with a 1 MiB record
+  accumulation threshold. Large inline image records no longer require an
+  equally large in-memory JSON parse to obtain usage information.
+- Close session file handles reliably and continue tolerating malformed or
+  incomplete JSONL records during status collection.
+- Append image tool-output safety guidance to built-in and custom persona
+  prompts: save image files and return paths, dimensions, byte size, and
+  SHA-256 metadata rather than raw image bytes, data URLs, or base64 dumps.
+- Ask the agent to inspect at most one small thumbnail per tool result, capped
+  at 512 px on the longest edge and 256 KB, and to checkpoint after ten image
+  inspections in a thread. These are prompt instructions, not a new image
+  resizing engine or a hard runtime inspection counter.
+- Add English, Korean, and Traditional Chinese guidance for Codex `Bad Request`
+  failures, including checking completed work and continuing in `/new` after
+  image-heavy turns. Preserve the original error text for diagnosis.
+
+### CI audit reliability and actionable diagnostics
+
+- Separate deterministic verification from registry-dependent security checks:
+  `npm run verify` runs syntax, locale, lint, formatting, and tests; a dedicated
+  `Security audit` job runs `npm run audit:ci` on Node 24 with npm `11.17.0`.
+- Retry audit infrastructure failures up to three times with a ten-second
+  delay, including registry timeouts, HTTP 429 responses, and server errors.
+  Actual vulnerability reports fail immediately rather than being retried or
+  treated as infrastructure outages.
+- Validate the local dependency tree with `npm ls --all --json` before treating
+  a registry `Invalid package tree` response as transient. A genuinely invalid
+  local tree remains a failure.
+- After exhausted infrastructure-only retries, emit an explicit audit-
+  unavailable warning. This existing CI policy is a soft failure, not proof of
+  a clean security scan; release verification separately runs a live audit.
+- Classify CI failures from concrete error signatures instead of merely seeing
+  successful command names such as `npm ci`, `eslint`, `prettier`, or
+  `node --test` in the logs.
+- Distinguish real lockfile, assertion, formatting, vulnerability, registry,
+  and permission errors, with corresponding troubleshooting commands.
+- Explain rejected Codex OAuth tokens as possibly malformed, expired, or
+  revoked and recommend rotating or removing the optional secret. Keep
+  deterministic CI and authless diagnostics available when AI review or
+  diagnosis cannot authenticate.
+- Prevent synthetic audit-failure fixtures from emitting misleading GitHub
+  workflow warnings during successful test runs.
+
+### Dependencies and regression coverage
+
+- Update `@openai/codex-sdk` and the matching development Codex CLI from
+  `0.150.1` to `0.153.4` through the existing dependency update sequence.
+- Update Markdown-it from `15.0.0` to `15.0.1` and ESLint from `10.9.0` to
+  `10.10.0`, and refresh the corresponding lockfile entries.
+- Add direct `proxy-agent` `^8.0.2` and `node-fetch` `^3.3.2` dependencies for
+  consistent proxy-aware API, attachment, and download behavior on the
+  supported runtime versions.
+- Expand deterministic tests for reconnect notices, restart continuation and
+  its attempt limit, disconnected clients, bounded session reads, model picker
+  visibility, proxy routing and authentication, TLS validation, credential
+  redaction, and audit-failure classification.
+
+### Upgrade notes and known limitations
+
+- Keep the declared Node.js runtime floor at 18 and the CI matrix at
+  Node 18/20/22/24/26. No state-file migration or new mandatory environment
+  variable is introduced by this release.
+- Telegraf `4.16.3` multipart uploads can still stall on Node 26, including
+  direct connections. Use Node 24 for installations that upload files until
+  that upstream compatibility issue is resolved. The affected multipart
+  integration test is explicitly skipped on Node 26; other proxy API and
+  download tests remain enabled there.
+- Proxy configuration in this release applies to the bot's Telegram traffic;
+  Codex subprocesses and external tools retain their own networking behavior.
+- Existing cleanup modes, retention defaults, authorization controls, and
+  Telegram formatting fallbacks are unchanged. Restart the bot after applying
+  a package or `.env` update, following the deployment's normal state-backup
+  procedure.
+
+### Release verification
+
+- Validate syntax for 219 JavaScript files, all three locale catalogs, ESLint
+  with zero warnings, and the package/workflow Prettier checks.
+- Pass all 502 tests locally on Node 22 with no failures or skipped tests.
+- Complete a live moderate-level npm audit with zero reported vulnerabilities.
+- Verify the 155-file package with `npm pack --dry-run --json`, including
+  runtime modules, command entrypoints, documentation, assets, and service
+  units, with no private `.env`, runtime state, or installed dependencies.
+
+**Full comparison:** [v1.2.11...v1.2.12](https://github.com/woosungchoi/codex-telegram-bot/compare/v1.2.11...v1.2.12)
 
 ## 1.2.11 - 2026-08-28
 
