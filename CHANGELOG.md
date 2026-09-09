@@ -4,6 +4,15 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+- Validate the installed default CLI and the currently configured
+  `CODEX_REAL_PATH` CLI separately, comparing each wrapper invocation with the
+  executable actually selected instead of assuming they have the same version.
+- Cover explicit override precedence, paths with spaces, argument forwarding,
+  unset/empty overrides, `PATH` fallback, and invalid-path failures with isolated
+  fixtures. Keep production environment variables and installed versions intact.
+- Document how to verify an already-installed current or newer Codex CLI without
+  adding a network-dependent latest-version installation to the test suite.
+
 ## 1.2.12 - 2026-09-09
 
 This release collects 19 public commits since `v1.2.11`, focused on reliable
