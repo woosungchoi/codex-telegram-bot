@@ -1,6 +1,7 @@
 import MarkdownIt from "markdown-it";
 import { b, code, escapeHtml, escapeHtmlAttribute, isSafeTelegramHref, pre } from "./html.js";
 import { collapseExcessBlankLines, trimTrailingSpaces } from "../utils/text.js";
+import { formatTelegramLocalFileLinks, mapMarkdownInlineLinks } from "./local_links.js";
 
 const markdown = new MarkdownIt({
   html: false,
@@ -27,16 +28,14 @@ export function formatCodexAnswerSafeHtml(text) {
 }
 
 export function formatCodexAnswerMarkdownHtml(text) {
-  const tokens = markdown.parse(stripUnsafeMarkdownLinks(text), {});
+  const tokens = markdown.parse(stripUnsafeMarkdownLinks(formatTelegramLocalFileLinks(text)), {});
   return renderMarkdownTokens(tokens).trimEnd() || escapeHtml(text);
 }
 
 function stripUnsafeMarkdownLinks(text) {
-  return String(text)
-    .replace(/\[([^\]\n]+)\]\((?:javascript|data|vbscript):[^\n]*\)/gi, "$1")
-    .replace(/\[([^\]\n]+)\]\(([^)\n]+)\)/g, (match, label, href) => (
-      isSafeTelegramHref(href.trim()) ? match : label
-    ));
+  return mapMarkdownInlineLinks(text, ({ source, label, href, image }) => (
+    image || isSafeTelegramHref(href) ? source : label
+  ));
 }
 
 function formatInlineCodeSafeHtml(text) {

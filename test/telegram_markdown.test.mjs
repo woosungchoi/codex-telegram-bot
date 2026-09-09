@@ -9,6 +9,54 @@ test("markdown renderer allows safe https links", () => {
   );
 });
 
+test("local result links retain the report path instead of silently dropping it", () => {
+  const report = "/workspace/runs/visual/replacement/CHECKPOINT.md";
+  assert.equal(
+    formatCodexAnswerMarkdownHtml(`[교체 결과 및 새 이미지 링크](${report})`),
+    `교체 결과 및 새 이미지 링크 (<code>${report}</code>)`
+  );
+});
+
+test("local links support spaces, Unicode, balanced parentheses, line references and titles", () => {
+  assert.equal(
+    formatCodexAnswerMarkdownHtml('[검증 보고서](</tmp/검증 결과 (최종).md:12> "보고서")'),
+    '검증 보고서 (<code>/tmp/검증 결과 (최종).md:12</code>)'
+  );
+  assert.equal(
+    formatCodexAnswerMarkdownHtml('[파일](/tmp/result(final).md)'),
+    '파일 (<code>/tmp/result(final).md</code>)'
+  );
+});
+
+test("local destinations are escaped as code and never become Telegram hrefs", () => {
+  assert.equal(
+    formatCodexAnswerMarkdownHtml('[file](/tmp/a&b<test>.md)'),
+    'file (<code>/tmp/a&amp;b&lt;test&gt;.md</code>)'
+  );
+  assert.equal(
+    formatCodexAnswerMarkdownHtml('[file](/tmp/a`b.md)'),
+    'file (<code>/tmp/a`b.md</code>)'
+  );
+  assert.equal(
+    formatCodexAnswerMarkdownHtml('[file](file:///tmp/report.md)'),
+    'file (<code>file:///tmp/report.md</code>)'
+  );
+});
+
+test("public links next to local and rejected links keep their full URLs", () => {
+  const html = formatCodexAnswerMarkdownHtml(
+    '[local](/tmp/report.md) [bad](javascript:alert(1)) [image](<https://example.com/image(a).png?x=1&y=2>)'
+  );
+  assert.equal(html, 'local (<code>/tmp/report.md</code>) bad <a href="https://example.com/image(a).png?x=1&amp;y=2">image</a>');
+});
+
+test("link examples inside code remain literal in the HTML fallback", () => {
+  assert.equal(
+    formatCodexAnswerMarkdownHtml('`[report](/tmp/file.md)`\n\n```md\n[bad](javascript:alert(1))\n[report](/tmp/file.md)\n```'),
+    '<code>[report](/tmp/file.md)</code>\n<pre>md\n[bad](javascript:alert(1))\n[report](/tmp/file.md)\n</pre>'
+  );
+});
+
 test("markdown renderer blocks javascript links", () => {
   const html = formatCodexAnswerMarkdownHtml("[bad](javascript:alert(1))");
   assert.equal(html, "bad");

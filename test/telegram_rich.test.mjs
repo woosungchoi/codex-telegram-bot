@@ -5,6 +5,7 @@ import {
   RICH_MESSAGE_MAX_CHARS,
   buildRichMarkdownPayload,
   cleanUndefinedPayloadFields,
+  prepareRichMarkdown,
   promoteStandaloneInlineCode,
   shouldFallbackFromRichError,
   telegramThreadIdFromContext,
@@ -76,6 +77,46 @@ test("buildRichMarkdownPayload preserves raw Markdown and optional reply anchor"
     rich_message: { markdown: RICH_MARKDOWN_FIXTURE },
     reply_parameters: { message_id: 77 }
   });
+});
+
+test("rich payload retains local report paths as code and keeps public image links clickable", () => {
+  const payload = buildRichMarkdownPayload(createCtx(),
+    '[결과](/workspace/report.md)\n[이미지](https://example.com/image.png)'
+  );
+  assert.equal(payload.rich_message.markdown,
+    '결과 (`/workspace/report.md`)\n[이미지](https://example.com/image.png)'
+  );
+});
+
+test("rich local link preparation preserves code examples and image directives", () => {
+  const source = [
+    '````md',
+    '[example](/tmp/example.md)',
+    '```',
+    '[still code](/tmp/example.md)',
+    '````',
+    'Inline ``[example](/tmp/a`b.md)`` stays literal.',
+    'Multi-line `[example](/tmp/example.md)',
+    '[still code](/tmp/example.md)` stays literal.',
+    '    [indented code](/tmp/example.md)',
+    '![image](/tmp/chart.png)',
+    '[[telegram_photo:/tmp/chart.png]]',
+    '[web](https://example.com/a(b))'
+  ].join('\n');
+  assert.equal(prepareRichMarkdown(source), source);
+  assert.equal(prepareRichMarkdown('[file](</tmp/path with spaces.md>)'), 'file (`/tmp/path with spaces.md`)');
+});
+
+test("local result references survive a rich rejection through the HTML fallback", async () => {
+  const ctx = createCtx({ error: Object.assign(new Error('Bad Request: method not found'), { code: 400 }) });
+  const htmlReplies = [];
+  await replyFormattedCodexAnswer(ctx, '[결과](/workspace/CHECKPOINT.md) [이미지](https://example.com/image.png)', {
+    replyHtml: async (_ctx, html) => htmlReplies.push(html),
+    replyLong: async () => assert.fail('HTML rendering should succeed'),
+    richLogger: { warn() {} }
+  });
+  assert.match(ctx.calls[0].payload.rich_message.markdown, /결과 \(`\/workspace\/CHECKPOINT.md`\)/);
+  assert.deepEqual(htmlReplies, ['결과 (<code>/workspace/CHECKPOINT.md</code>) <a href="https://example.com/image.png">이미지</a>']);
 });
 
 test("promoteStandaloneInlineCode turns standalone inline code into short code blocks", () => {
