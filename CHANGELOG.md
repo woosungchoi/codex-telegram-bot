@@ -4,6 +4,8 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+## 1.3.1 - 2026-09-12
+
 - Include automatic context-compaction notices in temporary progress cleanup.
 - Persist progress message IDs per logical turn and restore them after bot or
   worker restarts, including completed-result replay and session-log backfill.
