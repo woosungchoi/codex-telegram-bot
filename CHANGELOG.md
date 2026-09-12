@@ -4,6 +4,23 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+## 1.3.2 - 2026-09-12
+
+- Fix `/reauth` and account commands throwing a Telegraf callback-query error
+  when invoked as ordinary messages.
+- Add interactive account registration, naming, and confirmed removal, with
+  cancellation, expiry, and recovery of pending menu steps after a restart.
+- Add account management, registration, and usage shortcuts to `/menu`, plus
+  Close buttons across account menus.
+- Add `/usage` and a live usage panel with used/remaining quota, reset times,
+  separate model pools such as Spark, and available Reset credits with expiry
+  details. Queries use the account API without starting a model turn.
+- Add account-name buttons to inspect another account's usage and Reset credits
+  while preserving task selection and threads. Refresh stays on the viewed
+  account, and deleted or unavailable accounts retain navigation.
+- Preserve private-chat administrator access, account leases, HTML escaping,
+  and navigation through errors. Expand command, menu, and quota regression tests.
+
 ## 1.3.1 - 2026-09-12
 
 - Include automatic context-compaction notices in temporary progress cleanup.
