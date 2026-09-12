@@ -18,11 +18,57 @@ device-code login and isolated account homes.
 | `/reauth [name]` | Add a named ChatGPT sign-in; open the official link and enter the one-time code. |
 | `/reauth cancel` | Cancel a pending login. |
 | `/accounts` | List accounts, choose one, check status, remove a saved login, and toggle automatic rotation. |
+| `/usage` | Show the selected account's live usage, remaining quota, and reset times. |
 | `/accounts use <id>` | Select the account for subsequent work in this chat. |
 | `/accounts rename <id> <name>` | Rename a saved account. |
 | `/accounts check <id>` | Refresh login status and available quota/reset information. |
 | `/accounts remove <id>` | Show a confirmation before deleting the login and its local session files. |
 | `/accounts rotate on` / `off` | Enable or disable rotation for the bot's saved account pool. Default: off. |
+
+### Button menu
+
+Open `/accounts` to manage accounts without copying their IDs. `/menu` also
+offers **Accounts**, **Add account**, and **Usage** buttons:
+
+- **Usage** (also in the account list) initially reads the selected task account's
+  limits directly, including separate model pools such as Spark when provided.
+  Each window uses its reported duration, so a primary weekly window is shown
+  as weekly. Reset and query times follow the bot's date/time preferences.
+  **Refresh** updates the same message with a fresh query; **Accounts**,
+  **Main menu**, and **Close** provide navigation. `/usage` opens this same panel.
+  These queries do not start a Codex turn or consume model-generation quota.
+  Missing limits and failed queries show guidance with navigation still available.
+- **Account name buttons** inside Usage display another saved account's quotas
+  and reset credits in the same message. ✅ marks the account being viewed.
+  Browsing never changes the selected task account or its threads. **Refresh**
+  stays on the displayed account, even if task selection changes elsewhere.
+  Opening `/usage` or the main **Usage** button starts with the task account.
+  Deleted accounts show guidance and retain buttons for the remaining accounts.
+- The usage panel also shows **Reset credits**: the server's available count
+  and up to five credit titles/expiry times. The count remains authoritative
+  when detail rows are capped or unavailable; missing data is not shown as zero.
+  **Refresh** updates both quotas and reset credits. This panel only displays
+  credits; it does not redeem them. Credit IDs are not shown in Telegram.
+- **Add account** asks for a name. Send it as your next message, then complete
+  the ChatGPT device-code sign-in. The completion message offers **Use** and
+  **Accounts** buttons.
+- **Rename** under an account asks for its new name and saves it when you reply.
+  Names support Unicode and spaces and must contain 1–48 characters.
+- **Remove** shows the account name and asks for **Confirm removal**. Removal
+  deletes the saved login and its account-local session files. The host's
+  default account can be renamed but cannot be removed here.
+- **Cancel** returns to the account list. A slash command or a button in another
+  menu also ends a pending account menu step so it is handled normally.
+- **Close** dismisses the account menu and clears any pending name input or
+  removal confirmation. It does not delete an account. The device-code sign-in
+  message retains its separate **Cancel** button for stopping authentication.
+
+Name input and removal confirmations expire after five minutes. Pending steps
+survive a bot restart for their remaining lifetime and are bound to the
+requesting administrator and private chat. Confirmation and Cancel buttons are
+also bound to the specific prompt; old or already-used buttons cannot apply a
+different operation. While a name is requested, the next message is handled by
+the account menu instead of becoming a Codex prompt.
 
 Account management is restricted to private chats with account administrators.
 `CODEX_ACCOUNT_ADMIN_USER_IDS` must also be in `ALLOWED_USER_IDS`. With one
@@ -98,5 +144,5 @@ consume model quota. A real additional account requires the user's browser
 sign-in before a live two-account smoke test can be performed.
 
 References: [Codex authentication](https://learn.chatgpt.com/docs/auth),
-[App Server](https://learn.chatgpt.com/docs/app-server), and
+[App Server rate limits and reset credits](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt), and
 [Grok Telegram Bot](https://github.com/artickc/grok-telegram-bot).

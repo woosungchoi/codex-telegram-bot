@@ -7,7 +7,7 @@ import {
 
 test("Telegram command menu exposes the stable compact command set", () => {
   assert.deepEqual(telegramCommands("en").map(({ command }) => command), [
-    "menu", "new", "resume", "status", "queue", "settings", "accounts", "reauth", "tools", "skills", "stop", "help"
+    "menu", "new", "resume", "status", "usage", "queue", "settings", "accounts", "reauth", "tools", "skills", "stop", "help"
   ]);
 });
 

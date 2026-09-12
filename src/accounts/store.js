@@ -160,7 +160,7 @@ export function createAccountStore(config, { now = Date.now } = {}) {
   };
 }
 
-function cleanLabel(label) {
+export function cleanLabel(label) {
   const value = String(label).replace(/\p{Cc}/gu, "").trim();
   if (!value || value.length > 48) throw new Error("Account name must contain 1–48 characters.");
   return value;
