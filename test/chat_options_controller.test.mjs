@@ -55,6 +55,17 @@ function createHarness() {
   return { controller, ensured, replies, state, threadCache };
 }
 
+test("bound topic folders survive preference resets and cannot be changed with workdir", async () => {
+  const { controller } = createHarness();
+  const topic = controller.getChatState("-100123:topic:4");
+  topic.forumBinding = { id: "binding", cwd: "/project" };
+  topic.options = {};
+  assert.equal(controller.getEffectiveOptions("-100123:topic:4").workingDirectory, "/project");
+  await assert.rejects(controller.setOption("-100123:topic:4", "workingDirectory", "/different"), /binding|bound/);
+  await assert.rejects(controller.setOption("-100123:topic:4", "workingDirectory", "default"), /binding|bound/);
+  assert.equal(controller.getEffectiveOptions("-100123:topic:5").workingDirectory, "/workspace");
+});
+
 test("chat options merge configured defaults and initialize chat state deterministically", () => {
   const { controller, state } = createHarness();
 

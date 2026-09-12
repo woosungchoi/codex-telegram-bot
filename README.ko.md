@@ -24,6 +24,14 @@
 
 ## 주요 기능
 
+- `/menu`에서 프로젝트 즐겨찾기, 세션 탐색·실시간 관찰, 예약 작업,
+  고정 상태판과 MCP 관리를 사용할 수 있습니다.
+  자세한 사용법은 [Telegram 작업 메뉴 안내](docs/workspace-menus.md)를 참고하세요.
+
+- 포럼 그룹에서 `/forum_setup`과 `/topics`로 프로젝트별 세션·대기열·중지 동작을
+  분리합니다. General 관리 토픽에서 프로젝트 버튼으로 요청을 전달하고 완료 알림을
+  받을 수 있습니다. [프로젝트 토픽 안내](docs/forum-topics.md)를 참고하세요.
+
 - `/reauth`로 ChatGPT에 로그인하고 `/accounts`에서 여러 계정을 관리합니다. 최종 사용량·인증 오류 때 계정을 자동 전환하도록 설정할 수 있습니다. [계정 설정과 동작](docs/accounts.md)을 참고하세요.
 - Telegram 텍스트, reply, 사진, 이미지 문서를 Codex turn으로 실행합니다.
 - Codex가 작업 중일 때 메시지를 queue에 저장하고, safe, interrupt, side-thread mode로 처리합니다.
@@ -32,10 +40,13 @@
 - 끊긴 streamed turn은 다시 실행하기 전에 Codex session log를 확인해 완료 답변을 회수합니다.
 - keep-codex-fast에서 영감을 받은 backup-first cleanup과 로컬 유지보수 도구를 제공합니다.
 
-**1.3.0**의 채팅 로그인, 다중 계정 관리, 자동 계정 전환 기능은
+**1.3.0**의 채팅 로그인, 다중 계정 관리, 자동 계정 전환과 **1.3.4**의
+프로젝트·세션·예약 작업·대시보드·MCP 메뉴 및 프로젝트 토픽 기능은
 **artickc**님의 [Grok Telegram Bot](https://github.com/artickc/grok-telegram-bot)
-설계에 감명받아 구현했습니다. 이 프로젝트에서 얻은 아이디어를 Codex에 맞게
-적용했으며, 좋은 영감을 주신 데 감사드립니다!
+설계에서 영감을 받았습니다. 좋은 아이디어를 공유해 주신 artickc님과 기여자
+여러분께 감사드립니다! Codex App Server, 계정 격리, Telegraf 메뉴와 작업 복구
+구조에 맞게 적용했습니다. 자세한 범위는 [워크스페이스 안내](docs/workspace-menus.md)와
+[프로젝트 토픽 안내](docs/forum-topics.md)를 참고하세요.
 
 안전한 로컬 상태 유지보수 도구는
 [keep-codex-fast](https://github.com/vibeforge1111/keep-codex-fast)에서 영감을 받았습니다.

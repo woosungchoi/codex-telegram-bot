@@ -24,6 +24,14 @@
 
 ## What It Does
 
+- Project presets, session browsing/live watch, scheduled prompts, a pinned task
+  dashboard and MCP management are available from `/menu`.
+  See [Telegram workspace menus](docs/workspace-menus.md) for setup and controls.
+
+- Use `/forum_setup` and `/topics` in a forum group for project-specific sessions,
+  queues and controls. General can dispatch requests to project topics and receive
+  completion reports. See [Project topics](docs/forum-topics.md).
+
 - Sign in to ChatGPT from chat with `/reauth`, manage named accounts with `/accounts`, and opt into account rotation after terminal quota/authentication failures. See [account setup and behavior](docs/accounts.md).
 - Runs Codex turns from Telegram text, replies, photos, and image documents.
 - Queues messages while Codex is busy, with safe, interrupt, and side-thread modes.
@@ -33,10 +41,13 @@
 - Adds backup-first cleanup and local maintenance tools inspired by keep-codex-fast.
 
 The chat sign-in, multiple-account management, and automatic account rotation
-introduced in **1.3.0** were inspired by
+introduced in **1.3.0**, along with the project, session, scheduled-task,
+dashboard, MCP and project-topic workflows in **1.3.4**, were inspired by
 [Grok Telegram Bot](https://github.com/artickc/grok-telegram-bot) by **artickc**.
-We were impressed by its design and adapted these ideas for Codex. Thank you
-for the inspiration!
+Thank you to artickc and the Grok Telegram Bot contributors for sharing these
+ideas! We adapted them to Codex's App Server, account isolation, Telegraf menus
+and persistent task recovery. See the [workspace guide](docs/workspace-menus.md)
+and [project-topic guide](docs/forum-topics.md) for the implementation scope.
 
 ## Screenshots
 

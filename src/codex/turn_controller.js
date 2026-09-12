@@ -331,15 +331,19 @@ export function createTurnRuntimeController({
     try {
       let execution;
       try {
+        await lifecycle.beforeTurn?.(chatKey, preparedTurn);
         execution = worker.enabled()
           ? await worker.processPreparedTurn(ctx, chatKey, preparedTurn, active, liveProgress)
           : await processPreparedTurnInline(ctx, chatKey, preparedTurn, active, liveProgress);
+        await lifecycle.beforeDelivery?.(chatKey, preparedTurn);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         finalReaction = active.abortController?.signal?.aborted
           ? settings.stoppedReaction
           : settings.errorReaction;
-        if (active.interruptRequested && active.abortController?.signal?.aborted) {
+        if (error?.suppressTelegramReply) {
+          await recovery.recordActiveTurnFailed(chatKey, message);
+        } else if (active.interruptRequested && active.abortController?.signal?.aborted) {
           await telegram.replyHtml(
             ctx,
             `${b(t("codexTurnInterruptedTitle"))}\n${t("codexTurnInterruptedDetail")}`
@@ -393,6 +397,13 @@ export function createTurnRuntimeController({
         await progress.deleteMessages(ctx, liveProgress);
       }
       if (deliveryCompleted) await recovery.recordActiveTurnCompleted(chatKey, completedThreadId);
+      try {
+        await lifecycle.onTurnFinished?.(chatKey, preparedTurn, {
+          delivered: deliveryCompleted, threadId: completedThreadId,
+          cancelled: active.abortController?.signal?.aborted === true,
+          deliveryPending: active.deliveryPending === true
+        });
+      } catch (error) { logger.warn("Turn completion observer failed:", error.message); }
       timers.clearInterval(typingInterval);
       await telegram.reactQuietly(
         ctx,
@@ -404,7 +415,13 @@ export function createTurnRuntimeController({
 
   async function processPreparedTurnInline(ctx, chatKey, preparedTurn, active, liveProgress) {
     const input = buildInput(preparedTurn.inputText, preparedTurn.imagePaths);
-    const thread = codex.getOrCreateThread(chatKey, preparedTurn.recovery);
+    const threadContext = preparedTurn.kind === "scheduled"
+      ? { ...preparedTurn.recovery, accountId: preparedTurn.accountId, threadId: preparedTurn.recovery?.threadId || "" }
+      : preparedTurn.recovery || (preparedTurn.kind === "forum" ? {
+        accountId: preparedTurn.accountId,
+        threadId: codex.getChatThreadId(chatKey, preparedTurn.accountId) || ""
+      } : undefined);
+    const thread = codex.getOrCreateThread(chatKey, threadContext);
     await codex.maybeNotifyContextPressure(ctx, chatKey, thread, liveProgress);
     const turn = await codex.runTurn(
       ctx,

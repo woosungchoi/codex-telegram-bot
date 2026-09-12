@@ -92,6 +92,10 @@ export function registerChatCommands({
   async function handleResumeCommand(ctx, overrideArg = null) {
     const chatKey = telegram.getChatKey(ctx);
     if (await chats.rejectIfActive(ctx, chatKey)) return;
+    if (chats.get(chatKey).forumBinding?.cwd) {
+      await telegram.replyHtml(ctx, "Use /sessions to select a session from this topic's project folder.");
+      return;
+    }
 
     const arg = overrideArg ?? telegram.getCommandArgs(ctx).trim();
     let threadId = arg;

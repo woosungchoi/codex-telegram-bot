@@ -91,8 +91,13 @@ export function createRuntimeSettingsController({ state, defaults, threadCache, 
   return { runtimeSeconds, runtimeValue, updateRuntimeSetting };
 }
 
+const pendingStateWrites = new Map();
 export async function saveRuntimeState(file, value) {
-  await writePrivateFileAtomic(file, `${JSON.stringify(value, null, 2)}\n`);
+  const data = `${JSON.stringify(value, null, 2)}\n`;
+  const pending = (pendingStateWrites.get(file) || Promise.resolve()).catch(() => {})
+    .then(() => writePrivateFileAtomic(file, data));
+  pendingStateWrites.set(file, pending);
+  try { await pending; } finally { if (pendingStateWrites.get(file) === pending) pendingStateWrites.delete(file); }
 }
 
 export function parseRequiredBoolean(value, label) {

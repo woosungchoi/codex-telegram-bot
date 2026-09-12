@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { setImmediate as waitForImmediate } from "node:timers/promises";
 import { createTurnRuntimeController } from "../src/codex/turn_controller.js";
 
-function createHarness({ queueMode = "safe", workerEnabled = false, runTurnError = null } = {}) {
+function createHarness({ queueMode = "safe", workerEnabled = false, runTurnError = null, beforeTurn } = {}) {
   const activeTurns = new Map();
   const pending = new Map();
   const calls = [];
@@ -50,7 +50,9 @@ function createHarness({ queueMode = "safe", workerEnabled = false, runTurnError
     },
     lifecycle: {
       isRecoveryActive: () => false,
-      isRestartScheduled: () => false
+      isRestartScheduled: () => false,
+      beforeTurn,
+      onTurnFinished: record("turn-finished")
     },
     context: {
       applyPersonaPrompt: (text) => `persona:${text}`,
@@ -67,7 +69,7 @@ function createHarness({ queueMode = "safe", workerEnabled = false, runTurnError
     codex: {
       formatTurn: (turn) => turn.finalResponse,
       getChatThreadId: () => "saved-thread",
-      getOrCreateThread: () => ({ id: "thread-1" }),
+      getOrCreateThread: (...args) => { calls.push(["get-thread", ...args]); return { id: "thread-1" }; },
       maybeNotifyContextPressure: record("context-pressure"),
       rememberThread: record("remember-thread"),
       runTurn: async (...args) => {
@@ -150,6 +152,36 @@ test("turn preparation merges reply context, images, routing, and expiry", async
   assert.match(turn.inputText, /<current_message>\ncurrent/);
   assert.equal(turn.enqueuedAt, "2026-07-21T05:06:07.000Z");
   assert.equal(turn.expiresAt, "2026-07-21T05:07:07.000Z");
+});
+
+test("completion observers distinguish successful delivery from a failed turn", async () => {
+  for (const failed of [false, true]) {
+    const { calls, controller, ctx } = createHarness({ runTurnError: failed ? new Error("test failure") : null });
+    const prepared = { id: "scheduled-job", kind: "scheduled", accountId: "default", ctx, text: "check", inputText: "check", imagePaths: [] };
+    await controller.processPreparedTurn("scheduled:task", prepared, { abortController: new AbortController(), stopRequested: false });
+    const event = calls.find(([name]) => name === "turn-finished");
+    assert.equal(event[1], "scheduled:task");
+    assert.equal(event[3].delivered, !failed);
+    assert.equal(event[3].cancelled, false);
+  }
+});
+
+test("routing guards reject queued work before inline or sidecar execution without sending to the old destination", async () => {
+  for (const workerEnabled of [false, true]) {
+    const { calls, controller, ctx, replies } = createHarness({ workerEnabled, beforeTurn: async () => {
+      const error = new Error("The originating bot does not match"); error.suppressTelegramReply = true; throw error;
+    } });
+    await controller.processPreparedTurn("-100123:topic:40", { id: "forum-job", kind: "forum", ctx, text: "check", inputText: "check", imagePaths: [] }, { abortController: new AbortController() });
+    assert.equal(calls.some(([name]) => name === "run-turn" || name === "reply-ready"), false);
+    assert.equal(replies.length, 0);
+    assert.equal(calls.find(([name]) => name === "turn-finished")[3].delivered, false);
+  }
+});
+
+test("inline forum work uses the captured account and its project session", async () => {
+  const { calls, controller, ctx } = createHarness();
+  await controller.processPreparedTurn("-100123:topic:40", { id: "forum-job", kind: "forum", accountId: "project-account", ctx, text: "check", inputText: "check", imagePaths: [] }, { abortController: new AbortController() });
+  assert.deepEqual(calls.find(([name]) => name === "get-thread")[2], { accountId: "project-account", threadId: "saved-thread" });
 });
 
 test("safe mode queues a new message behind an active turn", async () => {

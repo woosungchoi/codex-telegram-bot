@@ -45,6 +45,21 @@ test("synthetic Telegram context preserves topic and reply routing", async () =>
   assert.equal(sent[1][3].message_thread_id, 42);
 });
 
+test("synthetic contexts decode topic keys for replies, media metadata and typing", async () => {
+  const { runtime, sent } = createFixture();
+  const ctx = runtime.createSyntheticCtx("-100123:topic:42");
+  assert.equal(ctx.chat.id, -100123);
+  assert.equal(runtime.getChatKey(ctx), "-100123:topic:42");
+  await ctx.reply("topic reply"); await ctx.sendChatAction("typing");
+  assert.equal(sent[0][1], -100123); assert.equal(sent[0][3].message_thread_id, 42);
+  assert.equal(sent[1][3].message_thread_id, 42);
+  const objectCtx = runtime.createSyntheticCtx({ chatKey: "-100123:topic:44" });
+  assert.equal(objectCtx.chat.id, -100123); assert.equal(objectCtx.message.message_thread_id, 44);
+  const general = runtime.createSyntheticCtx({ chatKey: "-100123", messageThreadId: 1 });
+  await general.reply("general reply");
+  assert.equal(sent.at(-1)[3].message_thread_id, undefined);
+});
+
 test("command helpers and Telegram metadata normalize runtime input", () => {
   const { runtime } = createFixture();
   const ctx = {
@@ -52,7 +67,7 @@ test("command helpers and Telegram metadata normalize runtime input", () => {
     message: { text: "  /queue next ", message_id: 11, message_thread_id: 3 },
     update: { update_id: 12 }
   };
-  assert.equal(runtime.getChatKey(ctx), "7");
+  assert.equal(runtime.getChatKey(ctx), "7:topic:3");
   assert.equal(runtime.commandName(ctx), "queue");
   assert.equal(runtime.getCommandArgs(ctx), "next");
   assert.deepEqual(runtime.telegramMessageMeta(ctx), {

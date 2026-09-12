@@ -9,6 +9,7 @@ export async function bootstrapBot({
   startPersistedQueues,
   startStateSnapshotScheduler,
   startRecoveryScheduler = null,
+  startWorkspaceServices = null,
   handleSignal = null,
   processRef = process,
   logger = console
@@ -38,6 +39,7 @@ export async function bootstrapBot({
     logger.warn("Telegram command menu registration failed:", error instanceof Error ? error.message : String(error));
   });
   if (startRecoveryScheduler) await startRecoveryScheduler();
+  if (startWorkspaceServices) startWorkspaceServices();
   await bot.launch();
   logger.log("codex-telegram-bot started");
   startPersistedQueues();

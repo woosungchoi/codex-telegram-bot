@@ -71,6 +71,9 @@
   "pdfUploadedPath": "로컬 경로",
   "unsupportedDocument": "이미지 문서와 PDF 파일만 지원합니다.",
   "unsupportedMessage": "텍스트 메시지, 이미지 첨부, PDF 문서만 지원합니다.",
+  "telegramUnauthorizedUser": "🔒 이 Telegram 계정은 봇 사용이 허용되어 있지 않습니다. 관리자에게 사용자 등록을 요청해 주세요.",
+  "telegramDisallowedChat": "🔒 이 채팅에서는 봇을 사용할 수 없습니다. 허용된 채팅에서 다시 시도해 주세요.",
+  "telegramDisallowedThread": "🔒 이 토픽에서는 봇을 사용할 수 없습니다. 허용된 토픽에서 다시 시도해 주세요.",
   "refresh": "새로고침",
   "usageRefresh": "사용량 새로 조회",
   "usageRefreshRun": "사용량 조회 실행",
@@ -324,5 +327,12 @@
   "commandStop": "실행 중인 Codex 작업 중단",
   "commandHelp": "명령어 도움말",
   "commandAccounts": "여러 Codex 계정 관리",
-  "commandReauth": "ChatGPT 로그인·계정 추가"
+  "commandReauth": "ChatGPT 로그인·계정 추가",
+  "workspaceProjects": "📁 프로젝트",
+  "workspaceTopics": "🏷 프로젝트 토픽",
+  "workspaceForumSetup": "⚙ 포럼 그룹 설정",
+  "workspaceSessions": "🗂 세션",
+  "workspaceTasks": "⏰ 예약 작업",
+  "workspaceDashboard": "📌 작업 상태판",
+  "workspaceMcp": "🧩 MCP 관리"
 }

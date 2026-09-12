@@ -1063,7 +1063,14 @@ const {
     formatResult: formatCleanupResultHtml
   }
 });
+let workspaceMenus = null;
 executionRuntime = createExecutionComposition({
+  onTurnFinished: async (...args) => {
+    await workspaceMenus?.scheduler.recordResult(...args);
+    await workspaceMenus?.forum.jobs.recordResult(...args);
+  },
+  beforeTurn: (...args) => workspaceMenus?.forum.jobs.beforeTurn(...args),
+  beforeDelivery: (...args) => workspaceMenus?.forum.jobs.validateDelivery(...args),
   config,
   state,
   activeTurns,
@@ -1144,9 +1151,14 @@ const {
 } = executionRuntime;
 hydratePendingTurnsFromState();
 
-({ adminCommandHandlers } = registerRuntimeRoutes({
+({ adminCommandHandlers, workspaceMenus } = registerRuntimeRoutes({
   bot,
   config,
+  getPendingTurns,
+  hasPendingFinalDelivery,
+  isQueuePaused,
+  enqueuePendingTurn,
+  createSyntheticCtx,
   redactText,
   state,
   valid: VALID,
@@ -1271,7 +1283,8 @@ await bootstrapBot({
   startPersistedQueues,
   startStateSnapshotScheduler,
   startRecoveryScheduler,
-  handleSignal: handleProcessSignal
+  startWorkspaceServices: () => workspaceMenus.start(),
+  handleSignal: (signal) => { workspaceMenus.stop(); return handleProcessSignal(signal); }
 });
 
 async function rejectCallbackIfActive(ctx, chatKey) {

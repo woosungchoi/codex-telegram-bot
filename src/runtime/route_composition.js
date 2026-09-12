@@ -21,6 +21,8 @@ import {
 } from "../telegram/message_router.js";
 
 import { registerAccountCommands } from "../accounts/controller.js";
+import { registerWorkspaceFlowBoundary, registerWorkspaceMenus } from "../workspace/controller.js";
+import { registerForumContext } from "../forum/store.js";
 
 export function registerRuntimeRoutes(r) {
   registerTelegramMiddleware({
@@ -29,11 +31,15 @@ export function registerRuntimeRoutes(r) {
     authorize: authorizeTelegramUpdate,
     telegram: {
       replyHtml: r.replyHtml,
+      text: r.text,
       summarizeError: r.summarizeTelegramError
     }
   });
 
+  registerForumContext(r);
+  registerWorkspaceFlowBoundary(r);
   if (r.config.codexAccountsDir) registerAccountCommands(r);
+  const workspaceMenus = registerWorkspaceMenus(r);
   const chatCommandHandlers = registerChatCommands({
     bot: r.bot,
     settings: {
@@ -266,5 +272,5 @@ export function registerRuntimeRoutes(r) {
     commands: { isRegistered: isRegisteredTelegramCommandText }
   });
 
-  return { adminCommandHandlers, chatCommandHandlers };
+  return { adminCommandHandlers, chatCommandHandlers, workspaceMenus };
 }

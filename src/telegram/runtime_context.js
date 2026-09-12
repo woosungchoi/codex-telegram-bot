@@ -11,6 +11,9 @@ import {
 } from "./pdf.js";
 import {
   normalizeTelegramId,
+  telegramChatKey,
+  telegramContextMeta,
+  telegramMetaFromChatKey,
   telegramChatActionExtraFromMeta,
   telegramReplyExtraFromMeta,
   telegramSyntheticMessageFromMeta
@@ -32,15 +35,20 @@ export function createTelegramRuntimeContext({
   }
 
   function createSyntheticCtx(turnOrChatKey) {
-    const meta = typeof turnOrChatKey === "object" && turnOrChatKey
+    const input = typeof turnOrChatKey === "object" && turnOrChatKey
       ? turnOrChatKey
-      : { chatKey: String(turnOrChatKey), chatId: turnOrChatKey };
-    const rawChatId = meta.chatId ?? meta.chatKey;
+      : { chatKey: String(turnOrChatKey) };
+    const stored = input.chatKey ? chats.get(input.chatKey).destination : undefined;
+    const parsed = telegramMetaFromChatKey(input.chatKey);
+    const meta = { ...parsed, ...stored, ...input, chatId: input.chatId ?? stored?.chatId ?? parsed.chatId };
+    const rawChatId = meta.chatId;
     const chatId = Number.isNaN(Number(rawChatId)) ? rawChatId : Number(rawChatId);
+    if (!meta.chatType && /^-100\d+$/.test(String(chatId))) meta.chatType = "supergroup";
     const message = telegramSyntheticMessageFromMeta(meta);
     return {
-      chat: { id: chatId, type: meta.chatType },
-      from: { id: chatId },
+      chat: { id: chatId, type: meta.chatType, ...(meta.chatType === "supergroup" ? { is_forum: true } : {}) },
+      from: { id: meta.userId ?? chatId },
+      botInfo: bot.botInfo,
       message,
       msg: message,
       telegram: bot.telegram,
@@ -67,7 +75,7 @@ export function createTelegramRuntimeContext({
     const message = ctx.message ?? ctx.msg ?? {};
     return {
       chatType: ctx.chat?.type,
-      messageThreadId: normalizeTelegramId(message.message_thread_id),
+      messageThreadId: telegramContextMeta(ctx).messageThreadId,
       replyToMessageId: normalizeTelegramId(message.reply_to_message?.message_id),
       originMessageId: normalizeTelegramId(message.message_id),
       originUpdateId: normalizeTelegramId(ctx.update?.update_id)
@@ -173,7 +181,7 @@ export function createTelegramRuntimeContext({
   }
 
   function getChatKey(ctx) {
-    return String(ctx.chat?.id ?? ctx.from?.id);
+    return telegramChatKey(ctx);
   }
 
   function commandName(ctx) {

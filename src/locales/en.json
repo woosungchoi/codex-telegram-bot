@@ -71,6 +71,9 @@
   "pdfUploadedPath": "Local path",
   "unsupportedDocument": "Only image documents and PDF files are supported.",
   "unsupportedMessage": "Only text messages, image attachments, and PDF documents are supported.",
+  "telegramUnauthorizedUser": "🔒 This Telegram user is not allowed to use the bot. Ask the administrator to register your user ID.",
+  "telegramDisallowedChat": "🔒 The bot is not enabled in this chat. Please try again in an allowed chat.",
+  "telegramDisallowedThread": "🔒 The bot is not enabled in this topic. Please try again in an allowed topic.",
   "refresh": "Refresh",
   "usageRefresh": "Refresh usage",
   "usageRefreshRun": "Run usage refresh",
@@ -324,5 +327,12 @@
   "commandStop": "Stop the running Codex task",
   "commandHelp": "Show command help",
   "commandAccounts": "Manage Codex accounts",
-  "commandReauth": "Sign in with ChatGPT"
+  "commandReauth": "Sign in with ChatGPT",
+  "workspaceProjects": "📁 Projects",
+  "workspaceTopics": "🏷 Project topics",
+  "workspaceForumSetup": "⚙ Set up forum group",
+  "workspaceSessions": "🗂 Sessions",
+  "workspaceTasks": "⏰ Scheduled tasks",
+  "workspaceDashboard": "📌 Task dashboard",
+  "workspaceMcp": "🧩 MCP servers"
 }
