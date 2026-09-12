@@ -47,8 +47,26 @@ offers **Accounts**, **Add account**, and **Usage** buttons:
 - The usage panel also shows **Reset credits**: the server's available count
   and up to five credit titles/expiry times. The count remains authoritative
   when detail rows are capped or unavailable; missing data is not shown as zero.
-  **Refresh** updates both quotas and reset credits. This panel only displays
-  credits; it does not redeem them. Credit IDs are not shown in Telegram.
+  **Refresh** updates both quotas and reset credits. Credit IDs are not shown
+  in Telegram.
+- **Use Reset credit** in Accounts or Usage opens the viewed account's available
+  credits as buttons, with titles and expiry details. Account buttons switch the
+  redemption target without changing the task account or its threads. Longer
+  lists have page buttons. When only a count or capped details are available,
+  **One available credit (automatic)** lets the service choose one explicitly.
+  Selecting a credit opens a confirmation naming the account and credit;
+  **Use this Reset credit** makes the actual request. A successful reset consumes
+  one credit and cannot be undone. Used, unsupported, and expired detail rows
+  cannot be selected. The service decides whether any quota window is eligible.
+  Success, already-completed requests, no available credit, and nothing to reset
+  have distinct messages; the usage panel then reads the actual updated limits.
+- Reset confirmations expire after five minutes and are bound to their
+  administrator, private chat, and message. Double clicks cannot replay a
+  completed confirmation. Before a use request, the bot saves the exact account,
+  credit, and idempotency key in private state. An uncertain response offers
+  **Recheck same request**, retaining that key even across navigation or restart;
+  resolving it takes precedence over a new redemption for that account. Closing
+  a menu cancels an unsent confirmation, but cannot undo an already-sent request.
 - **Add account** asks for a name. Send it as your next message, then complete
   the ChatGPT device-code sign-in. The completion message offers **Use** and
   **Accounts** buttons.
@@ -60,7 +78,7 @@ offers **Accounts**, **Add account**, and **Usage** buttons:
 - **Cancel** returns to the account list. A slash command or a button in another
   menu also ends a pending account menu step so it is handled normally.
 - **Close** dismisses the account menu and clears any pending name input or
-  removal confirmation. It does not delete an account. The device-code sign-in
+  removal or unsent Reset confirmation. It does not delete an account. The device-code sign-in
   message retains its separate **Cancel** button for stopping authentication.
 
 Name input and removal confirmations expire after five minutes. Pending steps
@@ -144,5 +162,6 @@ consume model quota. A real additional account requires the user's browser
 sign-in before a live two-account smoke test can be performed.
 
 References: [Codex authentication](https://learn.chatgpt.com/docs/auth),
-[App Server rate limits and reset credits](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt), and
+[App Server rate limits and reset credits](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt),
+[Reset credit consumption](https://learn.chatgpt.com/docs/app-server#8-earned-rate-limit-resets-chatgpt), and
 [Grok Telegram Bot](https://github.com/artickc/grok-telegram-bot).

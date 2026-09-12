@@ -59,7 +59,7 @@ function boot(t, storage, options = {}) {
     await onCode({ verificationUrl: "https://auth.openai.com/codex/device", userCode: "TEST-1234" });
     return store.update(account.id, { status: "ready" });
   });
-  const controller = registerAccountCommands(r, { store: storage.store, signIn, readUsage: options.readUsage, now: () => storage.clock.now });
+  const controller = registerAccountCommands(r, { store: storage.store, signIn, readUsage: options.readUsage, consumeCredit: options.consumeCredit, now: () => storage.clock.now });
   t.after(() => controller.close());
   const text = (key) => key;
   const views = createRuntimeKeyboardViews({ text, hasActiveTurn: () => false });
@@ -372,6 +372,303 @@ function usageSample(usedPercent = 52) {
     checkedAt: Date.parse("2026-09-12T05:59:00Z")
   };
 }
+
+function resetUsage(count = 2) {
+  return {
+    ...usageSample(), rateLimitResetCredits: {
+      availableCount: count,
+      credits: Array.from({ length: count }, (_, index) => ({
+        id: `OPAQUE:credit/${index}`, title: `Reset <${index + 1}>`, description: "Reset an eligible limit & continue.",
+        resetType: "codexRateLimits", status: "available", expiresAt: null
+      }))
+    }
+  };
+}
+
+test("account Reset buttons select a specific credit, confirm consumption, and refresh the same account", async (t) => {
+  const reads = [], consumes = [];
+  const f = await fixture(t, {
+    readUsage: async (_config, id) => { reads.push(id); return resetUsage(consumes.length ? 1 : 2); },
+    consumeCredit: async (_config, id, params) => {
+      assert.deepEqual(f.savedState().accountResetAttempts[id].idempotencyKey, params.idempotencyKey);
+      assert.equal(f.savedState().accountUi["1:1"], undefined);
+      await assert.rejects(f.store.remove(id), /running task/);
+      consumes.push({ id, params });
+      return { outcome: "reset" };
+    }
+  });
+  const managed = await f.store.create("Work <B>");
+  await f.store.update(managed.id, { status: "ready" });
+  const before = JSON.parse(JSON.stringify(f.r.state.chats));
+  const cache = { id: "cached-thread" };
+  f.r.threadCache.set("1", cache);
+  await f.send("/accounts");
+  await f.click(f.buttonData("acct:reset"));
+  await f.click(`acct:reset:${managed.id}`);
+  assert.match(f.messages.at(-1).html, /Work &lt;B&gt;/);
+  assert.match(f.messages.at(-1).html, /Reset &lt;2&gt;/);
+  assert.equal(f.buttons().filter((b) => b.callback_data.startsWith("acct:resetpick:")).length, 2);
+  for (const message of f.messages) assert.doesNotMatch(JSON.stringify(message), /OPAQUE:credit/);
+  assert.ok(f.buttons().every((b) => Buffer.byteLength(b.callback_data) <= 64));
+  const second = f.buttons().filter((b) => b.callback_data.startsWith("acct:resetpick:"))[1];
+  await f.click(second.callback_data);
+  assert.equal(consumes.length, 0);
+  assert.match(f.messages.at(-1).text, /되돌릴 수 없습니다/);
+  const confirmation = f.messages.at(-1), confirm = f.buttonData("acct:resetconfirm:");
+  await f.click(confirm, confirmation);
+  assert.equal(consumes.length, 1);
+  assert.equal(consumes[0].id, managed.id);
+  assert.equal(consumes[0].params.creditId, "OPAQUE:credit/1");
+  assert.match(consumes[0].params.idempotencyKey, /^[a-f0-9-]{36}$/);
+  assert.match(confirmation.text, /Reset권을 사용했습니다/);
+  assert.match(confirmation.html, /사용 가능: <b>1<\/b>/);
+  assert.equal(reads.at(-1), managed.id);
+  assert.deepEqual(f.r.state.chats, before);
+  assert.equal(f.r.threadCache.get("1"), cache);
+  assert.equal(f.savedState().accountResetAttempts[managed.id], undefined);
+  assert.equal(f.buttonData("acct:reset:", confirmation), `acct:reset:${managed.id}`);
+  await f.click(confirm, confirmation);
+  assert.equal(consumes.length, 1);
+});
+
+test("Reset lists page through server details and count-only accounts offer explicit automatic selection", async (t) => {
+  const calls = [];
+  let sample = resetUsage(18);
+  const f = await fixture(t, { readUsage: async () => sample, consumeCredit: async (_c, id, params) => { calls.push({ id, params }); return { outcome: "nothingToReset" }; } });
+  await f.send("/usage");
+  await f.click(f.buttonData("acct:reset:"));
+  const first = f.messages.at(-1);
+  assert.equal(f.buttons().filter((b) => b.callback_data.startsWith("acct:resetpick:")).length, 8);
+  await f.click(f.buttons().find((b) => b.text === "▶️").callback_data);
+  assert.match(f.messages.at(-1).html, /Reset &lt;9&gt;/);
+  await f.click(f.buttons().find((b) => b.text === "▶️").callback_data);
+  assert.equal(f.buttons().filter((b) => b.callback_data.startsWith("acct:resetpick:")).length, 2);
+  await f.click(f.buttonData("acct:resetpick:", first), first);
+  assert.match(f.messages.at(-1).text, /만료/);
+  sample = { ...sample, rateLimitResetCredits: { availableCount: 2, credits: null } };
+  await f.click("acct:reset:default");
+  assert.match(f.buttons().find((b) => b.callback_data.startsWith("acct:resetpick:")).text, /자동 선택/);
+  await f.click(f.buttonData("acct:resetpick:"));
+  assert.match(f.messages.at(-1).text, /서버가.*1장/);
+  await f.click(f.buttonData("acct:resetconfirm:"));
+  assert.equal(calls.length, 1);
+  assert.equal(Object.hasOwn(calls[0].params, "creditId"), false);
+  assert.match(f.messages.at(-1).text, /소모되지 않았습니다/);
+});
+
+test("Reset confirmation is bound to the admin, chat, prompt, token and expiry; text does not rename an account", async (t) => {
+  let consumed = 0;
+  const f = await fixture(t, { readUsage: async () => resetUsage(), consumeCredit: async () => { consumed++; return { outcome: "reset" }; } });
+  await f.send("/accounts");
+  await f.click("acct:reset:default");
+  await f.click(f.buttonData("acct:resetpick:"));
+  const confirmation = f.messages.at(-1), data = f.buttonData("acct:resetconfirm:");
+  const account = await f.store.get("default");
+  await f.send("do not rename this");
+  assert.deepEqual(await f.store.get("default"), account);
+  assert.equal(f.forwarded.length, 0);
+  await f.click(data, confirmation, { userId: 2 });
+  await f.click(data, confirmation, { chat: { id: -1, type: "group" } });
+  await f.click(data, { ...confirmation, message_id: confirmation.message_id + 999 });
+  await f.click("acct:resetconfirm:bad-token", confirmation);
+  assert.equal(consumed, 0);
+  f.clock.now += 5 * 60_000 + 1;
+  await f.click(data, confirmation);
+  assert.equal(consumed, 0);
+  assert.match(f.messages.at(-1).text, /만료/);
+  assert.equal(f.r.state.accountUi["1:1"], undefined);
+});
+
+test("cancel and close discard Reset confirmations without consuming credits", async (t) => {
+  const f = await fixture(t, { readUsage: async () => resetUsage(), consumeCredit: async () => assert.fail("must not consume") });
+  await f.send("/accounts");
+  for (const action of ["cancel", "close", "command"]) {
+    await f.click("acct:reset:default");
+    await f.click(f.buttonData("acct:resetpick:"));
+    const message = f.messages.at(-1), confirm = f.buttonData("acct:resetconfirm:");
+    if (action === "cancel") await f.click(f.buttonData("acct:cancelui:"));
+    if (action === "close") await f.click("ui:close:menu");
+    if (action === "command") await f.send("/help");
+    await f.click(confirm, message);
+    assert.match(f.messages.at(-1).text, /만료/);
+    assert.equal(f.r.state.accountUi["1:1"], undefined);
+  }
+});
+
+test("Reset retries preserve the exact attempt through navigation and a bot restart", async (t) => {
+  const calls = [];
+  const f = await fixture(t, {
+    readUsage: async () => ({ ...resetUsage(), rateLimitResetCredits: { availableCount: 2, credits: null } }),
+    consumeCredit: async (_c, id, params) => {
+      calls.push({ id, params });
+      if (calls.length === 1) throw new Error("network response lost SECRET_SENTINEL");
+      return { outcome: "alreadyRedeemed" };
+    }
+  });
+  await f.send("/accounts");
+  await f.click("acct:reset:default");
+  await f.click(f.buttonData("acct:resetpick:"));
+  await f.click(f.buttonData("acct:resetconfirm:"));
+  assert.match(f.messages.at(-1).text, /결과가 아직 확인되지/);
+  assert.doesNotMatch(JSON.stringify(f.messages), /SECRET_SENTINEL/);
+  assert.equal(calls.length, 1);
+  await f.click("ui:close:menu");
+  const restarted = f.restart();
+  await restarted.send("/accounts");
+  await restarted.click("acct:reset:default");
+  assert.equal(restarted.buttons().filter((b) => b.callback_data.startsWith("acct:resetpick:")).length, 0);
+  assert.ok(restarted.buttons().some((b) => b.text.includes("같은 요청 재확인")));
+  await restarted.click(restarted.buttonData("acct:resetconfirm:"));
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0], calls[1]);
+  assert.match(restarted.messages.at(-1).text, /추가로 소모된 사용권은 없습니다/);
+  assert.equal(restarted.savedState().accountResetAttempts.default, undefined);
+});
+
+test("double Reset confirmation consumes once and every documented result refreshes actual usage", async (t) => {
+  for (const [outcome, expected] of [["reset", /Reset권을 사용했습니다/], ["noCredit", /사용 가능한 Reset권이 없습니다/], ["nothingToReset", /소모되지 않았습니다/], ["alreadyRedeemed", /추가로 소모된 사용권은 없습니다/]]) {
+    let consumes = 0, reads = 0;
+    const f = await fixture(t, { readUsage: async () => { reads++; return resetUsage(); }, consumeCredit: async () => { consumes++; return { outcome }; } });
+    await f.send("/accounts");
+    await f.click("acct:reset:default");
+    await f.click(f.buttonData("acct:resetpick:"));
+    const message = f.messages.at(-1), data = f.buttonData("acct:resetconfirm:");
+    await Promise.all([f.click(data, message), f.click(data, message)]);
+    assert.equal(consumes, 1);
+    assert.equal(reads, 2);
+    assert.match(message.text, expected);
+  }
+});
+
+test("known-empty, unavailable, API-key, pending and deleted accounts cannot offer a Reset redemption", async (t) => {
+  let sample = resetUsage(0);
+  const f = await fixture(t, { readUsage: async () => sample, consumeCredit: async () => assert.fail("must not consume") });
+  await f.send("/accounts");
+  for (const current of [sample, { ...sample, rateLimitResetCredits: null }, { ...sample, account: { type: "apiKey" } }]) {
+    sample = current;
+    await f.click("acct:reset:default");
+    assert.equal(f.buttons().filter((b) => b.callback_data.startsWith("acct:resetpick:")).length, 0);
+    assert.ok(f.buttons().some((b) => b.callback_data === "ui:close:menu"));
+  }
+  const pending = await f.store.create("Pending");
+  await f.click(`acct:reset:${pending.id}`);
+  assert.match(f.messages.at(-1).text, /로그인을 완료/);
+  await f.store.remove(pending.id);
+  await f.click(`acct:reset:${pending.id}`);
+  assert.match(f.messages.at(-1).text, /더 이상 등록/);
+});
+
+test("Reset success survives a subsequent usage refresh failure without a second consumption", async (t) => {
+  let consumes = 0;
+  const f = await fixture(t, { readUsage: async () => {
+    if (consumes) throw new Error("refresh failed");
+    return resetUsage();
+  }, consumeCredit: async () => { consumes++; return { outcome: "reset" }; } });
+  await f.send("/accounts");
+  await f.click("acct:reset:default");
+  await f.click(f.buttonData("acct:resetpick:"));
+  await f.click(f.buttonData("acct:resetconfirm:"));
+  assert.match(f.messages.at(-1).text, /Reset권을 사용했습니다/);
+  assert.match(f.messages.at(-1).text, /사용량을 불러오지 못했습니다/);
+  assert.equal(f.savedState().accountResetAttempts.default, undefined);
+  assert.equal(consumes, 1);
+});
+
+test("Reset confirmation fails closed if its pre-request persistence fails", async (t) => {
+  const f = await fixture(t, { readUsage: async () => resetUsage(), consumeCredit: async () => assert.fail("must not consume") });
+  await f.send("/accounts");
+  await f.click("acct:reset:default");
+  await f.click(f.buttonData("acct:resetpick:"));
+  f.r.saveState = async () => { throw new Error("disk full"); };
+  await f.click(f.buttonData("acct:resetconfirm:"));
+  assert.match(f.messages.at(-1).text, /disk full/);
+});
+
+test("unsubmitted Reset confirmations survive restart but a credit expiring before confirmation cannot be used", async (t) => {
+  let consumes = 0, sample = resetUsage(1);
+  const f = await fixture(t, { readUsage: async () => sample, consumeCredit: async () => { consumes++; return { outcome: "reset" }; } });
+  await f.send("/accounts");
+  await f.click("acct:reset:default");
+  await f.click(f.buttonData("acct:resetpick:"));
+  const prompt = f.messages.at(-1), confirm = f.buttonData("acct:resetconfirm:");
+  const restarted = f.restart();
+  await restarted.click(confirm, prompt);
+  assert.equal(consumes, 1);
+  await restarted.send("/accounts");
+  sample = resetUsage(1);
+  sample.rateLimitResetCredits.credits[0].expiresAt = f.clock.now / 1000 + 10;
+  await restarted.click("acct:reset:default");
+  await restarted.click(restarted.buttonData("acct:resetpick:"));
+  f.clock.now += 11_000;
+  await restarted.click(restarted.buttonData("acct:resetconfirm:"));
+  assert.equal(consumes, 1);
+  assert.equal(restarted.r.state.accountUi["1:1"].kind, "reset-list");
+});
+
+test("two administrators cannot consume credits concurrently for the same account", async (t) => {
+  let consumes = 0, finish, entered;
+  const started = new Promise((resolve) => { entered = resolve; });
+  const f = await fixture(t, { readUsage: async () => resetUsage(), consumeCredit: async () => {
+    consumes++;
+    entered();
+    await new Promise((resolve) => { finish = resolve; });
+    return { outcome: "reset" };
+  } });
+  f.r.config.codexAccountAdminUserIds.add("2");
+  await f.send("/accounts");
+  await f.click("acct:reset:default");
+  await f.click(f.buttonData("acct:resetpick:"));
+  const first = f.messages.at(-1), firstConfirm = f.buttonData("acct:resetconfirm:");
+  const secondUser = { userId: 2, chat: { id: 2, type: "private" } };
+  await f.send("/accounts", secondUser);
+  await f.click("acct:reset:default", f.messages.at(-1), secondUser);
+  await f.click(f.buttonData("acct:resetpick:"), f.messages.at(-1), secondUser);
+  const second = f.messages.at(-1), secondConfirm = f.buttonData("acct:resetconfirm:");
+  const running = f.click(firstConfirm, first);
+  await started;
+  try {
+    await f.click(secondConfirm, second, secondUser);
+    assert.match(f.messages.at(-1).text, /처리 중/);
+    assert.equal(consumes, 1);
+  } finally { finish(); await running; }
+});
+
+test("Reset outcome persistence failure keeps the original attempt for an idempotent retry", async (t) => {
+  const calls = [];
+  const f = await fixture(t, { readUsage: async () => resetUsage(), consumeCredit: async (_c, _id, params) => {
+    calls.push(params);
+    return { outcome: calls.length === 1 ? "reset" : "alreadyRedeemed" };
+  } });
+  await f.send("/accounts");
+  await f.click("acct:reset:default");
+  await f.click(f.buttonData("acct:resetpick:"));
+  const save = f.r.saveState;
+  let saves = 0;
+  f.r.saveState = async () => { if (++saves === 2) throw new Error("disk full after response"); await save(); };
+  await f.click(f.buttonData("acct:resetconfirm:"));
+  assert.equal(calls.length, 1);
+  assert.equal(f.savedState().accountResetAttempts.default.idempotencyKey, calls[0].idempotencyKey);
+  f.r.saveState = save;
+  const restarted = f.restart();
+  await restarted.send("/accounts");
+  await restarted.click("acct:reset:default");
+  await restarted.click(restarted.buttonData("acct:resetconfirm:"));
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0], calls[1]);
+  assert.match(restarted.messages.at(-1).text, /추가로 소모된 사용권은 없습니다/);
+});
+
+test("Reset lists and confirmations use all supported languages", async (t) => {
+  for (const [language, label] of [["en", "Use this Reset credit"], ["ko", "이 Reset권 사용"], ["zh-tw", "使用此重設券"]]) {
+    const f = await fixture(t, { readUsage: async () => resetUsage(), consumeCredit: async () => assert.fail("must not consume") });
+    f.r.state.ui.language = language;
+    await f.send("/accounts");
+    await f.click("acct:reset:default");
+    await f.click(f.buttonData("acct:resetpick:"));
+    assert.ok(f.buttons().some((button) => button.text.includes(label)));
+    assert.doesNotMatch(f.messages.at(-1).text, /reset[A-Z]|usage[A-Z]/);
+  }
+});
 
 test("main menu usage refreshes the selected account in place and follows later account selection", async (t) => {
   const calls = [];

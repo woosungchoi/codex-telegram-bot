@@ -4,10 +4,12 @@ import { selectedAccountId } from "./context.js";
 import { signInAccount, inspectAccount } from "./auth.js";
 import { accountText } from "./messages.js";
 import { formatAccountUsageHtml, readAccountUsage } from "./usage.js";
+import { consumeAccountResetCredit } from "./reset_credits.js";
+import { createResetCreditsController } from "./reset_controller.js";
 import { b, code, escapeHtml } from "../telegram/html.js";
 import { createNavigationKeyboardViews, inlineKeyboard } from "../ui/keyboard_helpers.js";
 
-export function registerAccountCommands(r, { store = createAccountStore(r.config), signIn = signInAccount, inspect = inspectAccount, readUsage = readAccountUsage, now = Date.now } = {}) {
+export function registerAccountCommands(r, { store = createAccountStore(r.config), signIn = signInAccount, inspect = inspectAccount, readUsage = readAccountUsage, consumeCredit = consumeAccountResetCredit, now = Date.now } = {}) {
   const pending = new Map();
   const operations = new Map();
   const t = (key) => accountText(r.state.ui?.language || r.config.telegramLanguage, key);
@@ -17,6 +19,9 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
   const flowKey = (ctx) => `${ctx.chat?.id}:${ctx.from?.id}`;
   const readFlow = (ctx) => r.state.accountUi?.[flowKey(ctx)];
   const menuKeyboard = () => keyboard([[button(t("menu"), "acct:list")]]);
+  const resets = createResetCreditsController(r, {
+    store, readUsage, consumeCredit, showUsage, text: t, keyboard, button, flowKey, readFlow, clearFlow, now
+  });
   async function serialize(ctx, action) {
     const key = flowKey(ctx);
     const operation = (operations.get(key) || Promise.resolve()).catch(() => {}).then(action);
@@ -100,7 +105,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
         if (current?.expiresAt <= now()) await clearFlow(ctx);
         return r.replyHtml(ctx, t("uiExpired"), menuKeyboard());
       }
-      if (current.kind === "delete") return r.replyHtml(ctx, t("deleteButtons"));
+      if (!["login", "rename"].includes(current.kind)) return r.replyHtml(ctx, t(current.kind === "delete" ? "deleteButtons" : "resetButtons"));
       let label;
       try { label = cleanLabel(text || ""); } catch {
         return r.replyHtml(ctx, t("nameInvalid"));
@@ -131,13 +136,14 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     }
     lines.push("", `${t("rotate")}: ${settings.autoRotate ? t("on") : t("off")}`, escapeHtml(t("commands")));
     rows.push([button(t("add"), "acct:login"), button(`${t("rotate")} ${settings.autoRotate ? t("off") : t("on")}`, `acct:rotate:${settings.autoRotate ? "off" : "on"}`)]);
-    rows.push([button(t("usageButton"), "acct:usage")]);
+    rows.push([button(t("usageButton"), "acct:usage"), button(t("resetButton"), "acct:reset")]);
     return r.replyHtml(ctx, lines.filter((line) => line !== undefined).join("\n"), keyboard(rows));
   }
-  async function showUsage(ctx, requestedId) {
+  async function showUsage(ctx, requestedId, notice = "") {
     const id = requestedId || selectedAccountId(r.getChatState(r.getChatKey(ctx)));
     const rows = [
       [button(t("usageRefresh"), `acct:usage:${id}`)],
+      [button(t("resetButton"), `acct:reset:${id}`)],
       [button(t("menu"), "acct:list"), button(t("main"), "p:main")]
     ];
     let html, account;
@@ -161,6 +167,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     } catch {
       html = [b(t("usageTitle")), account ? b(account.label) : "", t("usageFailed")].filter(Boolean).join("\n\n");
     }
+    if (notice) html = `${notice}\n\n${html}`;
     html += `\n\n${t("usageBrowseHint")}`;
     const extra = keyboard(rows);
     return ctx.callbackQuery ? r.editOrReplyHtml(ctx, html, extra) : r.replyHtml(ctx, html, extra);
@@ -202,6 +209,10 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     })();
   }
   async function action(ctx, operation, id, value) {
+    if (operation === "reset") return resets.show(ctx, id);
+    if (operation === "resetpick") return resets.pick(ctx, id);
+    if (operation === "resetpage") return resets.page(ctx, id);
+    if (operation === "resetconfirm") return resets.confirm(ctx, id);
     if (operation === "usage") return showUsage(ctx, id);
     if (operation === "use") return use(ctx, id);
     if (operation === "rename") {
@@ -238,8 +249,9 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
       return show(ctx, `${t("deleted")} ${b(account.label)}`);
     }
     if (operation === "cancelui") {
-      if (!await consumeCallbackFlow(ctx, id)) return;
-      return show(ctx, t("uiCancelled"));
+      const flow = await consumeCallbackFlow(ctx, id);
+      if (!flow) return;
+      return show(ctx, t(flow.kind === "reset-confirm" && flow.retry ? "resetPendingNotice" : "uiCancelled"));
     }
     if (operation === "login") return promptName(ctx, "login");
     if (operation === "cancel") { pending.get(String(ctx.from.id))?.abort.abort(); return; }
@@ -260,7 +272,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     return showUsage(ctx);
   }));
   r.bot.action(/^acct:([a-z]+)(?::([a-z0-9-]+))?$/, (ctx) => guard(ctx, async () => {
-    if (!["confirm", "cancelui"].includes(ctx.match[1])) await clearFlow(ctx);
+    if (!["confirm", "cancelui", "resetpick", "resetpage", "resetconfirm"].includes(ctx.match[1])) await clearFlow(ctx);
     return action(ctx, ctx.match[1], ctx.match[2]);
   }));
   r.bot.on("callback_query", async (ctx, next) => {

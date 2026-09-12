@@ -4,6 +4,21 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+## 1.3.3 - 2026-09-12
+
+- Add **Use Reset credit** to Accounts and Usage, with account selection,
+  paged credit buttons, expiry details, and explicit automatic selection when
+  the service returns only a count or capped details.
+- Confirm the account and credit before redeeming through the Codex App Server.
+  Show distinct results and re-read actual usage after a completed request.
+- Persist each redemption's account, credit, and idempotency key before sending
+  it. Recheck uncertain requests with the same key across navigation or restart;
+  prevent duplicate clicks and concurrent redemption for the same account.
+- Preserve private-chat administrator checks, account leases, task selection,
+  and threads. Expire unused confirmations and provide Cancel and Close.
+- Add redemption, retry, restart, authorization, concurrency, and persistence
+  regression coverage. Verification does not spend real Reset credits.
+
 ## 1.3.2 - 2026-09-12
 
 - Fix `/reauth` and account commands throwing a Telegraf callback-query error
