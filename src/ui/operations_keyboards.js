@@ -27,6 +27,7 @@ export function createOperationsKeyboardViews({
         { text: t("accounts"), callback_data: "acct:list" },
         { text: t("accountAdd"), callback_data: "acct:login" }
       ],
+      [{ text: t("accountUsage"), callback_data: "acct:usage" }],
       [
         { text: t("newThread"), callback_data: "act:new" },
         { text: t("resumeLast"), callback_data: "act:resume_last" }

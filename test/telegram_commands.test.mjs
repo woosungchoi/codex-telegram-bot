@@ -8,6 +8,8 @@ test("registered commands are recognized", () => {
   assert.equal(isRegisteredTelegramCommandText({ text: "/queue_mode_safe", entities: [{ type: "bot_command", offset: 0, length: 16 }] }), true);
   assert.equal(isRegisteredTelegramCommandText({ text: "/recovery_status", entities: [{ type: "bot_command", offset: 0, length: 16 }] }), true);
   assert.equal(isRegisteredTelegramCommandText(botCommandMessage("/skills")), true);
+  assert.equal(isRegisteredTelegramCommandText(botCommandMessage("/usage")), true);
+  assert.equal(isRegisteredTelegramCommandText(botCommandMessage("/usage@my_bot")), true);
   assert.equal(isRegisteredTelegramCommandText({ text: "/start@my_bot", entities: [{ type: "bot_command", offset: 0, length: 13 }] }), true);
 });
 

@@ -5,6 +5,7 @@ import path from "node:path";
 import { Telegraf } from "telegraf";
 import { registerAccountCommands } from "../src/accounts/controller.js";
 import { accountHome } from "../src/accounts/store.js";
+import { editOrReplyTelegramHtml } from "../src/telegram/api.js";
 import { createRuntimeKeyboardViews } from "../src/ui/keyboards.js";
 import { createStandaloneModelSelectionController } from "../src/ui/standalone_model_selection_controller.js";
 import { accountFixture } from "./helpers/accounts_fixture.mjs";
@@ -19,7 +20,17 @@ function boot(t, storage, options = {}) {
   bot.botInfo = { id: 123, is_bot: true, first_name: "Test Bot", username: "test_bot" };
   const messages = [], forwarded = [], apiCalls = [], signIns = [], otherCommands = [];
   let seq = 100;
-  const api = async (method, payload) => { apiCalls.push({ method, payload }); return true; };
+  const api = async (method, payload) => {
+    apiCalls.push({ method, payload });
+    if (method === "editMessageText") {
+      const message = messages.find((item) => item.message_id === payload.message_id);
+      if (message) Object.assign(message, {
+        html: payload.text, text: payload.text.replace(/<[^>]*>/g, ""),
+        extra: { ...message.extra, reply_markup: payload.reply_markup }
+      });
+    }
+    return true;
+  };
   bot.telegram.callApi = api;
   bot.use((ctx, next) => { ctx.telegram.callApi = api; return next(); });
   bot.catch((error) => { throw error; });
@@ -31,6 +42,8 @@ function boot(t, storage, options = {}) {
     threadCache: new Map(), getChatKey: () => "1", getChatState: () => state.chats["1"],
     getCommandArgs: (ctx) => ctx.message.text.replace(/^\/\S+\s*/, ""),
     saveState: async () => { saved = JSON.stringify(state); },
+    editOrReplyHtml: editOrReplyTelegramHtml,
+    formatDateTime: (ms) => new Date(ms).toISOString(),
     replyHtml: async (ctx, html, extra) => {
       const message = {
         message_id: ++seq, date: 0, from: bot.botInfo, chat: ctx.chat,
@@ -46,7 +59,7 @@ function boot(t, storage, options = {}) {
     await onCode({ verificationUrl: "https://auth.openai.com/codex/device", userCode: "TEST-1234" });
     return store.update(account.id, { status: "ready" });
   });
-  const controller = registerAccountCommands(r, { store: storage.store, signIn, now: () => storage.clock.now });
+  const controller = registerAccountCommands(r, { store: storage.store, signIn, readUsage: options.readUsage, now: () => storage.clock.now });
   t.after(() => controller.close());
   const text = (key) => key;
   const views = createRuntimeKeyboardViews({ text, hasActiveTurn: () => false });
@@ -349,4 +362,110 @@ test("closing name and deletion prompts clears their pending operations", async 
   await f.click(confirm, prompt);
   assert.ok(await f.store.get(account.id));
   assert.match(f.messages.at(-1).text, /만료/);
+});
+
+function usageSample(usedPercent = 52) {
+  return {
+    account: { type: "chatgpt", planType: "pro" },
+    rateLimits: { limitId: "codex", primary: { usedPercent, windowDurationMins: 10080, resetsAt: 1789435487 } },
+    checkedAt: Date.parse("2026-09-12T05:59:00Z")
+  };
+}
+
+test("main menu usage refreshes the selected account in place and follows later account selection", async (t) => {
+  const calls = [];
+  const f = await fixture(t, { readUsage: async (_config, id) => { calls.push(id); return usageSample(51 + calls.length); } });
+  const account = await f.store.create("<업무 계정>");
+  await f.store.update(account.id, { status: "ready" });
+  f.r.state.chats["1"].accountId = account.id;
+  const chatBefore = { ...f.r.state.chats["1"] };
+  await f.send("/menu");
+  const panel = f.messages.at(-1);
+  const messageCount = f.messages.length;
+  await f.click(f.buttonData("acct:usage", panel), panel);
+  assert.match(panel.html, /&lt;업무 계정&gt;/);
+  assert.match(panel.html, /사용 52% · 남음 <b>48%/);
+  assert.ok(f.buttons(panel).some((button) => button.callback_data === "p:main"));
+  assert.equal(f.messages.length, messageCount);
+  await f.click(f.buttonData("acct:usage", panel), panel);
+  assert.match(panel.html, /사용 53% · 남음 <b>47%/);
+  assert.equal(f.messages.length, messageCount);
+  assert.deepEqual(calls, [account.id, account.id]);
+  assert.deepEqual(f.r.state.chats["1"], chatBefore);
+  assert.equal(f.apiCalls.filter((call) => call.method === "answerCallbackQuery").length, 2);
+  await f.click("acct:use:default", panel);
+  await f.click("acct:usage", panel);
+  assert.equal(calls.at(-1), "default");
+  assert.match(panel.html, /Default/);
+  assert.equal(f.forwarded.length, 0);
+  assert.equal(f.signIns.length, 0);
+});
+
+test("account list and slash usage share the panel, and navigation clears name input", async (t) => {
+  const f = await fixture(t, { readUsage: async () => usageSample() });
+  await f.send("/accounts");
+  await f.click(f.buttonData("acct:usage"));
+  assert.match(f.messages.at(-1).html, /Codex · 주간/);
+  await f.click(f.buttonData("acct:list"));
+  await f.click("acct:rename:default");
+  const before = f.apiCalls.filter((call) => call.method === "answerCallbackQuery").length;
+  await f.send("/usage@test_bot");
+  assert.match(f.messages.at(-1).html, /Codex · 주간/);
+  assert.equal(f.apiCalls.filter((call) => call.method === "answerCallbackQuery").length, before);
+  assert.equal(f.savedState().accountUi["1:1"], undefined);
+  await f.click(f.buttonData("ui:close:menu"));
+  assert.equal(f.messages.at(-1).text, "menuClosed");
+  assert.deepEqual(f.buttons(), []);
+  assert.equal(f.forwarded.length, 0);
+});
+
+test("usage commands and callbacks reject foreign users and groups before reading account data", async (t) => {
+  const calls = [];
+  const f = await fixture(t, { readUsage: async () => { calls.push(true); return usageSample(); } });
+  for (const options of [{ userId: 2 }, { userId: 3 }, { chat: { id: -100, type: "supergroup" } }]) {
+    await f.send("/usage", options);
+    assert.match(f.messages.at(-1).text, /개인 채팅/);
+    await f.click("acct:usage", f.messages.at(-1), options);
+    assert.match(f.messages.at(-1).text, /개인 채팅/);
+  }
+  assert.deepEqual(calls, []);
+  assert.equal(f.forwarded.length, 0);
+});
+
+test("usage holds an account lease during queries and releases it after success or failure", async (t) => {
+  let fail = false;
+  const f = await fixture(t, { readUsage: async (_config, id) => {
+    await assert.rejects(f.store.remove(id), /running task/);
+    if (fail) throw new Error("TOKEN_SENTINEL must not be shown");
+    return usageSample();
+  } });
+  const account = await f.store.create("Saved account");
+  await f.store.update(account.id, { status: "ready" });
+  f.r.state.chats["1"].accountId = account.id;
+  await f.send("/usage");
+  const leases = path.join(f.config.codexAccountsDir, "leases", account.id);
+  assert.deepEqual(await fs.readdir(leases), []);
+  fail = true;
+  await f.click("acct:usage");
+  assert.match(f.messages.at(-1).text, /불러오지 못했습니다/);
+  assert.doesNotMatch(JSON.stringify(f.messages), /TOKEN_SENTINEL/);
+  assert.deepEqual(await fs.readdir(leases), []);
+  assert.ok(f.buttons().some((button) => button.callback_data === "acct:usage"));
+  assert.ok(f.buttons().some((button) => button.callback_data === "ui:close:menu"));
+  fail = false;
+  await f.click("acct:usage");
+  assert.match(f.messages.at(-1).html, /남음 <b>48%/);
+  await f.store.remove(account.id);
+});
+
+test("pending accounts offer sign-in guidance without querying their credentials", async (t) => {
+  let queried = false;
+  const f = await fixture(t, { readUsage: async () => { queried = true; return usageSample(); } });
+  const account = await f.store.create("Signing in");
+  f.r.state.chats["1"].accountId = account.id;
+  await f.send("/usage");
+  assert.match(f.messages.at(-1).text, /로그인을 완료/);
+  assert.equal(queried, false);
+  assert.ok(f.buttons().some((button) => button.callback_data === "acct:list"));
+  assert.ok(f.buttons().some((button) => button.callback_data === "ui:close:menu"));
 });

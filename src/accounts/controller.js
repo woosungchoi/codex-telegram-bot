@@ -3,10 +3,11 @@ import { createAccountStore, cleanLabel } from "./store.js";
 import { selectedAccountId } from "./context.js";
 import { signInAccount, inspectAccount } from "./auth.js";
 import { accountText } from "./messages.js";
+import { formatAccountUsageHtml, readAccountUsage } from "./usage.js";
 import { b, code, escapeHtml } from "../telegram/html.js";
 import { createNavigationKeyboardViews, inlineKeyboard } from "../ui/keyboard_helpers.js";
 
-export function registerAccountCommands(r, { store = createAccountStore(r.config), signIn = signInAccount, inspect = inspectAccount, now = Date.now } = {}) {
+export function registerAccountCommands(r, { store = createAccountStore(r.config), signIn = signInAccount, inspect = inspectAccount, readUsage = readAccountUsage, now = Date.now } = {}) {
   const pending = new Map();
   const operations = new Map();
   const t = (key) => accountText(r.state.ui?.language || r.config.telegramLanguage, key);
@@ -130,7 +131,31 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     }
     lines.push("", `${t("rotate")}: ${settings.autoRotate ? t("on") : t("off")}`, escapeHtml(t("commands")));
     rows.push([button(t("add"), "acct:login"), button(`${t("rotate")} ${settings.autoRotate ? t("off") : t("on")}`, `acct:rotate:${settings.autoRotate ? "off" : "on"}`)]);
+    rows.push([button(t("usageButton"), "acct:usage")]);
     return r.replyHtml(ctx, lines.filter((line) => line !== undefined).join("\n"), keyboard(rows));
+  }
+  async function showUsage(ctx) {
+    const extra = keyboard([
+      [button(t("usageRefresh"), "acct:usage")],
+      [button(t("menu"), "acct:list"), button(t("main"), "p:main")]
+    ]);
+    let html;
+    try {
+      const id = selectedAccountId(r.getChatState(r.getChatKey(ctx)));
+      const account = await store.get(id);
+      if (account.status === "pending") {
+        html = `${b(t("usageTitle"))}\n\n${b(account.label)}\n${t("usagePending")}`;
+      } else {
+        const release = await store.acquire(id, { allowUnavailable: true });
+        try {
+          const usage = await readUsage(r.config, id);
+          html = formatAccountUsageHtml(usage, { label: account.label, text: t, formatDateTime: r.formatDateTime });
+        } finally { await release(); }
+      }
+    } catch {
+      html = `${b(t("usageTitle"))}\n\n${t("usageFailed")}`;
+    }
+    return ctx.callbackQuery ? r.editOrReplyHtml(ctx, html, extra) : r.replyHtml(ctx, html, extra);
   }
   async function use(ctx, id) {
     const account = await store.get(id);
@@ -169,6 +194,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     })();
   }
   async function action(ctx, operation, id, value) {
+    if (operation === "usage") return showUsage(ctx);
     if (operation === "use") return use(ctx, id);
     if (operation === "rename") {
       if (value === undefined) return promptName(ctx, "rename", id);
@@ -220,6 +246,10 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     await clearFlow(ctx);
     const label = r.getCommandArgs(ctx).trim();
     return label === "cancel" ? action(ctx, "cancel") : begin(ctx, label);
+  }));
+  r.bot.command("usage", (ctx) => guard(ctx, async () => {
+    await clearFlow(ctx);
+    return showUsage(ctx);
   }));
   r.bot.action(/^acct:([a-z]+)(?::([a-z0-9-]+))?$/, (ctx) => guard(ctx, async () => {
     if (!["confirm", "cancelui"].includes(ctx.match[1])) await clearFlow(ctx);

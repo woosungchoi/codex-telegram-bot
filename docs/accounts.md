@@ -18,6 +18,7 @@ device-code login and isolated account homes.
 | `/reauth [name]` | Add a named ChatGPT sign-in; open the official link and enter the one-time code. |
 | `/reauth cancel` | Cancel a pending login. |
 | `/accounts` | List accounts, choose one, check status, remove a saved login, and toggle automatic rotation. |
+| `/usage` | Show the selected account's live usage, remaining quota, and reset times. |
 | `/accounts use <id>` | Select the account for subsequent work in this chat. |
 | `/accounts rename <id> <name>` | Rename a saved account. |
 | `/accounts check <id>` | Refresh login status and available quota/reset information. |
@@ -27,9 +28,16 @@ device-code login and isolated account homes.
 ### Button menu
 
 Open `/accounts` to manage accounts without copying their IDs. `/menu` also
-offers **Accounts** and **Add account** buttons that open the list or the name
-prompt directly:
+offers **Accounts**, **Add account**, and **Usage** buttons:
 
+- **Usage** (also in the account list) reads the currently selected account's
+  limits directly, including separate model pools such as Spark when provided.
+  Each window uses its reported duration, so a primary weekly window is shown
+  as weekly. Reset and query times follow the bot's date/time preferences.
+  **Refresh** updates the same message with a fresh query; **Accounts**,
+  **Main menu**, and **Close** provide navigation. `/usage` opens this same panel.
+  These queries do not start a Codex turn or consume model-generation quota.
+  Missing limits and failed queries show guidance with navigation still available.
 - **Add account** asks for a name. Send it as your next message, then complete
   the ChatGPT device-code sign-in. The completion message offers **Use** and
   **Accounts** buttons.

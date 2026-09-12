@@ -58,6 +58,8 @@
   "skills": "스킬",
   "accounts": "👥 계정 관리",
   "accountAdd": "➕ 계정 등록",
+  "accountUsage": "📊 사용량",
+  "commandUsage": "선택한 계정의 사용량과 한도 확인",
   "newThread": "새 thread",
   "resumeLast": "최근 이어가기",
   "stop": "중단",
