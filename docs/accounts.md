@@ -24,6 +24,28 @@ device-code login and isolated account homes.
 | `/accounts remove <id>` | Show a confirmation before deleting the login and its local session files. |
 | `/accounts rotate on` / `off` | Enable or disable rotation for the bot's saved account pool. Default: off. |
 
+### Button menu
+
+Open `/accounts` to manage accounts without copying their IDs:
+
+- **Add account** asks for a name. Send it as your next message, then complete
+  the ChatGPT device-code sign-in. The completion message offers **Use** and
+  **Accounts** buttons.
+- **Rename** under an account asks for its new name and saves it when you reply.
+  Names support Unicode and spaces and must contain 1–48 characters.
+- **Remove** shows the account name and asks for **Confirm removal**. Removal
+  deletes the saved login and its account-local session files. The host's
+  default account can be renamed but cannot be removed here.
+- **Cancel** returns to the account list. A slash command or a button in another
+  menu also ends a pending account menu step so it is handled normally.
+
+Name input and removal confirmations expire after five minutes. Pending steps
+survive a bot restart for their remaining lifetime and are bound to the
+requesting administrator and private chat. Confirmation and Cancel buttons are
+also bound to the specific prompt; old or already-used buttons cannot apply a
+different operation. While a name is requested, the next message is handled by
+the account menu instead of becoming a Codex prompt.
+
 Account management is restricted to private chats with account administrators.
 `CODEX_ACCOUNT_ADMIN_USER_IDS` must also be in `ALLOWED_USER_IDS`. With one
 allowlisted user that user is the default administrator. With multiple users,

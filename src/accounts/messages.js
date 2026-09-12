@@ -1,7 +1,7 @@
 const messages = {
   en: {
     title: "👥 Codex accounts", private: "🔐 Account management is available to account administrators in private chat only.",
-    add: "🔐 Sign in / add", check: "🔎 Check", remove: "🗑 Remove", cancel: "Cancel", use: "Use",
+    add: "➕ Add account", check: "🔎 Check", remove: "🗑 Remove", cancel: "Cancel", use: "Use",
     rotate: "🔁 Auto-rotate", on: "ON", off: "OFF", ready: "Ready", pending: "Signing in", reauth: "Sign-in required",
     instruction: "Select an account for future tasks. Running tasks keep their current account.",
     commands: "/reauth [name] · /accounts rename <id> <name> · /accounts use <id>",
@@ -9,11 +9,20 @@ const messages = {
     code: "Open the official sign-in page and enter this one-time code. Complete sign-in in your browser.",
     done: "✅ Account added. Select it below to use it.", cancelled: "🔐 Sign-in cancelled.", failed: "Could not complete account action:",
     deleteConfirm: "Remove this saved login and its account-local session files?", next: "✅ Account selected for the next task.",
-    rename: "Rename with", cooldown: "Cooldown until", usage: "Primary window usage", refreshed: "✅ Account status refreshed."
+    rename: "✏️ Rename", cooldown: "Cooldown until", usage: "Primary window usage", refreshed: "✅ Account status refreshed.",
+    menu: "👥 Accounts", namePrompt: "✏️ Codex account name",
+    nameAdd: "Send the name for your new account in your next message (1–48 characters). ChatGPT sign-in will follow. Cancel below to return to the menu.",
+    nameRename: "Send a new name for this account in your next message (1–48 characters). Cancel below to keep its name.",
+    nameInvalid: "Please send a name as text, using 1–48 characters. You can try again or use the Cancel button above.",
+    nameSaved: "✅ Account name saved:", uiCancelled: "Cancelled. Your accounts are unchanged.",
+    uiExpired: "This account menu step has expired or already finished. Open Accounts to start again.",
+    confirmDelete: "🗑 Confirm removal", deleted: "✅ Account removed:",
+    deleteButtons: "Use the confirmation or Cancel button above to finish this step.",
+    defaultProtected: "The host's default account cannot be removed from this menu. You can rename it."
   },
   ko: {
     title: "👥 Codex 계정", private: "🔐 계정 관리는 계정 관리자와의 개인 채팅에서만 사용할 수 있습니다.",
-    add: "🔐 로그인·계정 추가", check: "🔎 상태 확인", remove: "🗑 삭제", cancel: "취소", use: "사용",
+    add: "➕ 계정 등록", check: "🔎 상태 확인", remove: "🗑 삭제", cancel: "취소", use: "사용",
     rotate: "🔁 자동 계정 전환", on: "켜짐", off: "꺼짐", ready: "사용 가능", pending: "로그인 중", reauth: "로그인 필요",
     instruction: "다음 작업에 사용할 계정을 선택하세요. 실행 중인 작업은 시작한 계정을 유지합니다.",
     commands: "/reauth [이름] · /accounts rename <id> <이름> · /accounts use <id>",
@@ -21,11 +30,20 @@ const messages = {
     code: "공식 로그인 페이지를 열고 아래 일회용 코드를 입력하세요. 브라우저에서 로그인을 완료해 주세요.",
     done: "✅ 계정을 추가했습니다. 아래에서 선택하면 사용할 수 있습니다.", cancelled: "🔐 로그인을 취소했습니다.", failed: "계정 작업을 완료하지 못했습니다:",
     deleteConfirm: "저장된 로그인과 이 계정의 로컬 대화 기록을 삭제할까요?", next: "✅ 다음 작업에 사용할 계정을 선택했습니다.",
-    rename: "이름 변경", cooldown: "다시 시도할 시각", usage: "기본 사용량 구간", refreshed: "✅ 계정 상태를 확인했습니다."
+    rename: "✏️ 이름 변경", cooldown: "다시 시도할 시각", usage: "기본 사용량 구간", refreshed: "✅ 계정 상태를 확인했습니다.",
+    menu: "👥 계정 목록", namePrompt: "✏️ Codex 계정 이름",
+    nameAdd: "등록할 계정의 이름을 다음 메시지로 입력해 주세요(1~48자). 입력 후 ChatGPT 로그인으로 이어집니다. 아래 취소 버튼으로 메뉴에 돌아갈 수 있습니다.",
+    nameRename: "이 계정의 새 이름을 다음 메시지로 입력해 주세요(1~48자). 아래 취소 버튼을 누르면 기존 이름을 유지합니다.",
+    nameInvalid: "이름을 1~48자의 텍스트로 입력해 주세요. 다시 입력하거나 위 취소 버튼을 눌러 주세요.",
+    nameSaved: "✅ 계정 이름을 저장했습니다:", uiCancelled: "취소했습니다. 계정은 변경되지 않았습니다.",
+    uiExpired: "만료되었거나 이미 끝난 계정 메뉴입니다. 계정 목록에서 다시 시작해 주세요.",
+    confirmDelete: "🗑 삭제 확인", deleted: "✅ 계정을 삭제했습니다:",
+    deleteButtons: "위의 삭제 확인 또는 취소 버튼을 눌러 주세요.",
+    defaultProtected: "서버 기본 계정은 이 메뉴에서 삭제할 수 없습니다. 이름은 변경할 수 있습니다."
   },
   "zh-tw": {
     title: "👥 Codex 帳號", private: "🔐 帳號管理僅限管理員在私人聊天中使用。",
-    add: "🔐 登入／新增", check: "🔎 檢查", remove: "🗑 移除", cancel: "取消", use: "使用",
+    add: "➕ 新增帳號", check: "🔎 檢查", remove: "🗑 移除", cancel: "取消", use: "使用",
     rotate: "🔁 自動切換", on: "開啟", off: "關閉", ready: "可使用", pending: "登入中", reauth: "需要登入",
     instruction: "選擇後續工作的帳號。執行中的工作會保留原帳號。",
     commands: "/reauth [名稱] · /accounts rename <id> <名稱> · /accounts use <id>",
@@ -33,7 +51,16 @@ const messages = {
     code: "開啟官方登入頁面，輸入下方的一次性代碼，並在瀏覽器中完成登入。",
     done: "✅ 帳號已新增。請在下方選擇使用。", cancelled: "🔐 登入已取消。", failed: "無法完成帳號操作：",
     deleteConfirm: "移除此登入資料及帳號的本機對話紀錄？", next: "✅ 已選擇後續工作的帳號。",
-    rename: "重新命名", cooldown: "重試時間", usage: "主要時段使用量", refreshed: "✅ 帳號狀態已更新。"
+    rename: "✏️ 重新命名", cooldown: "重試時間", usage: "主要時段使用量", refreshed: "✅ 帳號狀態已更新。",
+    menu: "👥 帳號列表", namePrompt: "✏️ Codex 帳號名稱",
+    nameAdd: "請在下一則訊息輸入新帳號名稱（1–48 字元），接著完成 ChatGPT 登入。按下取消即可返回選單。",
+    nameRename: "請在下一則訊息輸入此帳號的新名稱（1–48 字元）。按下取消即可保留原名稱。",
+    nameInvalid: "請以文字輸入 1–48 字元的名稱。可以重新輸入，或按上方的取消按鈕。",
+    nameSaved: "✅ 帳號名稱已儲存：", uiCancelled: "已取消，帳號未變更。",
+    uiExpired: "此帳號選單步驟已過期或已完成，請從帳號列表重新開始。",
+    confirmDelete: "🗑 確認移除", deleted: "✅ 帳號已移除：",
+    deleteButtons: "請按上方的確認移除或取消按鈕。",
+    defaultProtected: "無法從此選單移除主機的預設帳號，但可以重新命名。"
   }
 };
 export function accountText(language, key) { return (messages[language] || messages.en)[key] || key; }

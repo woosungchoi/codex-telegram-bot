@@ -12,7 +12,7 @@ async function fixture(t) {
   const state = { ui: { language: "ko" }, chats: { "1": { threadId: "old-thread" } } };
   const r = {
     config: { ...f.config, allowedUserIds: new Set(["1", "2"]), codexAccountAdminUserIds: new Set(["1"]) }, state,
-    bot: { command: (name, fn) => commands.set(name, fn), action: (_re, fn) => { callback = fn; }, telegram: {
+    bot: { command: (name, fn) => commands.set(name, fn), action: (_re, fn) => { callback = fn; }, on: () => {}, telegram: {
       deleteMessage: async () => {}, answerCbQuery: async (...args) => { answers.push(args); }
     } },
     threadCache: new Map(), getChatKey: () => "1", getChatState: () => state.chats["1"],
