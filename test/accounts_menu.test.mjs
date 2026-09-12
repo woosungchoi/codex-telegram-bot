@@ -428,6 +428,8 @@ test("usage commands and callbacks reject foreign users and groups before readin
     assert.match(f.messages.at(-1).text, /개인 채팅/);
     await f.click("acct:usage", f.messages.at(-1), options);
     assert.match(f.messages.at(-1).text, /개인 채팅/);
+    await f.click("acct:usage:default", f.messages.at(-1), options);
+    assert.match(f.messages.at(-1).text, /개인 채팅/);
   }
   assert.deepEqual(calls, []);
   assert.equal(f.forwarded.length, 0);
@@ -451,7 +453,7 @@ test("usage holds an account lease during queries and releases it after success 
   assert.match(f.messages.at(-1).text, /불러오지 못했습니다/);
   assert.doesNotMatch(JSON.stringify(f.messages), /TOKEN_SENTINEL/);
   assert.deepEqual(await fs.readdir(leases), []);
-  assert.ok(f.buttons().some((button) => button.callback_data === "acct:usage"));
+  assert.ok(f.buttons().some((button) => button.callback_data === `acct:usage:${account.id}`));
   assert.ok(f.buttons().some((button) => button.callback_data === "ui:close:menu"));
   fail = false;
   await f.click("acct:usage");
@@ -484,4 +486,92 @@ test("usage Refresh updates reset credit counts and keeps menu navigation", asyn
   assert.ok(f.buttons(panel).some((button) => button.callback_data === "acct:list"));
   assert.ok(f.buttons(panel).some((button) => button.callback_data === "ui:close:menu"));
   assert.equal(f.forwarded.length, 0);
+});
+
+test("usage account buttons switch quotas and credits without changing task selection or threads", async (t) => {
+  const calls = [];
+  const f = await fixture(t, { readUsage: async (_config, id) => {
+    calls.push(id);
+    return { ...usageSample(id === "default" ? 52 : 10), rateLimitResetCredits: { availableCount: id === "default" ? 3 : 1, credits: [] } };
+  } });
+  const other = await f.store.create("<다른 계정>");
+  await f.store.update(other.id, { status: "ready" });
+  f.r.state.chats["1"].accountId = "default";
+  f.r.state.chats["1"].threadAccountId = "default";
+  f.r.state.chats["1"].accountThreads = { default: "original-thread", [other.id]: "other-thread" };
+  const before = JSON.parse(JSON.stringify(f.r.state.chats["1"])), thread = { id: "original-thread" };
+  f.r.threadCache.set("1", thread);
+  await f.send("/usage");
+  const panel = f.messages.at(-1), total = f.messages.length;
+  const button = f.buttons(panel).find((item) => item.callback_data === `acct:usage:${other.id}`);
+  assert.equal(button.text, "<다른 계정>");
+  await f.click(button.callback_data, panel);
+  assert.match(panel.html, /조회 계정: <b>&lt;다른 계정&gt;<\/b>/);
+  assert.match(panel.html, /사용 10% · 남음 <b>90%/);
+  assert.match(panel.html, /사용 가능: <b>1<\/b>/);
+  assert.match(panel.text, /작업 계정은 유지/);
+  assert.ok(f.buttons(panel).some((item) => item.text === "✅ <다른 계정>"));
+  assert.ok(f.buttons(panel).every((item) => Buffer.byteLength(item.callback_data) <= 64));
+  const refresh = f.buttons(panel).find((item) => item.text === "🔄 새로고침");
+  assert.equal(refresh.callback_data, `acct:usage:${other.id}`);
+  await f.click(refresh.callback_data, panel);
+  assert.deepEqual(calls, ["default", other.id, other.id]);
+  assert.deepEqual(f.r.state.chats["1"], before);
+  assert.equal(f.r.threadCache.get("1"), thread);
+  assert.equal(f.messages.length, total);
+  await f.click("acct:usage:default", panel);
+  assert.match(panel.html, /사용 가능: <b>3<\/b>/);
+  assert.equal(f.messages.length, total);
+  assert.equal(f.forwarded.length, 0);
+});
+
+test("account-specific Refresh stays bound across task changes and bot restart", async (t) => {
+  const calls = [];
+  const f = await fixture(t, { readUsage: async (_config, id) => { calls.push(id); return usageSample(); } });
+  const other = await f.store.create("Other");
+  await f.store.update(other.id, { status: "ready" });
+  await f.send("/usage");
+  const panel = f.messages.at(-1);
+  const refreshDefault = f.buttons(panel).find((item) => item.text === "🔄 새로고침").callback_data;
+  await f.click(`acct:use:${other.id}`, panel);
+  await f.click(refreshDefault, panel);
+  assert.equal(calls.at(-1), "default");
+  assert.equal(f.r.state.chats["1"].accountId, other.id);
+  const restarted = f.restart();
+  await restarted.click(refreshDefault, panel);
+  assert.equal(calls.at(-1), "default");
+  assert.equal(restarted.r.state.chats["1"].accountId, other.id);
+  await restarted.send("/usage");
+  assert.equal(calls.at(-1), other.id);
+});
+
+test("deleted or failing usage accounts keep other account buttons usable", async (t) => {
+  let fail = false;
+  const calls = [];
+  const f = await fixture(t, { readUsage: async (_config, id) => {
+    calls.push(id);
+    if (fail && id !== "default") throw new Error("private failure");
+    return usageSample();
+  } });
+  const other = await f.store.create("Other account");
+  await f.store.update(other.id, { status: "ready" });
+  await f.send("/usage");
+  const panel = f.messages.at(-1);
+  fail = true;
+  await f.click(`acct:usage:${other.id}`, panel);
+  assert.match(panel.text, /불러오지 못했습니다/);
+  assert.match(panel.text, /Other account/);
+  assert.ok(f.buttons(panel).some((item) => item.callback_data === "acct:usage:default"));
+  assert.equal(f.r.state.chats["1"].accountId, undefined);
+  await f.store.remove(other.id);
+  const previousCalls = calls.length;
+  await f.click(`acct:usage:${other.id}`, panel);
+  assert.equal(calls.length, previousCalls);
+  assert.match(panel.text, /더 이상 등록되어 있지 않은 계정/);
+  assert.ok(f.buttons(panel).some((item) => item.callback_data === "acct:usage:default"));
+  await f.click("acct:usage:default", panel);
+  assert.match(panel.html, /Codex · 주간/);
+  await f.click(f.buttonData("ui:close:menu", panel), panel);
+  assert.equal(panel.text, "menuClosed");
+  assert.deepEqual(f.buttons(panel), []);
 });

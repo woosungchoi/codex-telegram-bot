@@ -30,7 +30,7 @@ device-code login and isolated account homes.
 Open `/accounts` to manage accounts without copying their IDs. `/menu` also
 offers **Accounts**, **Add account**, and **Usage** buttons:
 
-- **Usage** (also in the account list) reads the currently selected account's
+- **Usage** (also in the account list) initially reads the selected task account's
   limits directly, including separate model pools such as Spark when provided.
   Each window uses its reported duration, so a primary weekly window is shown
   as weekly. Reset and query times follow the bot's date/time preferences.
@@ -38,6 +38,12 @@ offers **Accounts**, **Add account**, and **Usage** buttons:
   **Main menu**, and **Close** provide navigation. `/usage` opens this same panel.
   These queries do not start a Codex turn or consume model-generation quota.
   Missing limits and failed queries show guidance with navigation still available.
+- **Account name buttons** inside Usage display another saved account's quotas
+  and reset credits in the same message. ✅ marks the account being viewed.
+  Browsing never changes the selected task account or its threads. **Refresh**
+  stays on the displayed account, even if task selection changes elsewhere.
+  Opening `/usage` or the main **Usage** button starts with the task account.
+  Deleted accounts show guidance and retain buttons for the remaining accounts.
 - The usage panel also shows **Reset credits**: the server's available count
   and up to five credit titles/expiry times. The count remains authoritative
   when detail rows are capped or unavailable; missing data is not shown as zero.

@@ -134,16 +134,22 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     rows.push([button(t("usageButton"), "acct:usage")]);
     return r.replyHtml(ctx, lines.filter((line) => line !== undefined).join("\n"), keyboard(rows));
   }
-  async function showUsage(ctx) {
-    const extra = keyboard([
-      [button(t("usageRefresh"), "acct:usage")],
+  async function showUsage(ctx, requestedId) {
+    const id = requestedId || selectedAccountId(r.getChatState(r.getChatKey(ctx)));
+    const rows = [
+      [button(t("usageRefresh"), `acct:usage:${id}`)],
       [button(t("menu"), "acct:list"), button(t("main"), "p:main")]
-    ]);
-    let html;
+    ];
+    let html, account;
     try {
-      const id = selectedAccountId(r.getChatState(r.getChatKey(ctx)));
-      const account = await store.get(id);
-      if (account.status === "pending") {
+      const accounts = await store.list();
+      rows.splice(1, 0, ...accounts.map((item) => [
+        button(`${item.id === id ? "✅ " : ""}${item.label}`, `acct:usage:${item.id}`)
+      ]));
+      account = accounts.find((item) => item.id === id);
+      if (!account) {
+        html = `${b(t("usageTitle"))}\n\n${t("usageAccountMissing")}`;
+      } else if (account.status === "pending") {
         html = `${b(t("usageTitle"))}\n\n${b(account.label)}\n${t("usagePending")}`;
       } else {
         const release = await store.acquire(id, { allowUnavailable: true });
@@ -153,8 +159,10 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
         } finally { await release(); }
       }
     } catch {
-      html = `${b(t("usageTitle"))}\n\n${t("usageFailed")}`;
+      html = [b(t("usageTitle")), account ? b(account.label) : "", t("usageFailed")].filter(Boolean).join("\n\n");
     }
+    html += `\n\n${t("usageBrowseHint")}`;
+    const extra = keyboard(rows);
     return ctx.callbackQuery ? r.editOrReplyHtml(ctx, html, extra) : r.replyHtml(ctx, html, extra);
   }
   async function use(ctx, id) {
@@ -194,7 +202,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     })();
   }
   async function action(ctx, operation, id, value) {
-    if (operation === "usage") return showUsage(ctx);
+    if (operation === "usage") return showUsage(ctx, id);
     if (operation === "use") return use(ctx, id);
     if (operation === "rename") {
       if (value === undefined) return promptName(ctx, "rename", id);
