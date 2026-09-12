@@ -29,6 +29,18 @@ export function createOperationsKeyboardViews({
       ],
       [{ text: t("accountUsage"), callback_data: "acct:usage" }],
       [
+        { text: t("workspaceProjects"), callback_data: "w:projects" },
+        { text: t("workspaceSessions"), callback_data: "w:sessions" }
+      ],
+      [
+        { text: t("workspaceTasks"), callback_data: "w:tasks" },
+        { text: t("workspaceDashboard"), callback_data: "w:dashboard" }
+      ],
+      [
+        { text: t("workspaceMcp"), callback_data: "w:mcp" },
+        { text: t("workspaceTopics"), callback_data: "w:forum" }
+      ],
+      [
         { text: t("newThread"), callback_data: "act:new" },
         { text: t("resumeLast"), callback_data: "act:resume_last" }
       ],
@@ -61,6 +73,7 @@ export function createOperationsKeyboardViews({
 
   function toolsKeyboard() {
     return inlineKeyboard([
+      [{ text: t("workspaceMcp"), callback_data: "w:mcp" }],
       [
         { text: "Health", callback_data: "tool:health" },
         { text: "Doctor", callback_data: "tool:doctor" }

@@ -32,6 +32,13 @@ export function telegramCommands(language = "en") {
   const text = (key) => textFor(language, key);
   return [
     { command: "menu", description: text("commandMenu") },
+    { command: "projects", description: text("workspaceProjects") },
+    { command: "topics", description: text("workspaceTopics") },
+    { command: "forum_setup", description: text("workspaceForumSetup") },
+    { command: "sessions", description: text("workspaceSessions") },
+    { command: "tasks", description: text("workspaceTasks") },
+    { command: "dashboard", description: text("workspaceDashboard") },
+    { command: "mcp", description: text("workspaceMcp") },
     { command: "new", description: text("commandNew") },
     { command: "resume", description: text("commandResume") },
     { command: "status", description: text("commandStatus") },

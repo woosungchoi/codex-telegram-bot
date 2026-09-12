@@ -15,14 +15,17 @@ test("authorization middleware stops unauthorized updates before command routes"
   registerTelegramMiddleware({
     bot,
     config: {},
-    authorize: () => ({ ok: false }),
+    authorize: () => ({ ok: false, reason: "unauthorized_user" }),
+    logger: { warn() {} },
     telegram: { replyHtml: async () => {}, summarizeError: () => ({ description: "error" }) }
   });
   let continued = false;
-  await middleware({ message: {}, reply: async (text) => replies.push(text) }, async () => {
+  await middleware({ from: { id: 7, is_bot: false }, chat: { id: 7, type: "private" },
+    message: { text: "/menu" }, reply: async (text) => replies.push(text) }, async () => {
     continued = true;
   });
-  assert.deepEqual(replies, ["Unauthorized."]);
+  assert.match(replies[0], /Telegram user is not allowed/);
+  assert.equal(replies.length, 1);
   assert.equal(continued, false);
 });
 
@@ -89,4 +92,17 @@ test("text route ignores registered commands and forwards ordinary text", async 
   await handlers.get("text")({ message: { text: "/status" } });
   await handlers.get("text")({ message: { text: " hello " } });
   assert.deepEqual(calls, ["hello"]);
+});
+
+test("unhandled forum service events do not produce unsupported-input replies", async () => {
+  const handlers = new Map(), replies = [];
+  registerTelegramMessageRoutes({
+    bot: { on(type, handler) { handlers.set(type, handler); } },
+    telegram: { replyHtml: async (_ctx, text) => replies.push(text) },
+    localization: { text: (key) => key }
+  });
+  await handlers.get("message")({ message: { forum_topic_created: { name: "Not configured" } } });
+  assert.deepEqual(replies, []);
+  await handlers.get("message")({ message: { sticker: {} } });
+  assert.deepEqual(replies, ["unsupportedMessage"]);
 });

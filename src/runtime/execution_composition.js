@@ -4,6 +4,7 @@ import { createRuntimeRecoveryController } from "../recovery/runtime_controller.
 import { createTurnRecoveryJournal } from "../recovery/turn_journal.js";
 import { createLiveProgressController } from "../ui/live_progress.js";
 import { createWorkerRuntimeController } from "../worker/runtime_controller.js";
+import { accountThreadId } from "../accounts/context.js";
 
 export function createExecutionComposition(r) {
   const journal = createTurnRecoveryJournal({
@@ -159,7 +160,10 @@ export function createExecutionComposition(r) {
     },
     lifecycle: {
       isRecoveryActive: r.isRecoveryActive,
-      isRestartScheduled: () => recoveryController?.isRestartScheduled() ?? false
+      isRestartScheduled: () => recoveryController?.isRestartScheduled() ?? false,
+      onTurnFinished: r.onTurnFinished,
+      beforeTurn: r.beforeTurn,
+      beforeDelivery: r.beforeDelivery
     },
     context: {
       applyPersonaPrompt: r.applyPersonaPrompt,
@@ -170,7 +174,8 @@ export function createExecutionComposition(r) {
     },
     codex: {
       formatTurn: progress.formatTurn,
-      getChatThreadId: (chatKey) => r.getChatState(chatKey).threadId,
+      getChatThreadId: (chatKey, accountId) => accountId
+        ? accountThreadId(r.getChatState(chatKey), accountId) : r.getChatState(chatKey).threadId,
       getOrCreateThread: r.getOrCreateThread,
       maybeNotifyContextPressure: executor.maybeNotifyContextPressure,
       rememberThread: r.rememberThread,

@@ -302,6 +302,9 @@
   "pdfUploadedPath": "本機路徑",
   "unsupportedDocument": "只支援圖片文件和 PDF 檔案。",
   "unsupportedMessage": "只支援文字訊息、圖片附件和 PDF 文件。",
+  "telegramUnauthorizedUser": "🔒 此 Telegram 使用者尚未獲准使用機器人。請聯絡管理員登記您的使用者 ID。",
+  "telegramDisallowedChat": "🔒 此聊天未開放使用機器人。請在允許的聊天中重試。",
+  "telegramDisallowedThread": "🔒 此話題未開放使用機器人。請在允許的話題中重試。",
   "completionNotice": "完成",
   "handoffNoThreadError": "沒有可用的 Codex thread 可建立 handoff。請先用 /resume 或 /new 連接 thread。",
   "handoffSessionFileNotFound": "找不到 session file：{threadId}",
@@ -324,5 +327,12 @@
   "commandStop": "停止執行中的 Codex 任務",
   "commandHelp": "顯示指令說明",
   "commandAccounts": "管理多個 Codex 帳號",
-  "commandReauth": "登入 ChatGPT／新增帳號"
+  "commandReauth": "登入 ChatGPT／新增帳號",
+  "workspaceProjects": "📁 專案",
+  "workspaceTopics": "🏷 專案話題",
+  "workspaceForumSetup": "⚙ 設定論壇群組",
+  "workspaceSessions": "🗂 工作階段",
+  "workspaceTasks": "⏰ 排程工作",
+  "workspaceDashboard": "📌 工作狀態板",
+  "workspaceMcp": "🧩 MCP 管理"
 }

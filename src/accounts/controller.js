@@ -8,6 +8,8 @@ import { consumeAccountResetCredit } from "./reset_credits.js";
 import { createResetCreditsController } from "./reset_controller.js";
 import { b, code, escapeHtml } from "../telegram/html.js";
 import { createNavigationKeyboardViews, inlineKeyboard } from "../ui/keyboard_helpers.js";
+import { telegramChatKey } from "../telegram/context.js";
+import { isTelegramServiceMessage } from "../telegram/service_messages.js";
 
 export function registerAccountCommands(r, { store = createAccountStore(r.config), signIn = signInAccount, inspect = inspectAccount, readUsage = readAccountUsage, consumeCredit = consumeAccountResetCredit, now = Date.now } = {}) {
   const pending = new Map();
@@ -16,7 +18,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
   const navigation = createNavigationKeyboardViews({ text: t });
   const keyboard = (rows) => navigation.withMenuCloseButton(inlineKeyboard(rows));
   const button = (text, data) => ({ text, callback_data: data });
-  const flowKey = (ctx) => `${ctx.chat?.id}:${ctx.from?.id}`;
+  const flowKey = (ctx) => `${telegramChatKey(ctx)}:${ctx.from?.id}`;
   const readFlow = (ctx) => r.state.accountUi?.[flowKey(ctx)];
   const menuKeyboard = () => keyboard([[button(t("menu"), "acct:list")]]);
   const resets = createResetCreditsController(r, {
@@ -86,6 +88,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
       && ["en", "ko", "zh-tw"].some((language) => reply.text?.startsWith(accountText(language, "namePrompt")));
   }
   async function handleInput(ctx, next) {
+    if (isTelegramServiceMessage(ctx.message)) return next();
     const flow = readFlow(ctx);
     const text = ctx.message?.text;
     if (text?.trimStart().startsWith("/")) {

@@ -28,6 +28,15 @@ case, Codex review and diagnosis steps skip while normal CI still runs.
 ## Telegram Safety
 
 - Keep `ALLOWED_USER_IDS` narrow.
+- Service notifications such as dashboard pins and membership changes are
+  ignored. Forum lifecycle notifications update topic state only after the
+  sender passes the normal user, chat, and topic allowlists. They never count
+  as text input to an open menu.
+- Denied user requests log the reason and numeric update/user/chat/topic IDs,
+  without message text or callback payloads. Private chats receive a localized
+  explanation; denied button clicks receive an alert. Unknown group users do
+  not trigger chat replies. A service notification, bot sender, or nested
+  message author never grants access to commands.
 - Use `/whoami` in the target chat or topic before tightening
   `ALLOWED_CHAT_IDS` or `ALLOWED_THREAD_IDS`.
 - Treat Telegram as a command surface for the machine running the bot.

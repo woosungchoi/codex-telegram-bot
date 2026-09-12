@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { telegramChatKey } from "../src/telegram/context.js";
 import {
   commandArgument,
   registerAdminCommands
@@ -79,7 +80,7 @@ function createFixture() {
     },
     telegram: {
       editOrReplyHtml: async () => {},
-      getChatKey: () => "chat",
+      getChatKey: (ctx) => ctx.chat ? telegramChatKey(ctx) : "chat",
       getCommandArgs: (ctx) => ctx.args ?? "",
       replyDocument: async () => {},
       replyHtml: async (...args) => calls.push(["reply", ...args])
@@ -115,6 +116,16 @@ test("stop command marks and aborts an active turn before clearing its queue", a
   await handlers.handleStopCommand({});
   assert.equal(abortController.signal.aborted, true);
   assert.deepEqual(calls.slice(0, 2), [["markStopped"], ["cancelWorker"]]);
+});
+
+test("stop in a forum topic leaves other topics and General running", async () => {
+  const { activeTurns, handlers } = createFixture();
+  const controllers = [new AbortController(), new AbortController(), new AbortController()];
+  for (const [i, key] of ["-100123:topic:40", "-100123:topic:41", "-100123"].entries()) {
+    activeTurns.set(key, { abortController: controllers[i] });
+  }
+  await handlers.handleStopCommand({ chat: { id: -100123, type: "supergroup" }, message: { message_thread_id: 40 } });
+  assert.deepEqual(controllers.map((c) => c.signal.aborted), [true, false, false]);
 });
 
 test("commandArgument accepts bot mentions and rejects a different command", () => {

@@ -4,6 +4,35 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+## 1.3.4 - 2026-09-13
+
+- Add Projects, Sessions, Scheduled tasks, Task dashboard and MCP servers to
+  `/menu`, with scoped input steps, cancellation, expiry and Close buttons.
+- Save and browse project presets with account/model options. Preview, resume
+  and watch account-scoped Codex sessions without starting a model turn to view them.
+- Default `/sessions` to the current project, with an All history toggle,
+  useful request titles, dates and short IDs. Preserve search and navigation;
+  keep the stored sessions and names intact.
+- Schedule prompts once, daily, weekly, monthly or at intervals with timezone
+  handling, explicit action confirmations, persistent queues and run history.
+- Add a live task dashboard and administrator MCP connection checks and toggles.
+- Add `/forum_setup`, `/topics` and `/dispatch` for project topics in forum groups
+  and private chats. Keep each topic's folder, account, session and queue separate;
+  return completion status to the requesting bot and chat/topic.
+- Support private-chat Threaded Mode with fresh capability checks, setup guidance
+  for the BotFather mini app, and pause/resume controls for topic work.
+- Ignore Telegram service notifications that previously produced false
+  `Unauthorized.` replies; localize real access-denied messages and preserve
+  user, chat and topic allowlists.
+- Expand regression coverage for menus, schedules, authorization, topic isolation,
+  session labels and recovery. Keep the existing public dependencies and CI configuration.
+
+Thank you to **artickc** and the contributors to
+[Grok Telegram Bot](https://github.com/artickc/grok-telegram-bot) for the project,
+session, scheduling, dashboard, MCP and forum workflow ideas. This release adapts
+them to Codex's App Server, account isolation and persistent execution architecture.
+See [workspace menus](docs/workspace-menus.md) and [project topics](docs/forum-topics.md).
+
 ## 1.3.3 - 2026-09-12
 
 - Add **Use Reset credit** to Accounts and Usage, with account selection,

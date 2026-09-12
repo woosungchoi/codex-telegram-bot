@@ -201,7 +201,7 @@ export function createQueueRuntimeController({
     if (activeTurns.has(chatKey) || hasPendingFinalDelivery(chatKey) || isQueuePaused(chatKey)) {
       return false;
     }
-    const runCtx = ctx ?? telegram.createSyntheticContext(chatKey);
+    const runCtx = ctx ?? telegram.createSyntheticContext(getPendingTurns(chatKey)[0] || chatKey);
     const firstTurn = await dequeuePendingTurn(chatKey, runCtx);
     if (!firstTurn) return false;
 
