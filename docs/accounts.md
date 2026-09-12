@@ -38,6 +38,11 @@ offers **Accounts**, **Add account**, and **Usage** buttons:
   **Main menu**, and **Close** provide navigation. `/usage` opens this same panel.
   These queries do not start a Codex turn or consume model-generation quota.
   Missing limits and failed queries show guidance with navigation still available.
+- The usage panel also shows **Reset credits**: the server's available count
+  and up to five credit titles/expiry times. The count remains authoritative
+  when detail rows are capped or unavailable; missing data is not shown as zero.
+  **Refresh** updates both quotas and reset credits. This panel only displays
+  credits; it does not redeem them. Credit IDs are not shown in Telegram.
 - **Add account** asks for a name. Send it as your next message, then complete
   the ChatGPT device-code sign-in. The completion message offers **Use** and
   **Accounts** buttons.
@@ -133,5 +138,5 @@ consume model quota. A real additional account requires the user's browser
 sign-in before a live two-account smoke test can be performed.
 
 References: [Codex authentication](https://learn.chatgpt.com/docs/auth),
-[App Server](https://learn.chatgpt.com/docs/app-server), and
+[App Server rate limits and reset credits](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt), and
 [Grok Telegram Bot](https://github.com/artickc/grok-telegram-bot).

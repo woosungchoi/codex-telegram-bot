@@ -12,6 +12,7 @@ export async function readAccountUsage(config, id, { connect = connectAppServer,
       account: identity,
       rateLimits: limits?.rateLimits ?? null,
       rateLimitsByLimitId: limits?.rateLimitsByLimitId ?? null,
+      rateLimitResetCredits: limits?.rateLimitResetCredits ?? null,
       checkedAt: now()
     };
   } finally { await client.close(); }
@@ -44,9 +45,30 @@ export function formatAccountUsageHtml(usage, { label, text: t, formatDateTime =
       }
     }
     if (!count) lines.push("", t("usageUnavailable"));
+    lines.push("", ...formatResetCredits(usage.rateLimitResetCredits, t, formatDateTime));
   }
   lines.push("", `${t("usageChecked")}: ${code(formatDateTime(usage.checkedAt))}`);
   return lines.join("\n");
+}
+
+function formatResetCredits(resetCredits, t, formatDateTime) {
+  const lines = [b(t("usageResetCredits"))];
+  if (!resetCredits) return [...lines, t("usageResetCreditsUnavailable")];
+  // Detail rows may be capped by the service; only availableCount is authoritative.
+  const count = Number.isInteger(resetCredits.availableCount) && resetCredits.availableCount >= 0
+    ? resetCredits.availableCount : null;
+  lines.push(`${t("usageResetAvailable")}: ${b(count ?? t("usageUnknown"))}`);
+  const credits = Array.isArray(resetCredits.credits) ? resetCredits.credits.filter(Boolean).slice(0, 5) : [];
+  for (const [index, credit] of credits.entries()) {
+    const title = typeof credit.title === "string" && credit.title.trim()
+      ? credit.title.slice(0, 80) : t("usageResetCredit");
+    const expires = Number.isFinite(credit.expiresAt) && credit.expiresAt > 0
+      ? formatDateTime(credit.expiresAt * 1000) : t("usageUnknown");
+    lines.push(`${index + 1}. ${escapeHtml(title)} · ${t("usageResetExpires")}: ${code(expires)}`);
+  }
+  if (count > credits.length) lines.push(`${t("usageResetDetails")}: ${credits.length}/${count}`);
+  if (!Array.isArray(resetCredits.credits)) lines.push(t("usageResetDetailsUnavailable"));
+  return lines;
 }
 
 function windowLabel(minutes, t) {

@@ -368,6 +368,7 @@ function usageSample(usedPercent = 52) {
   return {
     account: { type: "chatgpt", planType: "pro" },
     rateLimits: { limitId: "codex", primary: { usedPercent, windowDurationMins: 10080, resetsAt: 1789435487 } },
+    rateLimitResetCredits: { availableCount: 3, credits: [{ id: "HIDDEN_CREDIT_ID", title: "Full reset", expiresAt: 1789949489 }] },
     checkedAt: Date.parse("2026-09-12T05:59:00Z")
   };
 }
@@ -468,4 +469,19 @@ test("pending accounts offer sign-in guidance without querying their credentials
   assert.equal(queried, false);
   assert.ok(f.buttons().some((button) => button.callback_data === "acct:list"));
   assert.ok(f.buttons().some((button) => button.callback_data === "ui:close:menu"));
+});
+
+test("usage Refresh updates reset credit counts and keeps menu navigation", async (t) => {
+  let count = 3;
+  const f = await fixture(t, { readUsage: async () => ({ ...usageSample(), rateLimitResetCredits: { availableCount: count, credits: null } }) });
+  await f.send("/usage");
+  const panel = f.messages.at(-1), total = f.messages.length;
+  assert.match(panel.html, /사용 가능: <b>3<\/b>/);
+  count = 2;
+  await f.click(f.buttonData("acct:usage", panel), panel);
+  assert.match(panel.html, /사용 가능: <b>2<\/b>/);
+  assert.equal(f.messages.length, total);
+  assert.ok(f.buttons(panel).some((button) => button.callback_data === "acct:list"));
+  assert.ok(f.buttons(panel).some((button) => button.callback_data === "ui:close:menu"));
+  assert.equal(f.forwarded.length, 0);
 });

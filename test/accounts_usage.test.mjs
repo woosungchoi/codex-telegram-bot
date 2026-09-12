@@ -7,9 +7,14 @@ import { accountFixture } from "./helpers/accounts_fixture.mjs";
 
 const weekly = { usedPercent: 52, windowDurationMins: 10080, resetsAt: 1789435487 };
 const main = { limitId: "codex", primary: weekly, secondary: null };
+const resetCredits = {
+  availableCount: 3,
+  credits: [{ id: "OPAQUE_CREDIT_ID", title: "Full reset", status: "available", expiresAt: 1789949489 }]
+};
 const usage = {
   account: { type: "chatgpt", email: "person@example.com", planType: "pro" },
   rateLimits: main,
+  rateLimitResetCredits: resetCredits,
   rateLimitsByLimitId: {
     codex: main,
     codex_bengalfox: {
@@ -82,6 +87,7 @@ test("logged-out and API-key accounts do not make a ChatGPT quota request", asyn
     assert.deepEqual(calls, ["account/read"]);
     assert.equal(closed, 1);
     assert.equal(result.rateLimits, null);
+    assert.equal(result.rateLimitResetCredits, null);
     assert.match(formatAccountUsageHtml(result, options), /ChatGPT 로그인이 필요/);
   }
 });
@@ -125,4 +131,45 @@ test("usage labels follow the account menu language", () => {
     assert.ok(html.includes(expected));
     assert.doesNotMatch(html, /usage[A-Z]/);
   }
+});
+
+test("reset credits preserve the server count, render expiry in the selected timezone and omit opaque IDs", () => {
+  const html = formatAccountUsageHtml(usage, options);
+  assert.match(html, /🎟️ Reset 사용권/);
+  assert.match(html, /사용 가능: <b>3<\/b>/);
+  assert.match(html, /Full reset · 만료: <code>2026-09-21T00:11:29.000Z<\/code>/);
+  assert.match(html, /표시된 사용권 상세: 1\/3/);
+  assert.doesNotMatch(html, /OPAQUE_CREDIT_ID/);
+  const localized = formatAccountUsageHtml(usage, {
+    ...options,
+    formatDateTime: (ms) => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit" }).format(ms)
+  });
+  assert.match(localized, /만료: <code>09:11<\/code>/);
+});
+
+test("reset credits distinguish missing data, known zero and count-only responses", () => {
+  for (const rateLimitResetCredits of [null, undefined]) {
+    const html = formatAccountUsageHtml({ ...usage, rateLimitResetCredits }, options);
+    assert.match(html, /Reset 사용권 정보가 제공되지 않았습니다/);
+    assert.doesNotMatch(html, /사용 가능: <b>0/);
+  }
+  const empty = formatAccountUsageHtml({ ...usage, rateLimitResetCredits: { availableCount: 0, credits: [] } }, options);
+  assert.match(empty, /사용 가능: <b>0<\/b>/);
+  assert.doesNotMatch(empty, /사용권 정보가 제공되지|상세 정보는 제공되지/);
+  const countOnly = formatAccountUsageHtml({ ...usage, rateLimitResetCredits: { availableCount: 3, credits: null } }, options);
+  assert.match(countOnly, /사용 가능: <b>3<\/b>/);
+  assert.match(countOnly, /사용권별 상세 정보는 제공되지/);
+  const noCount = formatAccountUsageHtml({ ...usage, rateLimitResetCredits: { credits: [] } }, options);
+  assert.match(noCount, /사용 가능: <b>정보 없음<\/b>/);
+});
+
+test("reset credit details escape titles and bound message size without changing the available count", () => {
+  const credits = Array.from({ length: 30 }, () => ({ id: "HIDDEN_CREDIT_ID", title: "<Full & reset>".repeat(20), expiresAt: null }));
+  const html = formatAccountUsageHtml({ ...usage, rateLimitResetCredits: { availableCount: 30, credits } }, options);
+  assert.match(html, /사용 가능: <b>30<\/b>/);
+  assert.match(html, /표시된 사용권 상세: 5\/30/);
+  assert.match(html, /&lt;Full &amp; reset&gt;/);
+  assert.equal((html.match(/만료: <code>정보 없음/g) || []).length, 5);
+  assert.doesNotMatch(html, /HIDDEN_CREDIT_ID|1970|NaN/);
+  assert.ok(html.length < 3500);
 });
