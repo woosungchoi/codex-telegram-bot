@@ -5,6 +5,12 @@ flow. `/accounts` manages named sign-ins and optional automatic failover.
 This integration was verified against Codex CLI 0.153.4 and SDK 0.151.0.
 The CLI must support App Server `account/login/start` with `chatgptDeviceCode`.
 
+Introduced in **1.3.0**, these features were inspired by **artickc**'s
+[Grok Telegram Bot](https://github.com/artickc/grok-telegram-bot), especially
+its chat sign-in, multiple-account management, and auto-rotate design.
+Thank you for the inspiration; this integration adapts those ideas to Codex's
+device-code login and isolated account homes.
+
 ## Commands
 
 | Command | Behavior |

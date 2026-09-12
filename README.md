@@ -25,13 +25,18 @@
 ## What It Does
 
 - Sign in to ChatGPT from chat with `/reauth`, manage named accounts with `/accounts`, and opt into account rotation after terminal quota/authentication failures. See [account setup and behavior](docs/accounts.md).
-
 - Runs Codex turns from Telegram text, replies, photos, and image documents.
 - Queues messages while Codex is busy, with safe, interrupt, and side-thread modes.
 - Provides inline settings for model, reasoning, sandbox, approval, web, language, time zone, locale, and runtime overrides.
 - Sends short progress updates without streaming raw command logs or reasoning text.
 - Recovers interrupted streamed turns by checking Codex session logs before retrying work.
 - Adds backup-first cleanup and local maintenance tools inspired by keep-codex-fast.
+
+The chat sign-in, multiple-account management, and automatic account rotation
+introduced in **1.3.0** were inspired by
+[Grok Telegram Bot](https://github.com/artickc/grok-telegram-bot) by **artickc**.
+We were impressed by its design and adapted these ideas for Codex. Thank you
+for the inspiration!
 
 ## Screenshots
 

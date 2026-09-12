@@ -25,13 +25,17 @@
 ## 주요 기능
 
 - `/reauth`로 ChatGPT에 로그인하고 `/accounts`에서 여러 계정을 관리합니다. 최종 사용량·인증 오류 때 계정을 자동 전환하도록 설정할 수 있습니다. [계정 설정과 동작](docs/accounts.md)을 참고하세요.
-
 - Telegram 텍스트, reply, 사진, 이미지 문서를 Codex turn으로 실행합니다.
 - Codex가 작업 중일 때 메시지를 queue에 저장하고, safe, interrupt, side-thread mode로 처리합니다.
 - model, reasoning, sandbox, approval, web, language, time zone, locale, runtime override를 inline 버튼으로 설정합니다.
 - raw command log나 reasoning text를 노출하지 않고 짧은 진행 알림을 보냅니다.
 - 끊긴 streamed turn은 다시 실행하기 전에 Codex session log를 확인해 완료 답변을 회수합니다.
 - keep-codex-fast에서 영감을 받은 backup-first cleanup과 로컬 유지보수 도구를 제공합니다.
+
+**1.3.0**의 채팅 로그인, 다중 계정 관리, 자동 계정 전환 기능은
+**artickc**님의 [Grok Telegram Bot](https://github.com/artickc/grok-telegram-bot)
+설계에 감명받아 구현했습니다. 이 프로젝트에서 얻은 아이디어를 Codex에 맞게
+적용했으며, 좋은 영감을 주신 데 감사드립니다!
 
 안전한 로컬 상태 유지보수 도구는
 [keep-codex-fast](https://github.com/vibeforge1111/keep-codex-fast)에서 영감을 받았습니다.
