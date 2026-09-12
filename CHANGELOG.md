@@ -4,6 +4,12 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+- Include automatic context-compaction notices in temporary progress cleanup.
+- Persist progress message IDs per logical turn and restore them after bot or
+  worker restarts, including completed-result replay and session-log backfill.
+- Keep failed deletions for retry during recovery; preserve per-chat deletion
+  policies and isolate cleanup from other turns, topics, and final answers.
+
 ## 1.3.0 - 2026-09-12
 
 This release adds chat sign-in, isolated accounts, bounded automatic account

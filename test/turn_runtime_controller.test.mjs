@@ -222,6 +222,8 @@ test("prepared inline turns preserve recovery and final-delivery ordering", asyn
   assert.ok(names.indexOf("reply-started") < names.indexOf("answer"));
   assert.ok(names.indexOf("answer") < names.indexOf("reply-completed"));
   assert.ok(names.indexOf("reply-completed") < names.indexOf("active-completed"));
+  assert.ok(names.indexOf("delete-progress") < names.indexOf("active-completed"));
+  assert.equal(calls.find(([name]) => name === "context-pressure")[4], calls.find(([name]) => name === "delete-progress")[2]);
   assert.equal(calls.find(([name]) => name === "answer")[1], "answer");
   assert.equal(calls.filter(([name]) => name === "delete-progress").length, 1);
   assert.deepEqual(calls.filter(([name]) => name === "react").at(-1).slice(1), [

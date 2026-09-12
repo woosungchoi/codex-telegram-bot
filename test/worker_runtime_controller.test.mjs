@@ -133,6 +133,7 @@ test("worker payload captures effective chat options and Telegram routing", () =
 
   assert.deepEqual(payload, {
     id: "generated-id",
+    progressTurnId: "generated-id",
     chatKey: "chat:44",
     chatId: -1001,
     chatType: "supergroup",
@@ -311,6 +312,8 @@ test("sidecar turn continues in the same thread after the worker restarts", asyn
   assert.equal(result.turn.finalResponse, "final answer");
   assert.equal(starts.length, 2);
   assert.equal(starts[1][1].kind, "recovery");
+  assert.equal(starts[0][1].progressTurnId, "turn-1");
+  assert.equal(starts[1][1].progressTurnId, "turn-1");
   assert.equal(starts[1][1].threadId, "thread-existing");
   assert.deepEqual(starts[1][1].imagePaths, []);
   assert.match(starts[1][1].inputText, /codex-telegram-worker restarted/i);

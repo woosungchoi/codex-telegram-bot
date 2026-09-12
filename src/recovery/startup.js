@@ -181,6 +181,7 @@ export function createRecoveryTurn(candidate, options = {}) {
     originMessageId: candidate.originMessageId,
     originUpdateId: candidate.originUpdateId,
     kind: "recovery",
+    progressTurnId: candidate.progressTurnId || candidate.queueItemId || "",
     recovery: {
       chatKey: candidate.chatKey,
       restartId: options.restartId || "",

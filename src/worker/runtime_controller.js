@@ -1,3 +1,4 @@
+import { progressTurnId } from "../telegram/progress_store.js";
 import {
   applyCodexStreamEvent,
   codexStreamItems,
@@ -46,8 +47,10 @@ export function createWorkerRuntimeController({
     const chat = chatStore.get(chatKey);
     const effectiveOptions = chatStore.getEffectiveOptions(chatKey);
     const accountId = preparedTurn.accountId || preparedTurn.recovery?.accountId || selectedAccountId(chat);
+    const id = preparedTurn.id || turn.createQueueItemId();
     return {
-      id: preparedTurn.id || turn.createQueueItemId(),
+      id,
+      progressTurnId: progressTurnId(preparedTurn) || id,
       chatKey,
       chatId: preparedTurn.chatId ?? chatKey,
       chatType: preparedTurn.chatType,
@@ -86,7 +89,7 @@ export function createWorkerRuntimeController({
     );
     const initialJob = createWorkerJobPayload(chatKey, preparedTurn);
     try {
-      await turn.maybeNotifyContextPressure(ctx, chatKey, { id: initialJob.threadId });
+      await turn.maybeNotifyContextPressure(ctx, chatKey, { id: initialJob.threadId }, liveProgress);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.warn("worker context pressure check failed; continuing with job:", message);
@@ -172,6 +175,7 @@ export function createWorkerRuntimeController({
       originMessageId: preparedTurn.originMessageId,
       originUpdateId: preparedTurn.originUpdateId,
       queueItemId: priorRecovery.queueItemId || preparedTurn.id || workerJobId,
+      progressTurnId: progressTurnId(preparedTurn),
       threadId,
       reason: WORKER_RESTART_FAILURE_REASON,
       attempt,
@@ -422,6 +426,7 @@ export function createWorkerRuntimeController({
     if (!settings.recoveryEnabled) return;
     await recovery.write(async () => {
       await upsertActiveTurnSnapshot(settings.recoveryDir, chatKey, {
+        progressTurnId: job.progressTurnId || job.id || "",
         threadId: job.threadId || "",
         accountId: job.accountId || "default",
         accountAttemptState: chat.accountAttemptState,

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { progressTurnId } from "../telegram/progress_store.js";
 import { STREAM_IDLE_TIMEOUT_MESSAGE } from "../codex/watchdog.js";
 import { b } from "../telegram/html.js";
 import { appendRecoveryJournal, summarizeStreamEvent } from "./journal.js";
@@ -51,6 +52,7 @@ export function createTurnRecoveryJournal({
       originMessageId: turn.originMessageId,
       originUpdateId: turn.originUpdateId,
       queueItemId: turn.id || "",
+      progressTurnId: progressTurnId(turn),
       accountId: turn.recovery?.accountId || chats.get(chatKey).accountId || "default",
       accountAttemptState: turn.recovery?.accountAttemptState || {},
       threadId: chats.get(chatKey).threadId || "",

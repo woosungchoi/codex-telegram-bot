@@ -43,6 +43,7 @@ import {
 } from "./telegram/api.js";
 import { createTelegramRuntimeContext } from "./telegram/runtime_context.js";
 import { createTelegramRuntimeResponder } from "./telegram/runtime_responder.js";
+import { loadProgressMessageStore } from "./telegram/progress_store.js";
 import { createTelegramCommandMenu } from "./telegram/command_menu.js";
 import { createRuntimeStatusSupport } from "./status/runtime_status.js";
 import {
@@ -162,6 +163,9 @@ let adminCommandHandlers = null;
 let codexSessionRuntime = null;
 let modelPresenter = null;
 let executionRuntime = null;
+const progressMessageStore = await loadProgressMessageStore(
+  path.join(config.botRecoveryDir, "telegram-progress.json")
+);
 const {
   answerUiCallback,
   deleteTrackedProgressMessages,
@@ -174,9 +178,11 @@ const {
   replyDocumentQuietly,
   replyHtml,
   replyTrackedProgressHtml,
+  retryPendingProgressCleanup,
   sendHtmlMessage
 } = createTelegramRuntimeResponder({
   bot,
+  progressStore: progressMessageStore,
   settings: {
     runtimeValue
   },
@@ -1077,6 +1083,8 @@ executionRuntime = createExecutionComposition({
   redactText,
   getChatKey,
   replyTrackedProgressHtml,
+  progressMessageStore,
+  retryPendingProgressCleanup,
   replyHtml,
   editMessageQuietly,
   readLatestTokenCount,

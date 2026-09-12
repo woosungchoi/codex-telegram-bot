@@ -316,7 +316,7 @@ export function createCodexRuntimeExecutor({
     return null;
   }
 
-  async function maybeNotifyContextPressure(ctx, chatKey, thread) {
+  async function maybeNotifyContextPressure(ctx, chatKey, thread, liveProgress = null) {
     if (!settings.contextGuardEnabled) return;
     const threadId = thread?.id || chats.get(chatKey).threadId;
     if (!threadId) return;
@@ -331,7 +331,7 @@ export function createCodexRuntimeExecutor({
     if (!overPercent && !lowRemaining) return;
 
     const autoLimit = resolveAutoCompactTokenLimit(settings.config);
-    await telegram.replyHtml(ctx, formatting.keyValue(t("contextCompactContinueTitle"), [
+    const html = formatting.keyValue(t("contextCompactContinueTitle"), [
       [
         t("contextUsage"),
         `${Math.round(pressure.percent)}% (${pressure.inputTokens}/${pressure.modelContextWindow})`
@@ -339,7 +339,9 @@ export function createCodexRuntimeExecutor({
       [t("contextRemaining"), pressure.remainingTokens],
       [t("contextAutoCompact"), autoLimit > 0 ? autoLimit : t("contextAutoCompactDefault")],
       [t("contextAction"), t("contextCompactContinueAction")]
-    ]));
+    ]);
+    if (liveProgress) await telegram.replyTracked(ctx, liveProgress, html);
+    else await telegram.replyHtml(ctx, html);
   }
 
   return {

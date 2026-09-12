@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createCodexRuntimeExecutor } from "../src/codex/runtime_executor.js";
+import { createTelegramRuntimeResponder } from "../src/telegram/runtime_responder.js";
 
-function createFixture({ streamEvents = true } = {}) {
+function createFixture({ streamEvents = true, contextGuardEnabled = false, telegram = {}, usageSample = null } = {}) {
   const chat = {};
   const recorded = [];
   let clock = 1000;
@@ -18,8 +19,8 @@ function createFixture({ streamEvents = true } = {}) {
       codexPath: "codex",
       codexEnv: {},
       sessionsDir: "/tmp/unused",
-      contextGuardEnabled: false,
-      contextCompactThresholdPercent: 0,
+      contextGuardEnabled,
+      contextCompactThresholdPercent: 80,
       contextMinRemainingTokens: 0,
       config: {}
     },
@@ -52,15 +53,36 @@ function createFixture({ streamEvents = true } = {}) {
       maybeSend: async () => {},
       summarize: () => "progress"
     },
-    usage: { readLatestTokenCount: async () => null },
-    telegram: { replyHtml: async () => {} },
-    formatting: { keyValue: () => "", truncate: (value) => value },
+    usage: { readLatestTokenCount: async () => usageSample },
+    telegram: { replyHtml: async () => {}, ...telegram },
+    formatting: { keyValue: (title) => title, truncate: (value) => value },
     text: (key) => key,
     sleep: async () => {},
     now: () => { clock += 10; return clock; }
   });
   return { executor, chat, recorded };
 }
+
+test("automatic compact notice is tracked for deletion without deleting the final answer", async () => {
+  const deleted = [];
+  let messageId = 10;
+  const ctx = {
+    chat: { id: 42 }, reply: async () => ({ message_id: ++messageId }),
+    telegram: { deleteMessage: async (...args) => deleted.push(args) }
+  };
+  const responder = createTelegramRuntimeResponder({ bot: {}, settings: {}, localization: {} });
+  const { executor } = createFixture({
+    contextGuardEnabled: true,
+    usageSample: { tokenCount: { info: { input_tokens: 900, model_context_window: 1000 } } },
+    telegram: { replyTracked: responder.replyTrackedProgressHtml }
+  });
+  const progress = { messageRefs: [] };
+  await executor.maybeNotifyContextPressure(ctx, "42", { id: "thread" }, progress);
+  await responder.replyHtml(ctx, "Final answer");
+  assert.equal(messageId, 12);
+  await responder.deleteTrackedProgressMessages(ctx, progress);
+  assert.deepEqual(deleted, [[42, 11]]);
+});
 
 test("non-stream Codex turns delegate once with a linked abort signal", async () => {
   const { executor } = createFixture({ streamEvents: false });

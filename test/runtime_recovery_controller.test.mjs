@@ -9,16 +9,19 @@ import {
   createWorkerRecoveryTurn,
   isWorkerCancelledMessage
 } from "../src/recovery/runtime_controller.js";
-import {
-  readActiveTurnSnapshots,
-  replaceActiveTurnSnapshot
-} from "../src/recovery/state.js";
+import { readActiveTurnSnapshots, replaceActiveTurnSnapshot } from "../src/recovery/state.js";
+import { loadProgressMessageStore } from "../src/telegram/progress_store.js";
+import { createTelegramRuntimeResponder } from "../src/telegram/runtime_responder.js";
+import { createLiveProgressController } from "../src/ui/live_progress.js";
+import { workerDeliveryKey } from "../src/worker/delivery.js";
 
 async function createHarness(t, {
   enabled = true,
   workerEnabled = false,
   workerJob = null,
-  workerResult = null
+  workerResult = null,
+  workerEvents = [],
+  turnOverrides = {}
 } = {}) {
   const recoveryDir = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-recovery-"));
   t.after(() => fs.rm(recoveryDir, { recursive: true, force: true }));
@@ -71,7 +74,8 @@ async function createHarness(t, {
         status: async () => {
           throw new Error("worker unavailable");
         },
-        getJobStatus: async () => ({ job: workerJob })
+        getJobStatus: async () => ({ job: workerJob }),
+        readJobEvents: async () => ({ events: workerEvents })
       }),
       waitForJob: async () => {
         if (workerResult) return workerResult;
@@ -96,7 +100,8 @@ async function createHarness(t, {
       recordTelegramReplyReady: async () => deliveryTransitions.push("ready"),
       recordTelegramReplyStarted: async () => deliveryTransitions.push("started"),
       shouldDeleteLiveProgress: () => false,
-      tryBackfillCompletedStream: async () => false
+      tryBackfillCompletedStream: async () => false,
+      ...turnOverrides
     },
     telegram: {
       notifyExtra: () => ({}),
@@ -125,6 +130,7 @@ async function createHarness(t, {
     answerReplies,
     completed,
     controller,
+    deliveries,
     deliveryTransitions,
     drains,
     events,
@@ -348,3 +354,68 @@ test("startup recovery does not override an explicit user stop after a worker re
   assert.equal(snapshots.turns["chat-1"].workerJobId, "job-stopped");
   assert.equal(snapshots.turns["chat-1"].recoveryReason, "user_stop");
 });
+
+for (const mode of ["running", "completed", "already_sent", "backfill"]) {
+  test(`restart cleanup removes persisted progress after ${mode} recovery`, async (t) => {
+    const deleted = [];
+    const ctx = { chat: { id: 42 }, telegram: { deleteMessage: async (...args) => deleted.push(args) } };
+    let live, responder;
+    const job = {
+      id: "new-worker-job", chatKey: "42", chatId: 42, progressTurnId: "original-turn",
+      status: mode === "running" ? "running" : "completed", threadId: "thread", lastSeq: 3
+    };
+    const harness = await createHarness(t, {
+      workerEnabled: mode !== "backfill", workerJob: job,
+      workerResult: { turn: { finalResponse: "recovered answer" }, threadId: "thread" },
+      workerEvents: [
+        { seq: 1, type: "item.completed", item: { id: "answer", type: "agent_message", text: "recovered answer" } },
+        { seq: 2, type: "turn.completed" },
+        { seq: 3, type: "worker.job.completed", status: "completed", threadId: "thread" }
+      ],
+      turnOverrides: {
+        createLiveProgressState: (...args) => live.createLiveProgressState(...args),
+        createSyntheticCtx: () => ctx,
+        deleteTrackedProgressMessages: (...args) => responder.deleteTrackedProgressMessages(...args),
+        shouldDeleteLiveProgress: (...args) => live.shouldDeleteLiveProgress(...args),
+        formatTurn: (turn) => turn.finalResponse,
+        tryBackfillCompletedStream: async (_chat, _thread, state) => {
+          state.finalResponse = "recovered answer";
+          return mode === "backfill";
+        }
+      }
+    });
+    const file = path.join(harness.recoveryDir, "progress.json");
+    const priorStore = await loadProgressMessageStore(file);
+    const priorProgress = { chatKey: "42", progressTurnId: "original-turn" };
+    await priorStore.track(priorProgress, { chatId: 42, messageId: 101 });
+    // Reopen the store to exercise actual disk recovery instead of shared RAM.
+    const store = await loadProgressMessageStore(file);
+    live = createLiveProgressController({
+      progressStore: store, options: { get: () => ({ liveProgressDeletePolicy: "always" }) }
+    });
+    responder = createTelegramRuntimeResponder({ progressStore: store, bot: { telegram: ctx.telegram } });
+    if (mode !== "already_sent") {
+      await replaceActiveTurnSnapshot(harness.recoveryDir, "42", {
+        chatId: 42, queueItemId: "new-worker-job", progressTurnId: "original-turn",
+        recoveryEligible: true, threadId: "thread", startedAt: new Date().toISOString(),
+        ...(mode !== "backfill" ? { workerJobId: job.id } : {})
+      });
+    }
+    if (mode === "completed" || mode === "already_sent") {
+      harness.deliveries[workerDeliveryKey("42", job.id)] = {
+        chatKey: "42", jobId: job.id, seq: 3,
+        deliveryStatus: mode === "completed" ? "result_ready" : "delivery_sent",
+        updatedAt: new Date().toISOString()
+      };
+    }
+    if (mode === "backfill") await harness.controller.scheduleStartupRecovery({ source: "test" });
+    else await harness.controller.recoverActiveWorkerJobs({ source: "test" });
+    for (let index = 0; index < 100 && harness.activeTurns.size; index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.deepEqual(deleted, [[42, 101]]);
+    assert.deepEqual((await loadProgressMessageStore(file)).getRefs(priorProgress), []);
+    assert.equal(harness.answerReplies.length, mode === "already_sent" ? 0 : 1);
+    assert.equal(harness.activeTurns.size, 0);
+  });
+}

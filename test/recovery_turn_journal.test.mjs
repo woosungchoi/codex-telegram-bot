@@ -6,6 +6,8 @@ import path from "node:path";
 import { createTurnRecoveryJournal, digestText } from "../src/recovery/turn_journal.js";
 import { readActiveTurnSnapshots } from "../src/recovery/state.js";
 import { applyAccountEvent, rememberAccountThread } from "../src/accounts/context.js";
+import { recoveryCandidateFromSnapshot } from "../src/recovery/state.js";
+import { createRecoveryTurn } from "../src/recovery/startup.js";
 
 function createFixture({ enabled = false, recoveryDir = "/tmp/unused-recovery-journal", chat = {} } = {}) {
   const state = { worker: { deliveries: {} } };
@@ -37,6 +39,20 @@ test("disabled recovery journal leaves snapshots untouched", async () => {
   await journal.recordActiveTurnFailed("chat", "failed");
   assert.deepEqual(state.worker.deliveries, {});
   assert.equal(saves(), 0);
+});
+
+test("the original progress identity survives repeated recovery snapshots", async (t) => {
+  const recoveryDir = await fs.mkdtemp(path.join(os.tmpdir(), "progress-recovery-"));
+  t.after(() => fs.rm(recoveryDir, { recursive: true, force: true }));
+  const { journal } = createFixture({ enabled: true, recoveryDir });
+  await journal.recordActiveTurnStarted("chat", { id: "original-turn", text: "hello" });
+  for (const restartId of ["bot-restart", "worker-restart"]) {
+    const snapshot = (await readActiveTurnSnapshots(recoveryDir)).turns.chat;
+    assert.equal(snapshot.progressTurnId, "original-turn");
+    const recoveryTurn = createRecoveryTurn(recoveryCandidateFromSnapshot({ ...snapshot, recoveryEligible: true }), { restartId });
+    await journal.recordActiveTurnStarted("chat", recoveryTurn);
+  }
+  assert.equal((await readActiveTurnSnapshots(recoveryDir)).turns.chat.progressTurnId, "original-turn");
 });
 
 test("account rotation and prior activity survive recovery snapshot writes", async (t) => {

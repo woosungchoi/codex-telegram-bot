@@ -120,6 +120,7 @@ chat/thread metadata, queue, upload, recovery 기록, backup이 포함될 수 �
 - `TELEGRAM_LIVE_PROGRESS_MODE`: 진행 알림 문구 모드, 기본값 `brief`; legacy `korean-brief`도 계속 허용됩니다.
 - `TELEGRAM_LIVE_PROGRESS_SOURCE`: `agent`, `activity`, `both`; Codex comment, tool/file activity, 또는 둘 다 사용할지 선택, 기본값 `agent`
 - `TELEGRAM_LIVE_PROGRESS_DELETE_POLICY`: `always`, `on_success`, `never`; 임시 진행 메시지를 언제 삭제할지 선택, 기본값 `on_success`
+
 - `CLEANUP_ENABLED`: 매일 Codex thread cleanup 실행 여부, 기본값 `true`
 - `CLEANUP_EXECUTION_MODE`: `manual`, `quarantine`, `delete`, `both` 중 선택. 자동 모드는 매일 실행 후 결과만 보고하며 기본값은 `manual`
 - `CLEANUP_NOTIFY_TIME`: `TELEGRAM_TIME_ZONE` 기준 cleanup 실행 시간, 기본값 `09:00`
@@ -204,6 +205,13 @@ Codex 하위 프로세스와 외부 도구의 프록시 동작은 각 도구의 
 Node 26에서 멈출 수 있습니다. 해당 상위 라이브러리 호환성 문제가 해결되기
 전까지 파일 업로드에는 Node 24 LTS를 사용하세요. 프록시 API·다운로드 테스트는
 Node 26에서도 실행하며, 영향을 받는 멀티파트 통합 테스트만 건너뛰도록 명시했습니다.
+
+자동 Context compact 알림에도 같은 삭제 설정이 적용됩니다. 삭제 대상 메시지 ID는
+`BOT_RECOVERY_DIR/telegram-progress.json`에 턴별로 저장하며, bot·worker 재시작 후
+복구된 턴이 끝나면 기존 진행 메시지도 정리합니다. 일시적인 삭제 실패는 다음 복구
+또는 시작 시 다시 시도합니다. 패치 이전에 저장되지 않은 메시지 ID는 복구할 수 없으며,
+[Telegram API](https://core.telegram.org/bots/api#deletemessage)는 전송 후 48시간이 지난
+메시지의 삭제를 제한합니다.
 
 ## Codex Worker, Transport, Recovery
 
