@@ -20,6 +20,8 @@ import {
   registerTelegramMiddleware
 } from "../telegram/message_router.js";
 
+import { registerAccountCommands } from "../accounts/controller.js";
+
 export function registerRuntimeRoutes(r) {
   registerTelegramMiddleware({
     bot: r.bot,
@@ -31,6 +33,7 @@ export function registerRuntimeRoutes(r) {
     }
   });
 
+  if (r.config.codexAccountsDir) registerAccountCommands(r);
   const chatCommandHandlers = registerChatCommands({
     bot: r.bot,
     settings: {

@@ -69,6 +69,8 @@ test("readConfig preserves the complete flat default contract", () => {
     stateFile: "/app/state/threads.json",
     codexHome: "/home/tester/.codex",
     codexSessionsDir: "/home/tester/.codex/sessions",
+    codexAccountsDir: "/app/state/accounts",
+    codexAccountAdminUserIds: ["42"],
     codexMaintenanceScript: "/app/scripts/codex_maintenance.py",
     codexMaintenanceBackupDir: "/app/state/codex-maintenance",
     codexMaintenanceWorktreeDays: 7,

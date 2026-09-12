@@ -318,5 +318,7 @@
   "commandTools": "진단과 백업 도구 열기",
   "commandSkills": "사용 가능한 Codex 스킬 보기",
   "commandStop": "실행 중인 Codex 작업 중단",
-  "commandHelp": "명령어 도움말"
+  "commandHelp": "명령어 도움말",
+  "commandAccounts": "여러 Codex 계정 관리",
+  "commandReauth": "ChatGPT 로그인·계정 추가"
 }

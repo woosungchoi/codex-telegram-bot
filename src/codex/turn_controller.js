@@ -317,9 +317,10 @@ export function createTurnRuntimeController({
     active.lastProgressAt = "";
     active.currentPreparedTurn = preparedTurn;
     active.recoveryEligible = true;
-    const liveProgress = progress.createState(active);
+    const liveProgress = progress.createState(active, chatKey);
     liveProgress.chatKey = chatKey;
     let deliveryCompleted = false;
+    let completedThreadId = "";
     await recovery.restoreThreadForTurn(chatKey, preparedTurn);
     await recovery.recordActiveTurnStarted(chatKey, preparedTurn);
     await telegram.reactQuietly(ctx, settings.thinkingReaction);
@@ -384,16 +385,14 @@ export function createTurnRuntimeController({
         return;
       }
 
-      await recovery.recordActiveTurnCompleted(
-        chatKey,
-        execution.threadId || codex.getChatThreadId(chatKey) || ""
-      );
+      completedThreadId = execution.threadId || codex.getChatThreadId(chatKey) || "";
       deliveryCompleted = true;
       finalReaction = settings.completeReaction;
     } finally {
       if (progress.shouldDelete(liveProgress, deliveryCompleted)) {
         await progress.deleteMessages(ctx, liveProgress);
       }
+      if (deliveryCompleted) await recovery.recordActiveTurnCompleted(chatKey, completedThreadId);
       timers.clearInterval(typingInterval);
       await telegram.reactQuietly(
         ctx,
@@ -405,8 +404,8 @@ export function createTurnRuntimeController({
 
   async function processPreparedTurnInline(ctx, chatKey, preparedTurn, active, liveProgress) {
     const input = buildInput(preparedTurn.inputText, preparedTurn.imagePaths);
-    const thread = codex.getOrCreateThread(chatKey);
-    await codex.maybeNotifyContextPressure(ctx, chatKey, thread);
+    const thread = codex.getOrCreateThread(chatKey, preparedTurn.recovery);
+    await codex.maybeNotifyContextPressure(ctx, chatKey, thread, liveProgress);
     const turn = await codex.runTurn(
       ctx,
       chatKey,

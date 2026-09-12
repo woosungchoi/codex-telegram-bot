@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { progressTurnId } from "../telegram/progress_store.js";
 import { STREAM_IDLE_TIMEOUT_MESSAGE } from "../codex/watchdog.js";
 import { b } from "../telegram/html.js";
 import { appendRecoveryJournal, summarizeStreamEvent } from "./journal.js";
@@ -51,6 +52,9 @@ export function createTurnRecoveryJournal({
       originMessageId: turn.originMessageId,
       originUpdateId: turn.originUpdateId,
       queueItemId: turn.id || "",
+      progressTurnId: progressTurnId(turn),
+      accountId: turn.recovery?.accountId || chats.get(chatKey).accountId || "default",
+      accountAttemptState: turn.recovery?.accountAttemptState || {},
       threadId: chats.get(chatKey).threadId || "",
       inputTextDigest: digestText(turn.inputText || turn.text || ""),
       inputPreview: formatting.truncate(
@@ -82,10 +86,28 @@ export function createTurnRecoveryJournal({
     await safeRecoveryWrite(async () => {
       await updateSnapshot(chatKey, {
         lastKnownStatus: "thread_started",
+        ...accountState(chatKey),
         threadId
       });
       await appendRecoveryEvent({ type: "thread_started", chatKey, threadId });
     });
+  }
+
+  function accountState(chatKey) {
+    const chat = chats.get(chatKey);
+    const attempt = chat.accountAttemptState;
+    return {
+      accountId: attempt?.accountId || chat.threadAccountId || chat.accountId || "default",
+      accountAttemptState: attempt || {}
+    };
+  }
+
+  async function recordAccountState(chatKey, event) {
+    if (!settings.enabled) return;
+    await safeRecoveryWrite(() => updateSnapshot(chatKey, {
+      ...accountState(chatKey),
+      ...(event?.type === "account.attempt.started" ? { threadId: event.threadId || "" } : {})
+    }));
   }
 
   async function recordStreamItemEvent(chatKey, event, update = {}) {
@@ -94,6 +116,7 @@ export function createTurnRecoveryJournal({
     const completed = update.eventType === "item.completed" || event.type === "item.completed";
     await safeRecoveryWrite(async () => {
       await updateSnapshot(chatKey, {
+        ...accountState(chatKey),
         lastCompletedItemType: completed ? summary.itemType : undefined,
         lastCompletedItemId: completed ? summary.itemId : undefined,
         lastKnownStatus: summary.eventType || event.type || "unknown"
@@ -334,6 +357,7 @@ export function createTurnRecoveryJournal({
     recordActiveTurnCompleted,
     recordActiveTurnFailed,
     recordActiveTurnStarted,
+    recordAccountState,
     recordCodexStreamBackfill,
     recordCodexStreamFinalResponseSeen,
     recordCodexStreamFirstItem,

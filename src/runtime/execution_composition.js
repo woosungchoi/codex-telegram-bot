@@ -25,6 +25,7 @@ export function createExecutionComposition(r) {
   });
 
   const progress = createLiveProgressController({
+    progressStore: r.progressMessageStore,
     settings: { runtimeValue: r.runtimeValue },
     options: { get: r.getEffectiveOptions, defaults: r.defaultChatOptions },
     telegram: {
@@ -69,6 +70,7 @@ export function createExecutionComposition(r) {
       recordIdleTimeout: journal.recordStreamIdleTimeout,
       recordIteratorClosed: journal.recordCodexStreamIteratorClosed,
       recordStreamItem: journal.recordStreamItemEvent,
+      recordAccountState: journal.recordAccountState,
       recordStreamStarted: journal.recordCodexStreamStarted,
       recordThreadStarted: journal.recordThreadStarted,
       recordUnknownEvent: journal.recordCodexStreamUnknownEvent
@@ -79,7 +81,7 @@ export function createExecutionComposition(r) {
       summarize: progress.summarizeProgress
     },
     usage: { readLatestTokenCount: r.readLatestTokenCount },
-    telegram: { replyHtml: r.replyHtml },
+    telegram: { replyHtml: r.replyHtml, replyTracked: r.replyTrackedProgressHtml },
     formatting: { keyValue: r.formatKeyValueHtml, truncate: r.truncate },
     text: r.text,
     sleep: r.sleep
@@ -114,6 +116,7 @@ export function createExecutionComposition(r) {
     },
     turn: {
       createQueueItemId: r.createQueueItemId,
+      notifyAccountRotation: (ctx, label) => r.replyHtml(ctx, r.formatKeyValueHtml("🔁 Codex account", [["Account", label]])),
       maybeNotifyContextPressure: executor.maybeNotifyContextPressure,
       maybeSendLiveProgress: progress.maybeSendLiveProgress,
       recordActiveTurnFailed: journal.recordActiveTurnFailed,
@@ -250,6 +253,7 @@ export function createExecutionComposition(r) {
       appendRecoveryEvent: journal.appendRecoveryEvent,
       createCodexThread: r.createCodexThread,
       createLiveProgressState: progress.createLiveProgressState,
+      retryPendingProgressCleanup: r.retryPendingProgressCleanup,
       createSyntheticCtx: r.createSyntheticCtx,
       deleteTrackedProgressMessages: r.deleteTrackedProgressMessages,
       digestText: journal.digestText,

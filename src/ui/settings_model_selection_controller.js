@@ -23,7 +23,7 @@ export function createSettingsModelSelectionController({
     const chatKey = chat.keyFromContext(ctx);
     if (await chat.rejectIfActive(ctx, chatKey)) return;
 
-    const catalog = await models.list();
+    const catalog = await models.list(chatKey);
     const modelKeyboard = views.settingsSelectionKeyboard(modelSelectionKeyboard(catalog), "settings");
     if (model !== "default" && !catalog.some((candidate) => candidate.slug === model)) {
       await telegram.editOrReplyHtml(
@@ -80,7 +80,7 @@ export function createSettingsModelSelectionController({
     if (await chat.rejectIfActive(ctx, chatKey)) return;
     const continueToFast = options?.continueToFast === true;
 
-    const catalog = await models.list();
+    const catalog = await models.list(chatKey);
     const effectiveModel = chat.effectiveModelSlug(chatKey);
     const reasoningOptions = reasoningOptionsForModel(catalog, effectiveModel);
     const reasoningButtons = views.settingsSelectionKeyboard(

@@ -69,6 +69,7 @@ export function createRuntimeRecoveryController({
   });
 
   async function startRecoveryScheduler() {
+    await turn.retryPendingProgressCleanup?.();
     if (!settings.enabled) return;
     await ensureRecoveryDir(settings.recoveryDir);
     if (worker.enabled()) await workerRecovery.checkWorkerStartupStatus();
@@ -133,6 +134,7 @@ export function createRuntimeRecoveryController({
     startupRecoveryRunning = true;
     let started = 0;
     try {
+      if (source !== "startup") await turn.retryPendingProgressCleanup?.();
       if (worker.enabled()) {
         started += await workerRecovery.recoverActiveWorkerJobs({
           source,
@@ -283,6 +285,11 @@ export function createRuntimeRecoveryController({
         error: { ...delivery.errorSummary, ambiguous: delivery.requestStarted }
       });
       return true;
+    }
+    const liveProgress = turn.createLiveProgressState({ currentPreparedTurn: recoveryTurn }, recoveryTurn.chatKey);
+    liveProgress.chatKey = recoveryTurn.chatKey;
+    if (turn.shouldDeleteLiveProgress(liveProgress, true)) {
+      await turn.deleteTrackedProgressMessages(ctx, liveProgress);
     }
     await turn.recordActiveTurnCompleted(recoveryTurn.chatKey, threadId);
     await markRecoveryAttempt(settings.recoveryDir, candidate, { status: "completed" });

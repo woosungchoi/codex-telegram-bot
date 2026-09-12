@@ -4,6 +4,80 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+## 1.3.1 - 2026-09-12
+
+- Include automatic context-compaction notices in temporary progress cleanup.
+- Persist progress message IDs per logical turn and restore them after bot or
+  worker restarts, including completed-result replay and session-log backfill.
+- Keep failed deletions for retry during recovery; preserve per-chat deletion
+  policies and isolate cleanup from other turns, topics, and final answers.
+
+## 1.3.0 - 2026-09-12
+
+This release adds chat sign-in, isolated accounts, bounded automatic account
+rotation, and more reliable Telegram delivery. Changes were cherry-picked into
+the public branch while preserving its dependency and CI configuration.
+
+The account features were inspired by
+[Grok Telegram Bot](https://github.com/artickc/grok-telegram-bot) by **artickc**.
+We were impressed by its chat sign-in, multiple-account management, and
+auto-rotate design, and adapted these ideas for Codex. Thank you!
+
+### Chat sign-in and account management
+
+- Add `/reauth [name]` using Codex's official ChatGPT device-code login.
+  Complete authentication in the browser; the protected one-time-code message
+  is removed after completion, cancellation, or expiry.
+- Add `/accounts` with account selection, custom names, status and quota checks,
+  removal confirmation, and an automatic-rotation toggle. Management is limited
+  to account administrators in private chats.
+- Give saved accounts separate credential files, sessions, databases, model
+  caches, and SDK clients under private account homes. Keep the host's existing
+  login available as `default`; share installed tools and user instructions.
+- Add `CODEX_ACCOUNTS_DIR` and `CODEX_ACCOUNT_ADMIN_USER_IDS`. With a single
+  allowlisted user, that user is the default account administrator.
+
+### Bounded account rotation and recovery
+
+- Offer automatic rotation after a confirmed terminal account quota or
+  authentication failure. It is disabled by default and can be enabled with
+  `/accounts rotate on`.
+- Wait for the CLI's retries and process exit before trying each eligible
+  account once. Cancellation, generic network/throttling failures, and turns
+  with prior output or tool activity do not trigger automatic replay.
+- Start a new thread when changing accounts and provide the original input
+  plus bounded conversation context. Preserve account identity and attempt
+  history through worker and inline execution, restart recovery, and replay of
+  completed responses awaiting Telegram delivery.
+- Advertise worker capability `accounts-v1` and reject managed-account jobs
+  sent to older workers. Prevent deletion while an account is in use.
+- Fix App Server stream hangs after unexpected exits and early completion
+  notifications, and preserve terminal error details needed for rotation.
+
+### Telegram delivery and links
+
+- Bind background completion notifications to the requesting bot and exact
+  chat/topic, with identity checks and persistent delivery receipts.
+- Preserve local file destinations as readable code-formatted paths in
+  Telegram answers. Keep HTTP(S) links clickable and retain safe formatting
+  fallbacks without inventing public URLs for private files.
+
+### Release verification
+
+- Validate the installed default CLI and the currently configured
+  `CODEX_REAL_PATH` CLI separately, comparing each wrapper invocation with the
+  executable actually selected instead of assuming they have the same version.
+- Cover explicit override precedence, paths with spaces, argument forwarding,
+  unset/empty overrides, `PATH` fallback, and invalid-path failures with isolated
+  fixtures. Keep production environment variables and installed versions intact.
+- Document how to verify an already-installed current or newer Codex CLI without
+  adding a network-dependent latest-version installation to the test suite.
+- Update package and lockfile metadata and the version regression assertion to
+  `1.3.0`. Keep the installed dependency set and runtime configuration intact.
+- Account setup, operational limits, and validation coverage are documented in
+  [the account guide](docs/accounts.md). Additional live account authentication
+  requires the user's browser sign-in.
+
 ## 1.2.12 - 2026-09-09
 
 This release collects 19 public commits since `v1.2.11`, focused on reliable

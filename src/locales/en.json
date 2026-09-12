@@ -318,5 +318,7 @@
   "commandTools": "Open diagnostics and backup tools",
   "commandSkills": "Show available Codex skills",
   "commandStop": "Stop the running Codex task",
-  "commandHelp": "Show command help"
+  "commandHelp": "Show command help",
+  "commandAccounts": "Manage Codex accounts",
+  "commandReauth": "Sign in with ChatGPT"
 }

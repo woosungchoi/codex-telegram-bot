@@ -3,6 +3,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { code } from "../telegram/html.js";
 import { createWorkerClient } from "../worker/client.js";
+import { accountConfig, accountThreadId, rememberAccountThread, selectedAccountId } from "../accounts/context.js";
+import { createAccountStore } from "../accounts/store.js";
 import {
   createCodexThread as createCodexThreadForTransport,
   threadTransport as detectThreadTransport
@@ -44,10 +46,12 @@ export function createCodexSessionRuntime({
     return createCodexThread(chatKey, threadId);
   }
 
-  function createCodexThread(chatKey, threadId = "") {
+  function createCodexThread(chatKey, threadId = "", accountId = selectedAccountId(chats.get(chatKey)), attemptState = {}) {
     return createCodexThreadForTransport({
       transport: codexTransport(),
       threadId,
+      accountId,
+      attemptState,
       effectiveOptions: chats.getEffectiveOptions(chatKey),
       config: {
         ...settings.config,
@@ -61,12 +65,14 @@ export function createCodexSessionRuntime({
     return detectThreadTransport(thread);
   }
 
-  function getOrCreateThread(chatKey) {
+  function getOrCreateThread(chatKey, recovery) {
+    if (recovery?.accountId) return createCodexThread(chatKey, recovery.threadId || "", recovery.accountId, recovery.accountAttemptState || {});
     const cached = threadCache.get(chatKey);
-    if (cached && threadTransport(cached) === codexTransport()) return cached;
+    if (cached && threadTransport(cached) === codexTransport()
+      && (cached.accountId || "default") === selectedAccountId(chats.get(chatKey))) return cached;
     if (cached) threadCache.delete(chatKey);
 
-    const savedThreadId = chats.get(chatKey).threadId;
+    const savedThreadId = accountThreadId(chats.get(chatKey));
     const thread = savedThreadId
       ? resumeCodexThread(chatKey, savedThreadId)
       : startCodexThread(chatKey);
@@ -77,7 +83,7 @@ export function createCodexSessionRuntime({
   async function rememberThread(chatKey, thread) {
     if (!thread.id) return;
     const chat = chats.get(chatKey);
-    chat.threadId = thread.id;
+    rememberAccountThread(chat, thread.id, thread.accountId || selectedAccountId(chat));
     chat.updatedAt = new Date().toISOString();
     await persistence.save();
   }
@@ -118,10 +124,11 @@ export function createCodexSessionRuntime({
     if (!stat.isDirectory()) throw new Error(`${label} is not a directory: ${dir}`);
   }
 
-  async function listRecentCodexSessions(limit) {
+  async function listRecentCodexSessions(limit, chatKey) {
     let files = [];
     try {
-      files = await listFiles(settings.config.codexSessionsDir);
+      const config = chatKey ? accountConfig(settings.config, selectedAccountId(chats.get(chatKey))) : settings.config;
+      files = await listFiles(config.codexSessionsDir);
     } catch (error) {
       if (error?.code === "ENOENT") return [];
       throw error;
@@ -169,7 +176,11 @@ export function createCodexSessionRuntime({
     if (!threadId) return null;
     let files = [];
     try {
-      files = await listFiles(settings.config.codexSessionsDir);
+      const accounts = settings.config.codexAccountsDir ? await createAccountStore(settings.config).list() : [{ id: "default" }];
+      for (const account of accounts) {
+        const dir = accountConfig(settings.config, account.id).codexSessionsDir;
+        files.push(...await listFiles(dir).catch((error) => { if (error.code === "ENOENT") return []; throw error; }));
+      }
     } catch (error) {
       if (error?.code === "ENOENT") return null;
       throw error;

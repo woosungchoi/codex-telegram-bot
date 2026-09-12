@@ -24,12 +24,18 @@
 
 ## 주요 기능
 
+- `/reauth`로 ChatGPT에 로그인하고 `/accounts`에서 여러 계정을 관리합니다. 최종 사용량·인증 오류 때 계정을 자동 전환하도록 설정할 수 있습니다. [계정 설정과 동작](docs/accounts.md)을 참고하세요.
 - Telegram 텍스트, reply, 사진, 이미지 문서를 Codex turn으로 실행합니다.
 - Codex가 작업 중일 때 메시지를 queue에 저장하고, safe, interrupt, side-thread mode로 처리합니다.
 - model, reasoning, sandbox, approval, web, language, time zone, locale, runtime override를 inline 버튼으로 설정합니다.
 - raw command log나 reasoning text를 노출하지 않고 짧은 진행 알림을 보냅니다.
 - 끊긴 streamed turn은 다시 실행하기 전에 Codex session log를 확인해 완료 답변을 회수합니다.
 - keep-codex-fast에서 영감을 받은 backup-first cleanup과 로컬 유지보수 도구를 제공합니다.
+
+**1.3.0**의 채팅 로그인, 다중 계정 관리, 자동 계정 전환 기능은
+**artickc**님의 [Grok Telegram Bot](https://github.com/artickc/grok-telegram-bot)
+설계에 감명받아 구현했습니다. 이 프로젝트에서 얻은 아이디어를 Codex에 맞게
+적용했으며, 좋은 영감을 주신 데 감사드립니다!
 
 안전한 로컬 상태 유지보수 도구는
 [keep-codex-fast](https://github.com/vibeforge1111/keep-codex-fast)에서 영감을 받았습니다.
@@ -114,6 +120,7 @@ chat/thread metadata, queue, upload, recovery 기록, backup이 포함될 수 �
 - `TELEGRAM_LIVE_PROGRESS_MODE`: 진행 알림 문구 모드, 기본값 `brief`; legacy `korean-brief`도 계속 허용됩니다.
 - `TELEGRAM_LIVE_PROGRESS_SOURCE`: `agent`, `activity`, `both`; Codex comment, tool/file activity, 또는 둘 다 사용할지 선택, 기본값 `agent`
 - `TELEGRAM_LIVE_PROGRESS_DELETE_POLICY`: `always`, `on_success`, `never`; 임시 진행 메시지를 언제 삭제할지 선택, 기본값 `on_success`
+
 - `CLEANUP_ENABLED`: 매일 Codex thread cleanup 실행 여부, 기본값 `true`
 - `CLEANUP_EXECUTION_MODE`: `manual`, `quarantine`, `delete`, `both` 중 선택. 자동 모드는 매일 실행 후 결과만 보고하며 기본값은 `manual`
 - `CLEANUP_NOTIFY_TIME`: `TELEGRAM_TIME_ZONE` 기준 cleanup 실행 시간, 기본값 `09:00`
@@ -198,6 +205,13 @@ Codex 하위 프로세스와 외부 도구의 프록시 동작은 각 도구의 
 Node 26에서 멈출 수 있습니다. 해당 상위 라이브러리 호환성 문제가 해결되기
 전까지 파일 업로드에는 Node 24 LTS를 사용하세요. 프록시 API·다운로드 테스트는
 Node 26에서도 실행하며, 영향을 받는 멀티파트 통합 테스트만 건너뛰도록 명시했습니다.
+
+자동 Context compact 알림에도 같은 삭제 설정이 적용됩니다. 삭제 대상 메시지 ID는
+`BOT_RECOVERY_DIR/telegram-progress.json`에 턴별로 저장하며, bot·worker 재시작 후
+복구된 턴이 끝나면 기존 진행 메시지도 정리합니다. 일시적인 삭제 실패는 다음 복구
+또는 시작 시 다시 시도합니다. 패치 이전에 저장되지 않은 메시지 ID는 복구할 수 없으며,
+[Telegram API](https://core.telegram.org/bots/api#deletemessage)는 전송 후 48시간이 지난
+메시지의 삭제를 제한합니다.
 
 ## Codex Worker, Transport, Recovery
 
@@ -360,7 +374,9 @@ Codex 실행은 완료됐지만 final Telegram reply가 pending이거나 전달 
 
 `TELEGRAM_PENDING_TURN_MAX_AGE_SECONDS`보다 오래된 queued item은 자동 만료되고, 봇은 prune할 때 chat에 알립니다. "지금 뭐해?", "진행 상태?", "status" 같은 짧은 상태 질문은 queue에 들어가지 않고 즉시 답변됩니다. `/stop`은 해당 chat의 active turn, side turn, queued message를 중단합니다. Streaming이 켜져 있으면 봇은 file check, command execution, file change 같은 짧은 progress message를 선택한 Telegram 언어로 보냅니다. 이 progress message는 turn 실행 중에는 보이고, final 또는 error response가 전송된 뒤 삭제됩니다. Raw command log나 reasoning text는 stream하지 않습니다. Progress message 전송 실패는 기록하지만 Codex 실행이나 worker event 소비를 중단하지 않습니다. 봇은 각 메시지가 실제로 처리될 때 reaction을 답니다. 기본 흐름은 처리 중 `🤔`, 완료 `👌`, 오류 `😢`, 중단 `😴`입니다. Live progress가 비활성화되어 있으면 긴 turn에는 `TELEGRAM_COMPLETION_NOTICE_SECONDS` 이후 compact completion notice도 전송됩니다.
 
-`/help`, `/status`, `/options`, `/config`, `/threads`, cleanup prompt 같은 bot-owned message는 Telegram HTML formatting으로 전송됩니다. Dynamic value는 `<code>` 또는 `<pre>`로 감싸기 전에 중앙에서 escape됩니다. Free-form Codex answer는 기본적으로 `TELEGRAM_FORMAT_CODEX_ANSWERS=markdown`을 사용합니다. 모든 Codex turn에는 선택한 언어의 내장 지침이 함께 들어가서 제목, 표, list, preformatted code block, 구분자, bold, inline code, fenced code block을 필요할 때 적극 활용하도록 요청합니다. 이 서식 지침은 `CODEX_PERSONA_PROMPT`로 기본 말투를 override해도 계속 추가되며, 사용자가 명시한 다른 형식 요청이 있으면 그 요청을 우선합니다. Markdown mode는 raw answer Markdown을 Telegram rich message로 먼저 보내므로 table, divider, heading, list, bold/italic, inline code, fenced code block이 Telegram native rich formatting으로 표시될 수 있습니다. 한 줄 전체가 짧은 inline code 하나인 경우에는 Telegram이 배경 있는 compact block으로 렌더링할 수 있도록 1줄 rich code block으로 승격합니다. Rich message를 사용할 수 없거나 거부되면 기존 Telegram HTML renderer로 fallback합니다. Fallback 경로에서는 raw HTML을 escape하고, HTML parse failure가 발생하면 plain text로 fallback하여 malformed output 때문에 delivery가 막히지 않게 합니다.
+`/help`, `/status`, `/options`, `/config`, `/threads`, cleanup prompt 같은 bot-owned message는 Telegram HTML formatting으로 전송됩니다. Dynamic value는 `<code>` 또는 `<pre>`로 감싸기 전에 중앙에서 escape됩니다. Free-form Codex answer는 기본적으로 `TELEGRAM_FORMAT_CODEX_ANSWERS=markdown`을 사용합니다. 모든 Codex turn에는 선택한 언어의 내장 지침이 함께 들어가서 제목, 표, list, preformatted code block, 구분자, bold, inline code, fenced code block을 필요할 때 적극 활용하도록 요청합니다. 이 서식 지침은 `CODEX_PERSONA_PROMPT`로 기본 말투를 override해도 계속 추가되며, 사용자가 명시한 다른 형식 요청이 있으면 그 요청을 우선합니다. Markdown mode는 answer Markdown을 Telegram rich message로 먼저 보내므로 table, divider, heading, list, bold/italic, inline code, fenced code block이 Telegram native rich formatting으로 표시될 수 있습니다. 한 줄 전체가 짧은 inline code 하나인 경우에는 Telegram이 배경 있는 compact block으로 렌더링할 수 있도록 1줄 rich code block으로 승격합니다. Rich message를 사용할 수 없거나 거부되면 기존 Telegram HTML renderer로 fallback합니다. Fallback 경로에서는 raw HTML을 escape하고, HTML parse failure가 발생하면 plain text로 fallback하여 malformed output 때문에 delivery가 막히지 않게 합니다.
+
+클릭할 결과·이미지 링크에는 실제 HTTP(S) 주소가 필요합니다. 서버 내부 경로는 Telegram에서 열 수 없으므로, `[보고서](/path/report.md)` 같은 inline 링크는 rich/HTML 양쪽에서 제목과 복사 가능한 경로로 표시합니다. 공백이 있는 `<...>` 경로와 `:줄번호`도 보존하며 코드 예제는 변환하지 않습니다. 봇은 로컬 파일을 자동 공개하거나 URL을 만들어내지 않습니다. 보고서가 공개 이미지 링크를 담고 있다면 답변에 해당 공개 주소를 직접 제공하도록 기본 지침에도 명시합니다.
 
 ## Runtime Overrides
 

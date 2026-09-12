@@ -210,7 +210,7 @@ export function createRuntimeStatusSupport({
     const chat = chats.get(chatKey);
     const latest = await selectLatestUsageSample([
       { threadId, sourceLabel: "current thread" },
-      { threadId: chat.usageProbeThreadId || "", sourceLabel: "usage probe" }
+      { threadId: (chat.usageProbeAccountId || "default") === (chat.threadAccountId || chat.accountId || "default") ? chat.usageProbeThreadId || "" : "", sourceLabel: "usage probe" }
     ]);
     return formatCodexUsageSummary({
       tokenCount: latest?.tokenCount,

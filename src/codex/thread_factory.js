@@ -1,6 +1,7 @@
 import { Codex } from "@openai/codex-sdk";
 import { createAppServerThread } from "./app_server.js";
 import { buildCodexCompactConfig } from "./compact.js";
+import { createAccountThread } from "../accounts/thread.js";
 
 export const CODEX_TRANSPORT_SDK = "sdk";
 export const CODEX_TRANSPORT_APP_SERVER_DIRECT = "app-server-direct";
@@ -30,7 +31,7 @@ export function buildCodexClientOptions(config, serviceTier = "") {
 }
 
 export function getCodexClient(codexClients, config, serviceTier = "") {
-  const cacheKey = serviceTier || "default";
+  const cacheKey = `${config.codexAccountId || "default"}:${config.codexHome || ""}:${serviceTier || "default"}`;
   if (!codexClients.has(cacheKey)) {
     codexClients.set(cacheKey, new Codex(buildCodexClientOptions(config, serviceTier)));
   }
@@ -56,15 +57,24 @@ export function createCodexThread({
   threadId = "",
   effectiveOptions = {},
   config,
-  codexClients = new Map()
+  codexClients = new Map(),
+  accountId = "default",
+  attemptState = {}
 } = {}) {
   if (!config) throw new Error("config is required to create a Codex thread.");
+  if (config.codexAccountsDir && !config.codexAccountId) {
+    return createAccountThread({
+      config, accountId, threadId, transport, attemptState,
+      createThread: (scoped, id) => createCodexThread({ transport, threadId: id, effectiveOptions, config: scoped, codexClients })
+    });
+  }
   if (transport === CODEX_TRANSPORT_APP_SERVER_DIRECT) {
     return createAppServerThread({
       threadId,
       threadOptions: buildAppServerDirectThreadOptions(config, effectiveOptions),
       codexPath: config.codexPath,
       codexEnv: config.codexEnv,
+      codexAuthFileStore: config.codexAuthFileStore,
       connectTimeoutMs: config.codexAppServerDirectTimeoutMs
     });
   }

@@ -2,6 +2,7 @@ import {
   shouldFallbackTelegramRich,
   summarizeTelegramError
 } from "./api.js";
+import { formatTelegramLocalFileLinks } from "./local_links.js";
 
 export const RICH_MESSAGE_MAX_CHARS = 32768;
 
@@ -56,7 +57,7 @@ export async function tryReplyRichMarkdown(ctx, markdown, extra = {}) {
 }
 
 export function prepareRichMarkdown(markdown) {
-  return promoteStandaloneInlineCode(markdown);
+  return promoteStandaloneInlineCode(formatTelegramLocalFileLinks(markdown));
 }
 
 export function promoteStandaloneInlineCode(markdown) {
