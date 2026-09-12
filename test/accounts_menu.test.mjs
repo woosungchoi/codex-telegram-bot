@@ -5,6 +5,8 @@ import path from "node:path";
 import { Telegraf } from "telegraf";
 import { registerAccountCommands } from "../src/accounts/controller.js";
 import { accountHome } from "../src/accounts/store.js";
+import { createRuntimeKeyboardViews } from "../src/ui/keyboards.js";
+import { createStandaloneModelSelectionController } from "../src/ui/standalone_model_selection_controller.js";
 import { accountFixture } from "./helpers/accounts_fixture.mjs";
 
 async function fixture(t, options = {}) {
@@ -46,6 +48,17 @@ function boot(t, storage, options = {}) {
   });
   const controller = registerAccountCommands(r, { store: storage.store, signIn, now: () => storage.clock.now });
   t.after(() => controller.close());
+  const text = (key) => key;
+  const views = createRuntimeKeyboardViews({ text, hasActiveTurn: () => false });
+  const { handleMenuClose } = createStandaloneModelSelectionController({
+    text, views,
+    telegram: {
+      editStrict: async (ctx, html, extra) => { await ctx.editMessageText(html, extra); return true; },
+      answerUiCallback: (ctx) => ctx.answerCbQuery()
+    }
+  });
+  bot.command("menu", (ctx) => r.replyHtml(ctx, "Main menu", views.mainPanelKeyboard("1")));
+  bot.action("ui:close:menu", handleMenuClose);
   bot.command("help", () => { otherCommands.push("help"); });
   bot.action("main:help", async (ctx) => { await ctx.answerCbQuery(); otherCommands.push("main:help"); });
   bot.on("message", (ctx) => { forwarded.push(ctx.message); });
@@ -286,4 +299,54 @@ test("account name commands remain available alongside menu input", async (t) =>
   await f.finishLogin();
   assert.deepEqual(f.signIns, ["명령으로 등록"]);
   assert.equal(f.forwarded.length, 0);
+});
+
+test("main menu account buttons open the guarded list and registration prompt", async (t) => {
+  const f = await fixture(t);
+  await f.send("/menu");
+  const menu = f.messages.at(-1);
+  const list = f.buttonData("acct:list", menu), add = f.buttonData("acct:login", menu);
+  await f.click(list, menu);
+  assert.match(f.messages.at(-1).text, /Codex 계정/);
+  assert.match(f.messages.at(-1).html, /\/accounts rename &lt;id&gt; &lt;이름&gt;/);
+  await f.click(add, menu);
+  assert.equal(f.savedState().accountUi["1:1"].kind, "login");
+  await f.send("메뉴에서 등록");
+  await f.finishLogin();
+  assert.deepEqual(f.signIns, ["메뉴에서 등록"]);
+  await f.click(list, menu, { userId: 2 });
+  assert.match(f.messages.at(-1).text, /개인 채팅/);
+});
+
+test("account list closes through the shared menu handler without changing accounts", async (t) => {
+  const f = await fixture(t);
+  await f.send("/accounts");
+  const close = f.buttons().filter((button) => button.callback_data === "ui:close:menu");
+  assert.deepEqual(close, [{ text: "닫기", callback_data: "ui:close:menu" }]);
+  await f.click(close[0].callback_data);
+  const edit = f.apiCalls.find((call) => call.method === "editMessageText");
+  assert.equal(edit.payload.text, "menuClosed");
+  assert.deepEqual(edit.payload.reply_markup.inline_keyboard, []);
+  assert.equal(f.apiCalls.filter((call) => call.method === "answerCallbackQuery").length, 1);
+  assert.deepEqual((await f.store.list()).map((account) => account.id), ["default"]);
+});
+
+test("closing name and deletion prompts clears their pending operations", async (t) => {
+  const f = await fixture(t);
+  await f.send("/accounts");
+  await f.click("acct:rename:default");
+  await f.click(f.buttonData("ui:close:menu"));
+  assert.equal(f.savedState().accountUi["1:1"], undefined);
+  await f.send("일반 요청");
+  assert.equal(f.forwarded.length, 1);
+  assert.equal((await f.store.get("default")).label, "Default");
+  const account = await f.store.create("보존할 계정");
+  await f.send("/accounts");
+  await f.click(`acct:remove:${account.id}`);
+  const prompt = f.messages.at(-1), confirm = f.buttonData("acct:confirm:");
+  await f.click(f.buttonData("ui:close:menu"), prompt);
+  assert.equal(f.savedState().accountUi["1:1"], undefined);
+  await f.click(confirm, prompt);
+  assert.ok(await f.store.get(account.id));
+  assert.match(f.messages.at(-1).text, /만료/);
 });

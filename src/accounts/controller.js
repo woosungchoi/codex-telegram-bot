@@ -4,12 +4,14 @@ import { selectedAccountId } from "./context.js";
 import { signInAccount, inspectAccount } from "./auth.js";
 import { accountText } from "./messages.js";
 import { b, code, escapeHtml } from "../telegram/html.js";
+import { createNavigationKeyboardViews, inlineKeyboard } from "../ui/keyboard_helpers.js";
 
 export function registerAccountCommands(r, { store = createAccountStore(r.config), signIn = signInAccount, inspect = inspectAccount, now = Date.now } = {}) {
   const pending = new Map();
   const operations = new Map();
   const t = (key) => accountText(r.state.ui?.language || r.config.telegramLanguage, key);
-  const keyboard = (rows) => ({ reply_markup: { inline_keyboard: rows } });
+  const navigation = createNavigationKeyboardViews({ text: t });
+  const keyboard = (rows) => navigation.withMenuCloseButton(inlineKeyboard(rows));
   const button = (text, data) => ({ text, callback_data: data });
   const flowKey = (ctx) => `${ctx.chat?.id}:${ctx.from?.id}`;
   const readFlow = (ctx) => r.state.accountUi?.[flowKey(ctx)];
@@ -126,7 +128,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
         ...(account.legacy ? [] : [button(t("remove"), `acct:remove:${account.id}`)])
       ]);
     }
-    lines.push("", `${t("rotate")}: ${settings.autoRotate ? t("on") : t("off")}`, t("commands"));
+    lines.push("", `${t("rotate")}: ${settings.autoRotate ? t("on") : t("off")}`, escapeHtml(t("commands")));
     rows.push([button(t("add"), "acct:login"), button(`${t("rotate")} ${settings.autoRotate ? t("off") : t("on")}`, `acct:rotate:${settings.autoRotate ? "off" : "on"}`)]);
     return r.replyHtml(ctx, lines.filter((line) => line !== undefined).join("\n"), keyboard(rows));
   }
@@ -153,7 +155,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
           onCode: async ({ verificationUrl, userCode }) => {
             session.codeMessage = await r.replyHtml(ctx,
               `${b("🔐 ChatGPT")}\n${t("code")}\n\n${code(userCode)}`,
-              { ...keyboard([[{ text: "🔐 ChatGPT", url: verificationUrl }, button(t("cancel"), "acct:cancel")]]), protect_content: true, link_preview_options: { is_disabled: true } });
+              { ...inlineKeyboard([[{ text: "🔐 ChatGPT", url: verificationUrl }, button(t("cancel"), "acct:cancel")]]), protect_content: true, link_preview_options: { is_disabled: true } });
           }
         });
         await r.replyHtml(ctx, `${t("done")}\n${b(account.label)}`,

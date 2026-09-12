@@ -26,7 +26,9 @@ device-code login and isolated account homes.
 
 ### Button menu
 
-Open `/accounts` to manage accounts without copying their IDs:
+Open `/accounts` to manage accounts without copying their IDs. `/menu` also
+offers **Accounts** and **Add account** buttons that open the list or the name
+prompt directly:
 
 - **Add account** asks for a name. Send it as your next message, then complete
   the ChatGPT device-code sign-in. The completion message offers **Use** and
@@ -38,6 +40,9 @@ Open `/accounts` to manage accounts without copying their IDs:
   default account can be renamed but cannot be removed here.
 - **Cancel** returns to the account list. A slash command or a button in another
   menu also ends a pending account menu step so it is handled normally.
+- **Close** dismisses the account menu and clears any pending name input or
+  removal confirmation. It does not delete an account. The device-code sign-in
+  message retains its separate **Cancel** button for stopping authentication.
 
 Name input and removal confirmations expire after five minutes. Pending steps
 survive a bot restart for their remaining lifetime and are bound to the
