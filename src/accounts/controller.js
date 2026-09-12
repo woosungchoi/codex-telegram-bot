@@ -10,12 +10,11 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
   const keyboard = (rows) => ({ reply_markup: { inline_keyboard: rows } });
   const button = (text, data) => ({ text, callback_data: data });
   async function guard(ctx, action) {
+    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     if (ctx.chat?.type !== "private" || !r.config.allowedUserIds.has(String(ctx.from?.id))
       || !r.config.codexAccountAdminUserIds.has(String(ctx.from?.id))) {
-      await ctx.answerCbQuery?.().catch(() => {});
       return r.replyHtml(ctx, t("private"));
     }
-    await ctx.answerCbQuery?.().catch(() => {});
     try { return await action(); } catch (error) {
       return r.replyHtml(ctx, `${t("failed")}\n${code(r.redactText?.(error.message) || error.message)}`);
     }
