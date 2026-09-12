@@ -1,5 +1,7 @@
 export const REGISTERED_TELEGRAM_COMMANDS = new Set([
   "start",
+  "reauth",
+  "accounts",
   "help",
   "menu",
   "new",

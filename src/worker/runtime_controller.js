@@ -19,6 +19,9 @@ import {
   WORKER_RESTART_FAILURE_REASON
 } from "./replay.js";
 
+import { accountThreadId, applyAccountEvent, rememberAccountThread, selectedAccountId } from "../accounts/context.js";
+import { hasAttemptActivity } from "../accounts/errors.js";
+
 const RETRYABLE_WORKER_TRANSPORT_CODES = new Set([
   "ECONNREFUSED",
   "ECONNRESET",
@@ -42,6 +45,7 @@ export function createWorkerRuntimeController({
   function createWorkerJobPayload(chatKey, preparedTurn) {
     const chat = chatStore.get(chatKey);
     const effectiveOptions = chatStore.getEffectiveOptions(chatKey);
+    const accountId = preparedTurn.accountId || preparedTurn.recovery?.accountId || selectedAccountId(chat);
     return {
       id: preparedTurn.id || turn.createQueueItemId(),
       chatKey,
@@ -55,7 +59,9 @@ export function createWorkerRuntimeController({
       text: preparedTurn.text || "",
       inputText: preparedTurn.inputText || preparedTurn.text || "",
       imagePaths: preparedTurn.imagePaths || [],
-      threadId: preparedTurn.recovery?.threadId || chat.threadId || "",
+      threadId: preparedTurn.recovery ? preparedTurn.recovery.threadId || "" : accountThreadId(chat, accountId),
+      accountId,
+      accountAttemptState: preparedTurn.accountAttemptState || preparedTurn.recovery?.accountAttemptState || {},
       effectiveOptions,
       outputSchema: chat.outputSchema || null,
       transport: worker.transport(),
@@ -88,6 +94,10 @@ export function createWorkerRuntimeController({
 
     while (true) {
       const job = restartAttempt === 0 ? initialJob : createWorkerJobPayload(chatKey, currentTurn);
+      if (job.accountId !== "default") {
+        const status = await client.status?.();
+        if (!status?.capabilities?.includes("accounts-v1")) throw new Error("The worker must be updated before using saved accounts.");
+      }
       active.workerCancelRequested = false;
       const started = await client.startJob(job);
       active.workerJobId = started.jobId;
@@ -148,6 +158,9 @@ export function createWorkerRuntimeController({
   function createWorkerRestartRecoveryTurn(chatKey, preparedTurn, workerJobId, attempt) {
     const chat = chatStore.get(chatKey);
     const priorRecovery = preparedTurn.recovery || {};
+    const accountId = chat.accountAttemptState?.accountId || priorRecovery.accountId || selectedAccountId(chat);
+    const threadId = (chat.threadAccountId || "default") === accountId
+      ? chat.threadId || "" : chat.accountAttemptState?.threadId || priorRecovery.threadId || "";
     const inputPreview = compactRecoveryPreview(
       priorRecovery.inputPreview || preparedTurn.text || preparedTurn.inputText || ""
     );
@@ -159,7 +172,7 @@ export function createWorkerRuntimeController({
       originMessageId: preparedTurn.originMessageId,
       originUpdateId: preparedTurn.originUpdateId,
       queueItemId: priorRecovery.queueItemId || preparedTurn.id || workerJobId,
-      threadId: chat.threadId || priorRecovery.threadId || "",
+      threadId,
       reason: WORKER_RESTART_FAILURE_REASON,
       attempt,
       inputPreview,
@@ -179,7 +192,12 @@ export function createWorkerRuntimeController({
       attempt,
       inputPreview,
       queueItemId: candidate.queueItemId,
-      workerJobId
+      workerJobId,
+      accountId,
+      accountAttemptState: {
+        ...chat.accountAttemptState,
+        triedAccountIds: (chat.accountAttemptState?.triedAccountIds || []).filter((id) => id !== accountId)
+      }
     };
     return recoveryTurn;
   }
@@ -246,24 +264,39 @@ export function createWorkerRuntimeController({
           const seq = Number(event.seq || cursor);
           cursor = Number.isFinite(seq) ? Math.max(cursor, seq) : cursor;
           active.workerEventSeq = cursor;
-          await recordWorkerDeliveryCursor(chatKey, jobId, cursor);
-
           const eventType = String(event.type || "");
+          const accountChat = chatStore.get(chatKey);
+          if (applyAccountEvent(accountChat, event)) {
+            if (eventType === "account.attempt.started") threadId = event.threadId || "";
+            await recordWorkerDeliveryCursor(chatKey, jobId, cursor);
+            continue;
+          }
+          if (hasAttemptActivity(event) && accountChat.accountAttemptState) accountChat.accountAttemptState.hadActivity = true;
+          const update = applyCodexStreamEvent(streamState, event);
+          if (update.type === "thread_started") rememberAccountThread(accountChat, update.threadId, event.accountId || "default");
+          await recordWorkerDeliveryCursor(chatKey, jobId, cursor);
+          if (eventType === "account.rotation") {
+            await turn.notifyAccountRotation?.(ctx, event.accountLabel || event.accountId);
+            continue;
+          }
           if (event.threadId) threadId = event.threadId;
           if (eventType.startsWith("worker.job.")) {
             if (isTerminalWorkerEvent(event)) terminal = event;
             continue;
           }
 
-          const update = applyCodexStreamEvent(streamState, event);
           if (update.type === "thread_started") {
             threadId = update.threadId || threadId;
             const chat = chatStore.get(chatKey);
-            chat.threadId = threadId;
+            rememberAccountThread(chat, threadId, event.accountId || "default");
             chat.updatedAt = now().toISOString();
             await deliveryStore.save();
             await turn.recordThreadStarted(chatKey, threadId);
           } else if (update.type === "item") {
+            if (accountChat.accountAttemptState && !accountChat.accountAttemptState.hadActivity) {
+              accountChat.accountAttemptState.hadActivity = true;
+              await deliveryStore.save();
+            }
             await turn.recordStreamItemEvent(chatKey, event, update);
             if (!firstItemSeen) {
               firstItemSeen = true;
@@ -342,11 +375,16 @@ export function createWorkerRuntimeController({
     await deliveryStore.save();
     if (!settings.recoveryEnabled) return;
     await recovery.write(async () => {
+      const chat = chatStore.get(chatKey);
+      const accountId = chat.accountAttemptState?.accountId || chat.threadAccountId || "default";
       await upsertActiveTurnSnapshot(settings.recoveryDir, chatKey, {
         workerJobId: jobId,
         workerEventSeq: Number(seq || 0),
         lastEventAt: now().toISOString(),
-        lastKnownStatus: "worker_event_delivered"
+        lastKnownStatus: "worker_event_delivered",
+        accountId,
+        accountAttemptState: chat.accountAttemptState || {},
+        ...((chat.threadAccountId || "default") === accountId ? { threadId: chat.threadId || "" } : { threadId: chat.accountAttemptState?.threadId || "" })
       });
     });
   }
@@ -362,8 +400,9 @@ export function createWorkerRuntimeController({
   async function recordWorkerJobStarted(chatKey, job) {
     const timestamp = now().toISOString();
     const chat = chatStore.get(chatKey);
+    chat.accountAttemptState = { ...job.accountAttemptState, accountId: job.accountId || "default", threadId: job.threadId || "" };
     if (job.threadId) {
-      chat.threadId = job.threadId;
+      rememberAccountThread(chat, job.threadId, job.accountId || "default");
       chat.updatedAt = timestamp;
     }
     const deliveryKey = workerDeliveryKey(chatKey, job.id || "");
@@ -383,7 +422,9 @@ export function createWorkerRuntimeController({
     if (!settings.recoveryEnabled) return;
     await recovery.write(async () => {
       await upsertActiveTurnSnapshot(settings.recoveryDir, chatKey, {
-        threadId: job.threadId || chat.threadId || "",
+        threadId: job.threadId || "",
+        accountId: job.accountId || "default",
+        accountAttemptState: chat.accountAttemptState,
         workerJobId: job.id || "",
         workerEventSeq: workerDeliveryCursor(chatKey, job.id || ""),
         workerMode: worker.mode(),

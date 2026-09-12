@@ -149,6 +149,7 @@ export function recoveryCandidateFromSnapshot(snapshot, reason = "self_restart")
     originMessageId: snapshot.originMessageId,
     originUpdateId: snapshot.originUpdateId,
     queueItemId: snapshot.queueItemId,
+    ...(snapshot.accountId ? { accountId: snapshot.accountId, accountAttemptState: snapshot.accountAttemptState || {} } : {}),
     threadId: snapshot.threadId || "",
     reason,
     attempt: 0,

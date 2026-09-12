@@ -20,7 +20,7 @@ export function createStandaloneModelSelectionController({
   const t = text;
 
   async function sendStandaloneModelSelection(ctx, chatKey) {
-    const catalog = await models.list();
+    const catalog = await models.list(chatKey);
     const session = flowStore.begin(chatKey, "model");
     try {
       await telegram.replyHtml(
@@ -35,7 +35,7 @@ export function createStandaloneModelSelectionController({
   }
 
   async function sendStandaloneReasoningSelection(ctx, chatKey) {
-    const catalog = await models.list();
+    const catalog = await models.list(chatKey);
     const session = flowStore.begin(chatKey, "reasoning", {
       modelSlug: chat.effectiveModelSlug(chatKey)
     });
@@ -64,7 +64,7 @@ export function createStandaloneModelSelectionController({
       return;
     }
 
-    const catalog = await models.list();
+    const catalog = await models.list(chatKey);
     if (model !== "default" && !catalog.some((candidate) => candidate.slug === model)) {
       const edited = await telegram.editStrict(
         ctx,
@@ -119,7 +119,7 @@ export function createStandaloneModelSelectionController({
       return;
     }
 
-    const catalog = await models.list();
+    const catalog = await models.list(chatKey);
     const reasoningOptions = reasoningOptionsForModel(catalog, processing.modelSlug);
     if (!standaloneReasoningChoiceSupported(catalog, processing.modelSlug, reasoning)) {
       const edited = await telegram.editStrict(

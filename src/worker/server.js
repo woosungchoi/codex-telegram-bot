@@ -186,6 +186,7 @@ async function workerStatus(store, controllers) {
   const active = await store.readActiveJobs();
   return {
     status: "ok",
+    capabilities: ["accounts-v1"],
     activeJobs: Object.values(active.jobs),
     runningJobIds: [...controllers.keys()]
   };

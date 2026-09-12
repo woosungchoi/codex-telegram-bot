@@ -158,8 +158,13 @@ export function buildStartupRecoveryActions(plan, options = {}) {
 export function applyRecoveryThreadToChatState(chatState, turn, options = {}) {
   const threadId = String(turn?.recovery?.threadId || "").trim();
   if (!threadId || !chatState || typeof chatState !== "object") return false;
-  if (chatState.threadId === threadId) return false;
+  const accountId = turn.recovery.accountId;
+  if (chatState.threadId === threadId && (!accountId || chatState.threadAccountId === accountId)) return false;
   chatState.threadId = threadId;
+  if (accountId) {
+    chatState.threadAccountId = accountId;
+    chatState.accountThreads = { ...chatState.accountThreads, [accountId]: threadId };
+  }
   chatState.updatedAt = (options.now || new Date()).toISOString();
   return true;
 }
@@ -180,6 +185,13 @@ export function createRecoveryTurn(candidate, options = {}) {
       chatKey: candidate.chatKey,
       restartId: options.restartId || "",
       reason: candidate.reason || "startup_recovery",
+      ...(candidate.accountId ? {
+        accountId: candidate.accountId,
+        accountAttemptState: {
+          ...candidate.accountAttemptState,
+          triedAccountIds: (candidate.accountAttemptState?.triedAccountIds || []).filter((id) => id !== candidate.accountId)
+        }
+      } : {}),
       threadId: candidate.threadId || "",
       recoveryKey: candidate.recoveryKey || recoveryKey(candidate),
       startedAt: candidate.startedAt || "",

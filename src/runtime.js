@@ -1139,6 +1139,7 @@ hydratePendingTurnsFromState();
 ({ adminCommandHandlers } = registerRuntimeRoutes({
   bot,
   config,
+  redactText,
   state,
   valid: VALID,
   activeTurns,

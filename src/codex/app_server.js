@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { applyCodexStreamEvent, codexStreamResult, createCodexStreamState } from "./stream.js";
+import { codexEventError } from "../accounts/errors.js";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_CONNECT_TIMEOUT_MS = 5000;
@@ -10,6 +11,7 @@ export function createAppServerThread({
   threadOptions = {},
   codexPath = "codex",
   codexEnv = null,
+  codexAuthFileStore = false,
   connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS
 } = {}) {
   return {
@@ -18,6 +20,7 @@ export function createAppServerThread({
     threadOptions,
     codexPath,
     codexEnv,
+    codexAuthFileStore,
     connectTimeoutMs,
     async run(input, turnOptions = {}) {
       const { events } = await this.runStreamed(input, turnOptions);
@@ -38,15 +41,16 @@ export async function readAppServerThread({
   threadId,
   codexPath = "codex",
   codexEnv = null,
+  codexAuthFileStore = false,
   connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS,
   includeTurns = true
 } = {}) {
   if (!threadId) throw new Error("threadId is required for app-server thread/read.");
-  const client = await connectAppServer({ codexPath, codexEnv, connectTimeoutMs });
+  const client = await connectAppServer({ codexPath, codexEnv, codexAuthFileStore, connectTimeoutMs });
   try {
     return await client.request("thread/read", { threadId, includeTurns });
   } finally {
-    client.close();
+    await client.close();
   }
 }
 
@@ -82,19 +86,27 @@ export function appServerThreadReadEvents(response, { threadId = "", turnId = ""
 async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
   const client = await connectAppServer(thread);
   const queue = createAsyncQueue((error) => {
-    if (error) client.fail(error);
-    client.close();
+    if (error) { client.fail(error); client.close(); }
   });
   let activeTurnId = "";
+  let terminalError;
   const pending = [];
+  const unsubscribeError = client.onError((error) => {
+    if (!client.closed) queue.fail(error);
+  });
+  const enqueue = (notification) => {
+    const error = codexEventError(notification);
+    if (error && !error.willRetry) terminalError = error;
+    queue.push(notification);
+    if (notification.method === "turn/completed" || (notification.method === "error" && notification.params?.willRetry !== true)) queue.end();
+  };
 
   const unsubscribe = client.onNotification((notification) => {
     if (!isRelevantNotification(notification, thread.id, activeTurnId)) {
       if (!activeTurnId && notification?.params?.threadId === thread.id) pending.push(notification);
       return;
     }
-    queue.push(notification);
-    if (notification.method === "turn/completed" || notification.method === "error") queue.end();
+    enqueue(notification);
   });
 
   const abort = () => {
@@ -105,7 +117,9 @@ async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
     queue.fail(error);
   };
   if (turnOptions.signal?.aborted) {
-    client.close();
+    unsubscribe();
+    unsubscribeError();
+    await client.close();
     throw (turnOptions.signal.reason instanceof Error ? turnOptions.signal.reason : new Error("This operation was aborted"));
   } else {
     turnOptions.signal?.addEventListener("abort", abort, { once: true });
@@ -121,7 +135,7 @@ async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
     const turnResponse = await client.request("turn/start", appServerTurnParams(thread, input, turnOptions));
     activeTurnId = turnResponse?.turn?.id || "";
     for (const notification of pending.splice(0)) {
-      if (isRelevantNotification(notification, thread.id, activeTurnId)) queue.push(notification);
+      if (isRelevantNotification(notification, thread.id, activeTurnId)) enqueue(notification);
     }
     if (turnResponse?.turn?.status === "completed" || turnResponse?.turn?.status === "failed") {
       for (const event of appServerThreadReadEvents({ thread: { id: thread.id, turns: [turnResponse.turn] } }, { threadId: thread.id, turnId: activeTurnId })) {
@@ -131,38 +145,44 @@ async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
     }
   } catch (error) {
     unsubscribe();
+    unsubscribeError();
     turnOptions.signal?.removeEventListener("abort", abort);
-    client.close();
-    throw error;
+    await client.close();
+    throw terminalError || error;
   }
 
   return {
-    events: wrapQueue(queue, () => {
+    events: wrapQueue(queue, async () => {
       unsubscribe();
+      unsubscribeError();
       turnOptions.signal?.removeEventListener("abort", abort);
-      client.close();
+      await client.close();
     })
   };
 }
 
-async function connectAppServer({ codexPath = "codex", codexEnv = null, connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS } = {}) {
-  const child = spawn(codexPath, appServerDirectArgs(), {
-    env: mergedEnv(codexEnv),
+export async function connectAppServer({ codexPath = "codex", codexEnv = null, codexAuthFileStore = false, connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS } = {}) {
+  const args = appServerDirectArgs();
+  if (codexAuthFileStore) args.push("-c", 'cli_auth_credentials_store="file"', "-c", 'model_provider="openai"');
+  const child = spawn(codexPath, args, {
+    env: codexAuthFileStore ? codexEnv : mergedEnv(codexEnv),
     stdio: ["pipe", "pipe", "pipe"]
   });
   const client = new JsonRpcClient(child, { requestTimeoutMs: Math.max(connectTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS) });
-  await client.request("initialize", {
-    clientInfo: {
-      name: "codex-telegram-bot",
-      title: "Codex Telegram Bot",
-      version: "0.0.0"
-    },
-    capabilities: {
-      experimentalApi: true,
-      requestAttestation: false
-    }
-  });
-  client.notify("initialized", {});
+  try {
+    await client.request("initialize", {
+      clientInfo: {
+        name: "codex-telegram-bot",
+        title: "Codex Telegram Bot",
+        version: "0.0.0"
+      },
+      capabilities: {
+        experimentalApi: true,
+        requestAttestation: false
+      }
+    });
+    client.notify("initialized", {});
+  } catch (error) { await client.close(); throw error; }
   return client;
 }
 
@@ -222,13 +242,19 @@ class JsonRpcClient {
     this.nextId = 1;
     this.pending = new Map();
     this.notificationHandlers = new Set();
+    this.errorHandlers = new Set();
     this.stderr = "";
     this.closed = false;
+    this.exited = new Promise((resolve) => {
+      child.once("exit", resolve);
+      child.once("error", resolve);
+    });
 
     createInterface({ input: child.stdout }).on("line", (line) => this.handleLine(line));
     child.stderr.on("data", (chunk) => {
       this.stderr = `${this.stderr}${chunk.toString("utf8")}`.slice(-4000);
     });
+    child.stdin.on("error", (error) => { if (!this.closed) this.fail(error); });
     child.on("error", (error) => this.fail(error));
     child.on("exit", (code, signal) => {
       if (this.closed) return;
@@ -237,6 +263,9 @@ class JsonRpcClient {
   }
 
   request(method, params = {}) {
+    if (this.closed || this.child.exitCode !== null || this.child.signalCode !== null) {
+      return Promise.reject(new Error("Codex app-server connection closed."));
+    }
     const id = this.nextId;
     this.nextId += 1;
     const payload = { jsonrpc: "2.0", id, method, params };
@@ -246,7 +275,11 @@ class JsonRpcClient {
         reject(new Error(`Codex app-server request timed out: ${method}`));
       }, this.requestTimeoutMs);
       this.pending.set(id, { resolve, reject, timer, method });
-      this.write(payload);
+      try { this.write(payload); } catch (error) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(error);
+      }
     });
   }
 
@@ -257,6 +290,11 @@ class JsonRpcClient {
   onNotification(handler) {
     this.notificationHandlers.add(handler);
     return () => this.notificationHandlers.delete(handler);
+  }
+
+  onError(handler) {
+    this.errorHandlers.add(handler);
+    return () => this.errorHandlers.delete(handler);
   }
 
   handleLine(line) {
@@ -272,7 +310,7 @@ class JsonRpcClient {
       if (!pending) return;
       clearTimeout(pending.timer);
       this.pending.delete(message.id);
-      if (message.error) pending.reject(new Error(message.error.message || JSON.stringify(message.error)));
+      if (message.error) pending.reject(Object.assign(new Error(message.error.message || "Codex request failed."), { code: message.error.code, codexErrorInfo: message.error.data?.codexErrorInfo }));
       else pending.resolve(message.result);
       return;
     }
@@ -290,14 +328,19 @@ class JsonRpcClient {
       pending.reject(error);
       this.pending.delete(id);
     }
+    for (const handler of this.errorHandlers) handler(error);
   }
 
   close() {
+    if (this.closePromise) return this.closePromise;
     this.closed = true;
-    for (const [, pending] of this.pending) clearTimeout(pending.timer);
-    this.pending.clear();
+    this.fail(new Error("Codex app-server connection closed."));
     this.child.stdin.destroy();
     this.child.kill("SIGTERM");
+    const timer = setTimeout(() => this.child.kill("SIGKILL"), 2000);
+    timer.unref?.();
+    this.closePromise = this.exited.finally(() => clearTimeout(timer));
+    return this.closePromise;
   }
 }
 
@@ -341,7 +384,7 @@ async function* wrapQueue(queue, cleanup) {
   try {
     for await (const event of queue) yield event;
   } finally {
-    cleanup();
+    await cleanup();
   }
 }
 

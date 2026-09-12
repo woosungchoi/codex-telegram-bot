@@ -287,6 +287,8 @@ test("startup recovery converts a restart-failed worker job into a new recovery 
   const workerJob = {
     id: "job-restarted",
     status: "failed",
+    accountId: "backup",
+    accountAttemptState: { triedAccountIds: ["default", "backup"], hadActivity: true },
     threadId: "thread-1",
     transport: "sdk"
   };
@@ -309,6 +311,9 @@ test("startup recovery converts a restart-failed worker job into a new recovery 
   const recoveryTurn = harness.startedPreparedTurns[0][1];
   assert.equal(recoveryTurn.kind, "recovery");
   assert.equal(recoveryTurn.recovery.threadId, "thread-1");
+  assert.equal(recoveryTurn.recovery.accountId, "backup");
+  assert.deepEqual(recoveryTurn.recovery.accountAttemptState.triedAccountIds, ["default"]);
+  assert.equal(recoveryTurn.recovery.accountAttemptState.hadActivity, true);
   assert.match(recoveryTurn.inputText, /finish the interrupted work/);
   const snapshots = await readActiveTurnSnapshots(harness.recoveryDir);
   assert.equal(snapshots.turns["chat-1"].workerJobId, "");

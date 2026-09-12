@@ -24,6 +24,8 @@
 
 ## What It Does
 
+- Sign in to ChatGPT from chat with `/reauth`, manage named accounts with `/accounts`, and opt into account rotation after terminal quota/authentication failures. See [account setup and behavior](docs/accounts.md).
+
 - Runs Codex turns from Telegram text, replies, photos, and image documents.
 - Queues messages while Codex is busy, with safe, interrupt, and side-thread modes.
 - Provides inline settings for model, reasoning, sandbox, approval, web, language, time zone, locale, and runtime overrides.

@@ -405,7 +405,7 @@ export function createTurnRuntimeController({
 
   async function processPreparedTurnInline(ctx, chatKey, preparedTurn, active, liveProgress) {
     const input = buildInput(preparedTurn.inputText, preparedTurn.imagePaths);
-    const thread = codex.getOrCreateThread(chatKey);
+    const thread = codex.getOrCreateThread(chatKey, preparedTurn.recovery);
     await codex.maybeNotifyContextPressure(ctx, chatKey, thread);
     const turn = await codex.runTurn(
       ctx,

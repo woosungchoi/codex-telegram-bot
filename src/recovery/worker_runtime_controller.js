@@ -1,6 +1,7 @@
 import { runTelegramFinalDelivery, summarizeTelegramError } from "../telegram/api.js";
 import { b, code } from "../telegram/html.js";
 import { truncate } from "../utils/text.js";
+import { applyAccountEvent, rememberAccountThread } from "../accounts/context.js";
 import {
   isWorkerSnapshotResumeEligible,
   normalizeWorkerDeliveryEntry,
@@ -148,6 +149,7 @@ export function createWorkerRuntimeRecoveryController({
 
       const armed = {
         ...snapshot,
+        ...(job.accountId ? { accountId: job.accountId, accountAttemptState: job.accountAttemptState || {}, threadId: job.threadId || "" } : {}),
         workerJobId: "",
         workerEventSeq: 0,
         recoveryEligible: true,
@@ -199,6 +201,7 @@ export function createWorkerRuntimeRecoveryController({
     if (!snapshot || !job?.id || stateStore.activeTurns.has(chatKey)) return false;
     const preparedSnapshot = {
       ...snapshot,
+      ...(job.accountId ? { accountId: job.accountId, accountAttemptState: job.accountAttemptState || {}, threadId: job.threadId || "" } : {}),
       chatKey,
       workerJobId: job.id,
       workerEventSeq: Number(snapshot.workerEventSeq || 0),
@@ -239,6 +242,7 @@ export function createWorkerRuntimeRecoveryController({
       originUpdateId: job?.originUpdateId,
       queueItemId: job?.id || "",
       threadId: job?.threadId || "",
+      ...(job?.accountId ? { accountId: job.accountId, accountAttemptState: job.accountAttemptState || {} } : {}),
       inputPreview: "",
       startedAt: job?.startedAt || job?.acceptedAt || "",
       lastEventAt: job?.completedAt || job?.updatedAt || "",
@@ -329,9 +333,10 @@ export function createWorkerRuntimeRecoveryController({
         executionMode: "sidecar",
         workerJobId: jobId
       };
-      if (execution.threadId && stateStore.getChat(chatKey).threadId !== execution.threadId) {
+      if (execution.threadId) {
         const chat = stateStore.getChat(chatKey);
-        chat.threadId = execution.threadId;
+        rememberAccountThread(chat, execution.threadId, execution.accountId || chat.threadAccountId || "default");
+        if (execution.selectedAccount) applyAccountEvent(chat, execution.selectedAccount);
         chat.updatedAt = now().toISOString();
         await stateStore.save();
       }
@@ -428,6 +433,7 @@ export function createWorkerRecoveryTurn(chatKey, snapshot, { now = Date.now } =
     imagePaths: [],
     recovery: {
       chatKey,
+      ...(snapshot.accountId ? { accountId: snapshot.accountId, accountAttemptState: snapshot.accountAttemptState || {} } : {}),
       threadId: snapshot.threadId || "",
       recoveryKey: snapshot.recoveryKey || "",
       startedAt: snapshot.startedAt || "",

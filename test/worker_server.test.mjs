@@ -30,7 +30,7 @@ async function startServer(executeJob, options = {}) {
 test("worker server reports status", async () => {
   const { config, worker, client } = await startServer(async () => {});
   try {
-    assert.deepEqual(await client.status(), { status: "ok", activeJobs: [], runningJobIds: [] });
+  assert.deepEqual(await client.status(), { status: "ok", capabilities: ["accounts-v1"], activeJobs: [], runningJobIds: [] });
     assert.equal(mode(await fs.stat(config.codexWorkerSocket)), 0o600);
   } finally {
     await worker.close();
@@ -159,7 +159,7 @@ test("worker startup marks persisted orphaned jobs failed", async () => {
     }
   });
   try {
-    assert.deepEqual(await client.status(), { status: "ok", activeJobs: [], runningJobIds: [] });
+  assert.deepEqual(await client.status(), { status: "ok", capabilities: ["accounts-v1"], activeJobs: [], runningJobIds: [] });
     assert.equal((await store.readJobState("job-orphan")).status, "failed");
     assert.equal((await store.readJobState("job-orphan")).failureReason, "worker_restart");
     assert.equal(

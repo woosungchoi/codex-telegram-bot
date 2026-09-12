@@ -145,6 +145,8 @@ test("worker payload captures effective chat options and Telegram routing", () =
     inputText: "hello",
     imagePaths: ["/tmp/image.png"],
     threadId: "thread-recovery",
+    accountId: "default",
+    accountAttemptState: {},
     effectiveOptions: { model: "gpt-test", serviceTier: "fast" },
     outputSchema: { type: "object" },
     transport: "app-server-direct",
@@ -178,6 +180,44 @@ test("worker event polling persists monotonic cursors and reconstructs the turn"
   assert.equal(calls.filter(([name]) => name === "final-seen").length, 1);
   assert.equal(calls.filter(([name]) => name === "stream-closed").length, 1);
   assert.equal(calls.find(([name]) => name === "stream-closed")[2].outcome, "completed");
+});
+
+test("saved accounts fail closed on old workers before submitting work", async () => {
+  const { controller, chat, calls, client } = createHarness();
+  chat.accountId = "saved-account";
+  client.status = async () => ({ status: "ok" });
+  const active = { abortController: new AbortController() };
+  await assert.rejects(controller.processPreparedTurnViaWorker({}, "chat", { text: "hello" }, active, {}), /worker must be updated/);
+  assert.equal(calls.some(([name]) => name === "start"), false);
+});
+
+test("recovery with an empty thread never borrows another account's thread", () => {
+  const { controller, chat } = createHarness();
+  chat.accountId = "default";
+  const job = controller.createWorkerJobPayload("chat", { text: "resume", recovery: { accountId: "backup", threadId: "" } });
+  assert.equal(job.accountId, "backup");
+  assert.equal(job.threadId, "");
+});
+
+test("worker restart just after account rotation retains the fresh account", async () => {
+  const { controller, calls, client } = createHarness({
+    recoveryEnabled: true,
+    startJobIds: ["job-1", "job-2"],
+    eventsByJob: {
+      "job-1": [
+        { seq: 1, type: "account.attempt.started", accountId: "backup", threadId: "", triedAccountIds: ["default", "backup"], hadActivity: true },
+        { seq: 2, type: "worker.job.failed", status: "failed", reason: "worker_restart" }
+      ],
+      "job-2": completedEvents().map((e) => ({ ...e, accountId: "backup" }))
+    }
+  });
+  client.status = async () => ({ capabilities: ["accounts-v1"] });
+  await controller.processPreparedTurnViaWorker({}, "chat", { text: "continue" }, { abortController: new AbortController() }, null);
+  const retried = calls.filter(([name]) => name === "start")[1][1];
+  assert.equal(retried.accountId, "backup");
+  assert.equal(retried.threadId, "");
+  assert.deepEqual(retried.accountAttemptState.triedAccountIds, ["default"]);
+  assert.equal(retried.accountAttemptState.hadActivity, true);
 });
 
 test("worker event polling retries transient transport failures", async () => {

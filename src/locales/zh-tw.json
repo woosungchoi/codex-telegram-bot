@@ -318,5 +318,7 @@
   "commandTools": "開啟診斷與備份工具",
   "commandSkills": "顯示可用的 Codex 技能",
   "commandStop": "停止執行中的 Codex 任務",
-  "commandHelp": "顯示指令說明"
+  "commandHelp": "顯示指令說明",
+  "commandAccounts": "管理多個 Codex 帳號",
+  "commandReauth": "登入 ChatGPT／新增帳號"
 }

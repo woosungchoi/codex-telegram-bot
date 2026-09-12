@@ -1,21 +1,26 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { createTurnRecoveryJournal, digestText } from "../src/recovery/turn_journal.js";
+import { readActiveTurnSnapshots } from "../src/recovery/state.js";
+import { applyAccountEvent, rememberAccountThread } from "../src/accounts/context.js";
 
-function createFixture({ enabled = false } = {}) {
+function createFixture({ enabled = false, recoveryDir = "/tmp/unused-recovery-journal", chat = {} } = {}) {
   const state = { worker: { deliveries: {} } };
   let saves = 0;
   const journal = createTurnRecoveryJournal({
     settings: {
       enabled,
-      recoveryDir: "/tmp/unused-recovery-journal",
+      recoveryDir,
       defaultWorkdir: "/workspace",
       defaultModel: "model"
     },
     state,
     activeTurns: new Map(),
     threadCache: new Map(),
-    chats: { get: () => ({}) },
+    chats: { get: () => chat },
     options: { get: () => ({}) },
     persistence: { save: async () => { saves += 1; } },
     telegram: { replyHtml: async () => {} },
@@ -32,6 +37,26 @@ test("disabled recovery journal leaves snapshots untouched", async () => {
   await journal.recordActiveTurnFailed("chat", "failed");
   assert.deepEqual(state.worker.deliveries, {});
   assert.equal(saves(), 0);
+});
+
+test("account rotation and prior activity survive recovery snapshot writes", async (t) => {
+  const recoveryDir = await fs.mkdtemp(path.join(os.tmpdir(), "accounts-recovery-"));
+  t.after(() => fs.rm(recoveryDir, { recursive: true, force: true }));
+  const chat = { accountId: "default", threadId: "old" };
+  const { journal } = createFixture({ enabled: true, recoveryDir, chat });
+  await journal.recordActiveTurnStarted("chat", { id: "turn", text: "hello" });
+  const event = { type: "account.attempt.started", accountId: "backup", threadId: "", triedAccountIds: ["default", "backup"], hadActivity: true };
+  applyAccountEvent(chat, event);
+  await journal.recordAccountState("chat", event);
+  let snapshot = (await readActiveTurnSnapshots(recoveryDir)).turns.chat;
+  assert.equal(snapshot.accountId, "backup");
+  assert.equal(snapshot.threadId, "");
+  assert.equal(snapshot.accountAttemptState.hadActivity, true);
+  rememberAccountThread(chat, "new", "backup");
+  await journal.recordThreadStarted("chat", "new");
+  snapshot = (await readActiveTurnSnapshots(recoveryDir)).turns.chat;
+  assert.equal(snapshot.threadId, "new");
+  assert.deepEqual(snapshot.accountAttemptState.triedAccountIds, ["default", "backup"]);
 });
 
 test("worker delivery transitions persist even when restart recovery is disabled", async () => {

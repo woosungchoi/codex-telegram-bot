@@ -12,6 +12,7 @@ export async function reconstructCompletedWorkerJob(client, jobId) {
   let cursor = 0;
   let terminal = null;
   let threadId = "";
+  let accountId, selectedAccount;
 
   while (!terminal) {
     const response = await client.readJobEvents(jobId, cursor, 500);
@@ -33,6 +34,8 @@ export async function reconstructCompletedWorkerJob(client, jobId) {
     for (const event of events) {
       cursor = Math.max(cursor, Number(event.seq || 0));
       const eventType = String(event.type || "");
+      if (event.accountId) accountId = event.accountId;
+      if (eventType === "account.selected") selectedAccount = event;
       if (event.threadId) threadId = event.threadId;
       if (eventType.startsWith("worker.job.")) {
         if (isTerminalWorkerEvent(event)) terminal = event;
@@ -52,6 +55,7 @@ export async function reconstructCompletedWorkerJob(client, jobId) {
   return {
     turn: codexStreamResult(streamState),
     threadId,
+    ...(accountId ? { accountId, selectedAccount } : {}),
     workerLastSeq: cursor
   };
 }

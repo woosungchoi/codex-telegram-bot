@@ -24,6 +24,8 @@
 
 ## 주요 기능
 
+- `/reauth`로 ChatGPT에 로그인하고 `/accounts`에서 여러 계정을 관리합니다. 최종 사용량·인증 오류 때 계정을 자동 전환하도록 설정할 수 있습니다. [계정 설정과 동작](docs/accounts.md)을 참고하세요.
+
 - Telegram 텍스트, reply, 사진, 이미지 문서를 Codex turn으로 실행합니다.
 - Codex가 작업 중일 때 메시지를 queue에 저장하고, safe, interrupt, side-thread mode로 처리합니다.
 - model, reasoning, sandbox, approval, web, language, time zone, locale, runtime override를 inline 버튼으로 설정합니다.

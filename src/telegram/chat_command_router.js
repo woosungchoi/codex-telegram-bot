@@ -43,6 +43,8 @@ export function registerChatCommands({
     threadCache.set(chatKey, thread);
     const chat = chats.get(chatKey);
     delete chat.threadId;
+    chat.threadAccountId = chat.accountId || "default";
+    if (chat.accountThreads) delete chat.accountThreads[chat.threadAccountId];
     chat.updatedAt = new Date().toISOString();
     await persistence.save();
 
@@ -95,7 +97,7 @@ export function registerChatCommands({
     let threadId = arg;
     let session = null;
     if (!threadId || threadId.toLowerCase() === "last") {
-      session = (await sessions.listRecent(1))[0] ?? null;
+      session = (await sessions.listRecent(1, chatKey))[0] ?? null;
       threadId = session?.id ?? "";
     }
     if (!threadId) {
@@ -107,6 +109,8 @@ export function registerChatCommands({
     threadCache.set(chatKey, thread);
     const chat = chats.get(chatKey);
     chat.threadId = threadId;
+    chat.threadAccountId = chat.accountId || "default";
+    chat.accountThreads = { ...chat.accountThreads, [chat.threadAccountId]: threadId };
     chat.updatedAt = new Date().toISOString();
     await persistence.save();
     await telegram.replyHtml(ctx, formatting.keyValue("Resumed Codex thread.", [
@@ -116,7 +120,7 @@ export function registerChatCommands({
   }
 
   bot.command("threads", async (ctx) => {
-    const recent = await sessions.listRecent(8);
+    const recent = await sessions.listRecent(8, telegram.getChatKey(ctx));
     if (recent.length === 0) {
       await telegram.replyHtml(ctx, "No Codex sessions found.");
       return;
@@ -225,7 +229,7 @@ export function registerChatCommands({
     const arg = (overrideArg ?? telegram.getCommandArgs(ctx).trim()).toLowerCase();
     const chat = chats.get(chatKey);
     const fastEnabled = chats.getEffectiveOptions(chatKey).serviceTier === "fast";
-    const catalog = await models.list();
+    const catalog = await models.list(chatKey);
     if (arg === "status") {
       await telegram.replyHtml(ctx, models.formatFastStatus(chatKey, catalog));
       return;

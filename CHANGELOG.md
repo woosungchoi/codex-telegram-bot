@@ -4,6 +4,9 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+- Add private-chat device login (`/reauth`), named account management (`/accounts`), and opt-in automatic rotation after terminal account quota/authentication failures. Account homes, SDK clients, sessions, caches, and worker/recovery state retain account identity; rotation waits for process exit and never replays work after streamed activity.
+- Fix App Server stream hangs after unexpected process exit and early completion notifications; advertise worker account support to prevent submitting saved accounts to an older worker.
+
 - Validate the installed default CLI and the currently configured
   `CODEX_REAL_PATH` CLI separately, comparing each wrapper invocation with the
   executable actually selected instead of assuming they have the same version.
