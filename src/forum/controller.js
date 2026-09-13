@@ -13,7 +13,7 @@ export function createForumMenus(r, { ui, accounts, text, now = Date.now }) {
   const service = createForumService(r, { accounts, now, text: t });
   const jobs = createForumJobs(r, { service, accounts, now, text: t });
   const btn = ui.button;
-  const back = () => [btn(t("back"), "forum")];
+  const back = () => [ui.back("forum")];
   const projects = (ctx) => forumProjects(r.state, ctx.from.id);
   const jobFor = (ctx, id) => {
     const group = service.group(ctx), job = state.jobs[id];

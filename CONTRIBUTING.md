@@ -16,9 +16,12 @@ Fill in your local Telegram and Codex settings in `.env`.
 Run these before opening a pull request:
 
 ```bash
-npm run check
-npm test
+npm run verify
 ```
+
+For menu, routing or execution changes, also run `npm run test:coverage` on
+Node.js 22 or newer. See [the maintenance guide](docs/maintainability.md) for
+controller boundaries, state migrations and coverage artifacts.
 
 For translation-only pull requests, run:
 

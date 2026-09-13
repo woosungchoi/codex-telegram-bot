@@ -4,6 +4,17 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+- Add real route and execution composition tests, CI coverage artifacts, and
+  checks for controller dependencies, types, formatting and translation contracts.
+- Share menu navigation rules and consolidate account, workspace and forum
+  translations in the locale catalogs. Split workspace feature controllers.
+- Version and validate saved state while preserving durable work and recovery
+  records; remove only expired account and workspace UI flows during startup.
+- Add a read-only repository difference checker with reviewed file fingerprints.
+
+- Recover a running worker whose snapshot was displaced by a failed duplicate
+  turn, and tolerate only incomplete trailing event-log records during polling.
+
 - Add emoji labels to all Telegram command descriptions and control panel
   buttons, including nested Settings and Tools options.
 - Add Previous navigation to usage, account, workspace and tool result screens.

@@ -68,11 +68,18 @@ export async function workspaceFixture(t, options = {}) {
     setMcpEnabled: async (...args) => { backendCalls.push({ method: "setMcpEnabled", args }); mcpEnabled = args[3]; }
   };
   options.configure?.(r);
-  registerForumContext(r);
-  registerWorkspaceFlowBoundary(r);
-  bot.command("accounts", (ctx) => r.replyHtml(ctx, "Account menu"));
-  const controller = registerWorkspaceMenus(r, { accounts: storage.store, backend, now: () => clock.now,
-    readTail: options.readTail || (async () => ({ messages: [{ role: "assistant", text: "preview answer" }], activity: "idle" })) });
+  const dependencies = { accounts: storage.store, backend, now: () => clock.now,
+    readTail: options.readTail || (async () => ({ messages: [{ role: "assistant", text: "preview answer" }], activity: "idle" })) };
+  let controller;
+  if (options.register) {
+    controller = options.register(r, dependencies);
+  } else {
+    registerForumContext(r);
+    registerWorkspaceFlowBoundary(r);
+    bot.command("accounts", (ctx) => r.replyHtml(ctx, "Account menu"));
+    controller = registerWorkspaceMenus(r, dependencies);
+  }
+  bot.catch((error) => { throw error; });
   t.after(() => controller.stop());
   bot.on("message", (ctx) => forwarded.push(ctx.message.text));
   const user = (id) => ({ id, first_name: "Test", is_bot: false });

@@ -55,17 +55,34 @@ export async function appendJobEvent(paths, jobId, event) {
 }
 
 export async function readJobEvents(paths, jobId, { afterSeq = 0, limit = 500 } = {}) {
-  try {
-    const body = await fs.readFile(jobEventsPath(paths, jobId), "utf8");
-    return body.split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line))
-      .filter((event) => Number(event.seq || 0) > Number(afterSeq || 0))
-      .slice(0, limit);
-  } catch (error) {
-    if (error?.code === "ENOENT") return [];
-    throw error;
+  return withFileLock(jobPath(paths, jobId), async () => {
+    try {
+      const body = await fs.readFile(jobEventsPath(paths, jobId), "utf8");
+      return parseJobEventLog(body)
+        .filter((event) => Number(event.seq || 0) > Number(afterSeq || 0))
+        .slice(0, limit);
+    } catch (error) {
+      if (error?.code === "ENOENT") return [];
+      throw error;
+    }
+  });
+}
+
+function parseJobEventLog(body) {
+  const lines = body.split("\n");
+  const trailingLine = lines.length - 1;
+  const completeTail = body.endsWith("\n");
+  const events = [];
+  for (const [index, line] of lines.entries()) {
+    if (!line) continue;
+    try {
+      events.push(JSON.parse(line));
+    } catch (error) {
+      if (index === trailingLine && !completeTail) continue;
+      throw error;
+    }
   }
+  return events;
 }
 
 export async function writeJobState(paths, job) {

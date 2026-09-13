@@ -1,6 +1,7 @@
 node_modules/
+coverage/
 .env
-state/
+/state/
 AGENTS.md
 .codegraph/
 npm-debug.log*

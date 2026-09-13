@@ -1,6 +1,9 @@
 # Translation Guide
 
 The Telegram UI text lives in `src/locales/*.json`.
+Account, workspace and forum messages use the `accounts.*`, `workspace.*` and
+`forum.*` prefixes in these same files. Their message helpers do not contain
+separate translation catalogs.
 
 To add a language:
 
@@ -32,6 +35,8 @@ Rules:
 - Do not add or remove translation keys unless you are also changing the app UI.
 - Leave command names unchanged. Only translate descriptions and labels.
 - Keep placeholders, command names, paths, and environment variable names exact.
+- The validator checks string values, nonempty translations and named
+  placeholders such as `{count}` against the English catalog.
 
 `src/i18n.js` automatically loads every locale file. The language picker and
 Telegram command-menu descriptions update from those files.

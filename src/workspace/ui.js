@@ -3,6 +3,7 @@ import { newId, scopeKey, topicId, workspaceState } from "./store.js";
 import { isRegisteredTelegramCommandText } from "../telegram_commands.js";
 import { isTelegramServiceMessage } from "../telegram/service_messages.js";
 import { menuButtonText } from "../ui/button_labels.js";
+import { completeMenuRows, WORKSPACE_INPUT_PARENTS } from "../ui/menu_definition.js";
 import { createNavigationKeyboardViews } from "../ui/keyboard_helpers.js";
 
 export function createWorkspaceUi(r, t, { now = Date.now } = {}) {
@@ -10,6 +11,7 @@ export function createWorkspaceUi(r, t, { now = Date.now } = {}) {
   const locks = new Map();
   const navigation = createNavigationKeyboardViews({ text: (key) => key === "back" ? t(key).replace(/^(?:←|⬅️)\s*/u, "") : t(key) });
   const button = (label, type, args = {}) => ({ label, action: { type, ...args } });
+  const back = (type, args = {}) => ({ ...button(t("back"), type, args), role: "back" });
   // Prefixing an emoji can shift the cutoff into an existing surrogate pair.
   const buttonText = (label, action) => menuButtonText(label, action).slice(0, 64).replace(/[\uD800-\uDBFF]$/u, "");
   async function clear(ctx) { delete state.flows[scopeKey(ctx)]; await r.saveState(); }
@@ -17,9 +19,11 @@ export function createWorkspaceUi(r, t, { now = Date.now } = {}) {
     const token = newId();
     const actions = [];
     const parentPanel = ctx.state.workspaceParentPanel === "tools" ? "tools" : "main";
-    const previous = rows.some((row) => row.some((item) => /^(?:←|⬅️)\s+\S/u.test(item.label)))
-      ? [] : [[button(t("back"), "home", { panel: parentPanel })]];
-    const markup = { inline_keyboard: [...rows, ...previous, [button(t("close"), "close")]].map((row) => row.map((item) => {
+    const framed = completeMenuRows(rows, {
+      back: back("home", { panel: parentPanel }),
+      close: { ...button(t("close"), "close"), role: "close" }
+    });
+    const markup = { inline_keyboard: framed.map((row) => row.map((item) => {
       if (item.url) return { text: buttonText(item.label, "web"), url: item.url };
       const index = actions.push(item.action) - 1;
       return { text: buttonText(item.label, item.action.type), callback_data: `ws:${token}:${index}` };
@@ -33,12 +37,9 @@ export function createWorkspaceUi(r, t, { now = Date.now } = {}) {
     return state.flows[scopeKey(ctx)];
   }
   async function ask(ctx, label, data, hint = "") {
-    const parent = data.stage?.startsWith("project-") ? "projects"
-      : data.stage?.startsWith("session-") ? "sessions"
-        : data.stage?.startsWith("task-") ? "tasks"
-          : data.stage?.startsWith("forum-") ? "forum" : "home";
+    const parent = WORKSPACE_INPUT_PARENTS[data.stage?.split("-")[0]] || "home";
     return show(ctx, `${b(t("input"))}\n\n${b(label)}\n${hint}\n\n${t("inputHint")}`,
-      [[button(t("cancel"), parent)], [button(t("back"), parent, data.view)]], { ...data, awaiting: true });
+      [[button(t("cancel"), parent)], [back(parent, data.view)]], { ...data, awaiting: true });
   }
   async function close(ctx) {
     await clear(ctx);
@@ -88,5 +89,5 @@ export function createWorkspaceUi(r, t, { now = Date.now } = {}) {
       });
     });
   }
-  return { button, clear, show, ask, close, guard, read, register };
+  return { button, back, clear, show, ask, close, guard, read, register };
 }

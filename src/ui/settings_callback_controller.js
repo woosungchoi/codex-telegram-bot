@@ -89,7 +89,7 @@ export function createSettingsCallbackController({
             { text: localization.text("clearAll"), callback_data: "confirm:q_clear" },
             { text: localization.text("cancel"), callback_data: "p:queue" }
           ],
-          [{ text: `← ${localization.text("back")}`, callback_data: "p:queue" }]
+          [{ role: "back", text: `← ${localization.text("back")}`, callback_data: "p:queue" }]
         ]))
       );
     }

@@ -16,7 +16,7 @@ export function createRuntimeSettingsKeyboardViews({ text, withMenuCloseButton }
       ],
       [{ text: "Codex", callback_data: "p:settings_runtime_codex" }],
       [{ text: t("settings"), callback_data: "p:settings" }, { text: t("main"), callback_data: "p:main" }],
-      [{ text: `← ${t("back")}`, callback_data: "p:settings" }]
+      [{ role: "back", text: `← ${t("back")}`, callback_data: "p:settings" }]
     ]));
   }
 

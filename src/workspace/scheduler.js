@@ -5,6 +5,7 @@ import { nextOccurrence, occurrenceKey } from "./schedule.js";
 export const taskChatKey = (id) => `scheduled:${id}`;
 const LIVE = new Set(["queued", "running", "delivery_pending"]);
 
+/** @param {any} r @param {{ accounts?: import("./contracts.js").AccountAccess, now?: () => number }} options */
 export function createTaskScheduler(r, { accounts, now = Date.now } = {}) {
   const state = workspaceState(r.state);
   let ticking = false;

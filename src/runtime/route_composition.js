@@ -24,7 +24,7 @@ import { registerAccountCommands } from "../accounts/controller.js";
 import { registerWorkspaceFlowBoundary, registerWorkspaceMenus } from "../workspace/controller.js";
 import { registerForumContext } from "../forum/store.js";
 
-export function registerRuntimeRoutes(r) {
+export function registerRuntimeRoutes(r, { accounts, workspace } = {}) {
   registerTelegramMiddleware({
     bot: r.bot,
     config: r.config,
@@ -38,8 +38,8 @@ export function registerRuntimeRoutes(r) {
 
   registerForumContext(r);
   registerWorkspaceFlowBoundary(r);
-  if (r.config.codexAccountsDir) registerAccountCommands(r);
-  const workspaceMenus = registerWorkspaceMenus(r);
+  if (r.config.codexAccountsDir) registerAccountCommands(r, accounts);
+  const workspaceMenus = registerWorkspaceMenus(r, workspace);
   const chatCommandHandlers = registerChatCommands({
     bot: r.bot,
     settings: {

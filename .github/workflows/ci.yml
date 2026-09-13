@@ -10,6 +10,23 @@ permissions:
   contents: read
 
 jobs:
+  coverage:
+    name: Integration coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --audit=false
+      - run: npm run test:coverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage/
+
   check:
     name: Check Node ${{ matrix.node-version }}
     runs-on: ubuntu-latest

@@ -7,7 +7,8 @@ import { formatAccountUsageHtml, readAccountUsage } from "./usage.js";
 import { consumeAccountResetCredit } from "./reset_credits.js";
 import { createResetCreditsController } from "./reset_controller.js";
 import { b, code, escapeHtml } from "../telegram/html.js";
-import { createNavigationKeyboardViews, inlineKeyboard } from "../ui/keyboard_helpers.js";
+import { inlineKeyboard } from "../ui/keyboard_helpers.js";
+import { renderMenu } from "../ui/menu_definition.js";
 import { telegramChatKey } from "../telegram/context.js";
 import { isTelegramServiceMessage } from "../telegram/service_messages.js";
 
@@ -15,10 +16,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
   const pending = new Map();
   const operations = new Map();
   const t = (key) => accountText(r.state.ui?.language || r.config.telegramLanguage, key);
-  const navigation = createNavigationKeyboardViews({ text: t });
-  const keyboard = (rows, previous = "acct:list") => navigation.withMenuCloseButton(
-    navigation.withPreviousButton(inlineKeyboard(rows), previous)
-  );
+  const keyboard = (rows, previous = "acct:list") => renderMenu(inlineKeyboard(rows), { text: t, previous, close: true });
   const button = (text, data) => ({ text, callback_data: data });
   const flowKey = (ctx) => `${telegramChatKey(ctx)}:${ctx.from?.id}`;
   const readFlow = (ctx) => r.state.accountUi?.[flowKey(ctx)];
