@@ -4,7 +4,7 @@ import {
 } from "../codex/thread_factory.js";
 import { writePrivateFileAtomic } from "../fs/private.js";
 import { parseCleanupExecutionMode } from "../maintenance/cleanup_mode.js";
-import { migrateRuntimeState } from "../state/schema.js";
+import { migrateRuntimeState, validateMutableNamespaces } from "../state/schema.js";
 
 export async function loadRuntimeState(file, options) {
   try {
@@ -101,6 +101,7 @@ export function createRuntimeSettingsController({ state, defaults, threadCache, 
 
 const pendingStateWrites = new Map();
 export async function saveRuntimeState(file, value) {
+  validateMutableNamespaces(value);
   const data = `${JSON.stringify(value, null, 2)}\n`;
   const pending = (pendingStateWrites.get(file) || Promise.resolve()).catch(() => {})
     .then(() => writePrivateFileAtomic(file, data));

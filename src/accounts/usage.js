@@ -1,6 +1,8 @@
 import { connectAppServer } from "../codex/app_server.js";
 import { b, code, escapeHtml } from "../telegram/html.js";
 import { accountConfig } from "./context.js";
+import { createQueryCache } from "../utils/query_cache.js";
+import { accountQueryIdentity } from "./query_identity.js";
 
 export async function readAccountUsage(config, id, { connect = connectAppServer, now = Date.now } = {}) {
   const client = await connect(accountConfig(config, id));
@@ -16,6 +18,17 @@ export async function readAccountUsage(config, id, { connect = connectAppServer,
       checkedAt: now()
     };
   } finally { await client.close(); }
+}
+
+export function createAccountUsageReader(config, { read = readAccountUsage, now = Date.now } = {}) {
+  const cache = createQueryCache({ ttlMs: 5000, maxEntries: 64, now });
+  return {
+    async read(id, options = {}) {
+      const key = JSON.stringify(await accountQueryIdentity(config, id));
+      return cache.get(key, () => read(config, id), options);
+    },
+    invalidate: cache.clear
+  };
 }
 
 export function formatAccountUsageHtml(usage, { label, text: t, formatDateTime = (ms) => new Date(ms).toISOString() }) {

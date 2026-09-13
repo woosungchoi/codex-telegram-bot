@@ -3,7 +3,7 @@ import { projectOptions, workspaceState } from "../workspace/store.js";
 import { normalizeForumState } from "../state/schema.js";
 
 export function forumState(state) {
-  state.forum = normalizeForumState(state.forum);
+  state.forum = normalizeForumState(state.forum, { validateRecords: false });
   return state.forum;
 }
 

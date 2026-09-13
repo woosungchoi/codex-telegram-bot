@@ -14,6 +14,7 @@ export function createExecutionComposition(r) {
       defaultWorkdir: r.config.codexWorkdir,
       defaultModel: r.config.codexModel
     },
+    onDeliverySent: (entry) => r.getWorkerClient().confirmDelivery?.(entry),
     state: r.state,
     activeTurns: r.activeTurns,
     threadCache: r.threadCache,

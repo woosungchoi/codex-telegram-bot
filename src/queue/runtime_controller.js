@@ -26,7 +26,7 @@ export function createQueueRuntimeController({
   logger = console,
   now = () => new Date(),
   random = Math.random,
-  timers = { setTimeout }
+  timers = { setTimeout, clearTimeout }
 }) {
   function getPendingTurns(chatKey) {
     return pendingTurns.get(chatKey) ?? [];
@@ -218,7 +218,9 @@ export function createQueueRuntimeController({
   }
 
   function startPersistedQueues() {
-    timers.setTimeout(() => {
+    let cancelled = false;
+    const timer = timers.setTimeout(() => {
+      if (cancelled) return;
       for (const chatKey of pendingTurns.keys()) {
         startQueueDrainIfIdle(chatKey).catch((error) => {
           logger.warn(
@@ -228,6 +230,10 @@ export function createQueueRuntimeController({
         });
       }
     }, 3000);
+    return () => {
+      cancelled = true;
+      timers.clearTimeout?.(timer);
+    };
   }
 
   function replaceQueue(chatKey, queue) {

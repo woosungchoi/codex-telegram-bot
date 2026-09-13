@@ -44,7 +44,10 @@ function namespace(value, path, fields) {
   };
 }
 
-export function normalizeWorkspaceState(value) {
+export function normalizeWorkspaceState(
+  value,
+  { validateRecords = true } = {},
+) {
   const result = namespace(value, "workspace", [
     "projects",
     "tasks",
@@ -52,6 +55,7 @@ export function normalizeWorkspaceState(value) {
     "panels",
     "panelPreferences",
   ]);
+  if (!validateRecords) return result;
   for (const [key, projects] of Object.entries(result.projects)) {
     if (!Array.isArray(projects))
       throw new Error(
@@ -71,8 +75,9 @@ export function normalizeWorkspaceState(value) {
   return result;
 }
 
-export function normalizeForumState(value) {
+export function normalizeForumState(value, { validateRecords = true } = {}) {
   const result = namespace(value, "forum", ["groups", "jobs"]);
+  if (!validateRecords) return result;
   recordMap(result.groups, "forum.groups");
   recordMap(result.jobs, "forum.jobs");
   for (const group of Object.values(result.groups)) {
@@ -129,4 +134,11 @@ export function migrateRuntimeState(value, { now = Date.now() } = {}) {
       ? {}
       : { accountUi: liveFlows(input.accountUi, now) }),
   };
+}
+
+// Reads validate only namespace/version/container shape. Full record validation
+// stays at load and save boundaries, including direct controller mutations.
+export function validateMutableNamespaces(state) {
+  normalizeWorkspaceState(state.workspace);
+  normalizeForumState(state.forum);
 }

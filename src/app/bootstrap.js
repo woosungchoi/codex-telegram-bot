@@ -14,7 +14,12 @@ export async function bootstrapBot({
   processRef = process,
   logger = console
 }) {
+  let stopping = false;
+  let launched = false;
+  let cancelQueueStartup = () => {};
   const stopForSignal = (signal) => {
+    stopping = true;
+    cancelQueueStartup();
     if (handleSignal) {
       Promise.resolve(handleSignal(signal)).catch((error) => {
         logger.warn("Signal handler failed:", error instanceof Error ? error.message : String(error));
@@ -40,7 +45,18 @@ export async function bootstrapBot({
   });
   if (startRecoveryScheduler) await startRecoveryScheduler();
   if (startWorkspaceServices) startWorkspaceServices();
-  await bot.launch();
-  logger.log("codex-telegram-bot started");
-  startPersistedQueues();
+  try {
+    // Telegraf's launch promise lives for the whole polling loop. Its callback
+    // runs after getMe, when the API identity is ready for queued work.
+    await bot.launch(() => {
+      if (stopping || launched) return;
+      launched = true;
+      logger.log("codex-telegram-bot started");
+      const cancel = startPersistedQueues();
+      if (typeof cancel === "function") cancelQueueStartup = cancel;
+    });
+  } finally {
+    stopping = true;
+    cancelQueueStartup();
+  }
 }

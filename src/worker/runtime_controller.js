@@ -219,6 +219,14 @@ export function createWorkerRuntimeController({
     let threadId = chatStore.get(chatKey).threadId || "";
     let streamOutcome = "completed";
     let pollFailureCount = 0;
+    let cursorDirty = false;
+    let checkpointAt = nowMs();
+    const checkpoint = async () => {
+      if (!cursorDirty) return;
+      await recordWorkerDeliveryCursor(chatKey, jobId, cursor);
+      cursorDirty = false;
+      checkpointAt = nowMs();
+    };
     await turn.recordCodexStreamStarted(chatKey, options.turnKind || "user");
 
     try {
@@ -264,79 +272,94 @@ export function createWorkerRuntimeController({
           continue;
         }
 
-        for (const event of events) {
-          const seq = Number(event.seq || cursor);
-          cursor = Number.isFinite(seq) ? Math.max(cursor, seq) : cursor;
-          active.workerEventSeq = cursor;
-          const eventType = String(event.type || "");
-          const accountChat = chatStore.get(chatKey);
-          if (applyAccountEvent(accountChat, event)) {
-            if (eventType === "account.attempt.started") threadId = event.threadId || "";
-            await recordWorkerDeliveryCursor(chatKey, jobId, cursor);
-            continue;
-          }
-          if (hasAttemptActivity(event) && accountChat.accountAttemptState) accountChat.accountAttemptState.hadActivity = true;
-          const update = applyCodexStreamEvent(streamState, event);
-          if (update.type === "thread_started") rememberAccountThread(accountChat, update.threadId, event.accountId || "default");
-          await recordWorkerDeliveryCursor(chatKey, jobId, cursor);
-          if (eventType === "account.rotation") {
-            await turn.notifyAccountRotation?.(ctx, event.accountLabel || event.accountId);
-            continue;
-          }
-          if (event.threadId) threadId = event.threadId;
-          if (eventType.startsWith("worker.job.")) {
-            if (isTerminalWorkerEvent(event)) terminal = event;
-            continue;
-          }
-
-          if (update.type === "thread_started") {
-            threadId = update.threadId || threadId;
-            const chat = chatStore.get(chatKey);
-            rememberAccountThread(chat, threadId, event.accountId || "default");
-            chat.updatedAt = now().toISOString();
-            await deliveryStore.save();
-            await turn.recordThreadStarted(chatKey, threadId);
-          } else if (update.type === "item") {
-            if (accountChat.accountAttemptState && !accountChat.accountAttemptState.hadActivity) {
-              accountChat.accountAttemptState.hadActivity = true;
-              await deliveryStore.save();
+        try {
+          for (const event of events) {
+            const seq = Number(event.seq || cursor);
+            cursor = Number.isFinite(seq) ? Math.max(cursor, seq) : cursor;
+            active.workerEventSeq = cursor;
+            cursorDirty = true;
+            const eventType = String(event.type || "");
+            const accountChat = chatStore.get(chatKey);
+            if (applyAccountEvent(accountChat, event)) {
+              if (eventType === "account.attempt.started") threadId = event.threadId || "";
+              await checkpoint();
+              continue;
             }
-            await turn.recordStreamItemEvent(chatKey, event, update);
-            if (!firstItemSeen) {
-              firstItemSeen = true;
-              await turn.recordCodexStreamFirstItem(
+            if (hasAttemptActivity(event) && accountChat.accountAttemptState && !accountChat.accountAttemptState.hadActivity) {
+              accountChat.accountAttemptState.hadActivity = true;
+              await checkpoint();
+            }
+            const update = applyCodexStreamEvent(streamState, event);
+            if (update.type === "thread_started") rememberAccountThread(accountChat, update.threadId, event.accountId || "default");
+            if (eventType === "account.rotation") {
+              await turn.notifyAccountRotation?.(ctx, event.accountLabel || event.accountId);
+              continue;
+            }
+            if (event.threadId) threadId = event.threadId;
+            if (eventType.startsWith("worker.job.")) {
+              if (isTerminalWorkerEvent(event)) {
+                terminal = event;
+                await checkpoint();
+              }
+              continue;
+            }
+
+            if (update.type === "thread_started") {
+              threadId = update.threadId || threadId;
+              const chat = chatStore.get(chatKey);
+              rememberAccountThread(chat, threadId, event.accountId || "default");
+              chat.updatedAt = now().toISOString();
+              await checkpoint();
+              await turn.recordThreadStarted(chatKey, threadId);
+            } else if (update.type === "item") {
+              if (accountChat.accountAttemptState && !accountChat.accountAttemptState.hadActivity) {
+                accountChat.accountAttemptState.hadActivity = true;
+                await checkpoint();
+              }
+              await turn.recordStreamItemEvent(chatKey, event, update);
+              if (!firstItemSeen) {
+                firstItemSeen = true;
+                await turn.recordCodexStreamFirstItem(
+                  chatKey,
+                  event,
+                  update,
+                  nowMs() - streamStartedAt
+                );
+              }
+              if (update.finalResponseChanged) {
+                await turn.recordCodexStreamFinalResponseSeen(
+                  chatKey,
+                  streamState.finalResponse.length,
+                  nowMs() - streamStartedAt
+                );
+              }
+            } else if (update.type === "error") {
+              streamOutcome = "error";
+              await checkpoint();
+              await turn.recordActiveTurnFailed(chatKey, update.message);
+              throw new Error(update.message);
+            } else if (update.type === "turn_completed") {
+              await checkpoint();
+              await recovery.appendEvent({ type: "turn_completed", chatKey, threadId });
+            } else if (update.type === "unknown") {
+              await turn.recordCodexStreamUnknownEvent(
                 chatKey,
                 event,
-                update,
                 nowMs() - streamStartedAt
               );
             }
-            if (update.finalResponseChanged) {
-              await turn.recordCodexStreamFinalResponseSeen(
-                chatKey,
-                streamState.finalResponse.length,
-                nowMs() - streamStartedAt
-              );
-            }
-          } else if (update.type === "error") {
-            streamOutcome = "error";
-            await turn.recordActiveTurnFailed(chatKey, update.message);
-            throw new Error(update.message);
-          } else if (update.type === "turn_completed") {
-            await recovery.appendEvent({ type: "turn_completed", chatKey, threadId });
-          } else if (update.type === "unknown") {
-            await turn.recordCodexStreamUnknownEvent(
-              chatKey,
+            await turn.maybeSendLiveProgress(
+              ctx,
+              progressState,
               event,
-              nowMs() - streamStartedAt
+              codexStreamItems(streamState)
             );
+            if (nowMs() - checkpointAt >= 250) await checkpoint();
           }
-          await turn.maybeSendLiveProgress(
-            ctx,
-            progressState,
-            event,
-            codexStreamItems(streamState)
-          );
+        } finally {
+          // Keep the page boundary durable, including partially handled pages.
+          // Only streaming cursors are batched; queue/reset/final-send saves stay immediate.
+          await checkpoint();
         }
       }
 
@@ -351,6 +374,9 @@ export function createWorkerRuntimeController({
         throw new Error(terminal.message || "Codex worker job was cancelled.");
       }
       return { turn: codexStreamResult(streamState), threadId, workerLastSeq: cursor };
+    } catch (error) {
+      if (streamOutcome === "completed") streamOutcome = "error";
+      throw error;
     } finally {
       await turn.recordCodexStreamIteratorClosed(chatKey, {
         elapsedMs: nowMs() - streamStartedAt,

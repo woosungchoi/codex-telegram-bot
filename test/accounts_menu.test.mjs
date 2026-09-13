@@ -796,14 +796,14 @@ test("usage holds an account lease during queries and releases it after success 
   const leases = path.join(f.config.codexAccountsDir, "leases", account.id);
   assert.deepEqual(await fs.readdir(leases), []);
   fail = true;
-  await f.click("acct:usage");
+  await f.click(`acct:usagerefresh:${account.id}`);
   assert.match(f.messages.at(-1).text, /불러오지 못했습니다/);
   assert.doesNotMatch(JSON.stringify(f.messages), /TOKEN_SENTINEL/);
   assert.deepEqual(await fs.readdir(leases), []);
   assert.ok(f.buttons().some((button) => button.callback_data === `acct:usage:${account.id}`));
   assert.ok(f.buttons().some((button) => button.callback_data === "ui:close:menu"));
   fail = false;
-  await f.click("acct:usage");
+  await f.click(`acct:usagerefresh:${account.id}`);
   assert.match(f.messages.at(-1).html, /남음 <b>48%/);
   await f.store.remove(account.id);
 });
@@ -860,7 +860,7 @@ test("usage account buttons switch quotas and credits without changing task sele
   assert.ok(f.buttons(panel).some((item) => item.text === "✅ <다른 계정>"));
   assert.ok(f.buttons(panel).every((item) => Buffer.byteLength(item.callback_data) <= 64));
   const refresh = f.buttons(panel).find((item) => item.text === "🔄 새로고침");
-  assert.equal(refresh.callback_data, `acct:usage:${other.id}`);
+  assert.equal(refresh.callback_data, `acct:usagerefresh:${other.id}`);
   await f.click(refresh.callback_data, panel);
   assert.deepEqual(calls, ["default", other.id, other.id]);
   assert.deepEqual(f.r.state.chats["1"], before);

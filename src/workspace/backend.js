@@ -1,27 +1,34 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { connectAppServer } from "../codex/app_server.js";
+import { createQueryCache } from "../utils/query_cache.js";
+import { accountQueryIdentity } from "../accounts/query_identity.js";
 import { accountConfig } from "../accounts/context.js";
 import { readSessionRequest, sessionTitle } from "./session_labels.js";
 
-export function createWorkspaceBackend(config, { connect = connectAppServer } = {}) {
+export function createWorkspaceBackend(config, { connect = connectAppServer, now = Date.now } = {}) {
+  const cache = createQueryCache({ ttlMs: 3000, now });
+  async function cached(accountId, operation, args, load, fresh) {
+    const key = JSON.stringify([await accountQueryIdentity(config, accountId), operation, args]);
+    return cache.get(key, load, { fresh });
+  }
   async function using(accountId, action) {
     const client = await connect(accountConfig(config, accountId));
     try { return await action(client); } finally { await client.close(); }
   }
-  async function listSessions(accountId, { cursor = null, query = "", cwd = null } = {}) {
-    const result = await using(accountId, (c) => c.request("thread/list", {
+  async function listSessions(accountId, { cursor = null, query = "", cwd = null, fresh = false } = {}) {
+    const result = await cached(accountId, "list", { cursor, query, cwd }, () => using(accountId, (c) => c.request("thread/list", {
       limit: 8, cursor, sortKey: "updated_at", sortDirection: "desc", searchTerm: query || null, cwd,
       sourceKinds: ["cli", "vscode", "exec", "appServer", "unknown"]
-    }));
+    })), fresh);
     return { ...result, data: await Promise.all((result.data || []).map((s) => describeSession(accountId, s))) };
   }
   async function describeSession(accountId, session) {
     const request = session.name?.trim() ? "" : await readSessionRequest(session.path, accountConfig(config, accountId).codexSessionsDir).catch(() => "");
     return { ...session, displayTitle: sessionTitle(session, request) };
   }
-  async function readSession(accountId, id) {
-    const session = await using(accountId, async (c) => (await c.request("thread/read", { threadId: id, includeTurns: false })).thread);
+  async function readSession(accountId, id, { fresh = false } = {}) {
+    const session = await cached(accountId, "read", id, () => using(accountId, async (c) => (await c.request("thread/read", { threadId: id, includeTurns: false })).thread), fresh);
     return describeSession(accountId, session);
   }
   async function readMcp(accountId, cwd, health = false) {
@@ -80,7 +87,7 @@ export function createWorkspaceBackend(config, { connect = connectAppServer } = 
       return result;
     });
   }
-  return { listSessions, readSession, readMcp, setMcpEnabled };
+  return { listSessions, readSession, readMcp, setMcpEnabled, invalidate: cache.clear };
 }
 
 // Only display text messages. Never expose image data, hidden reasoning, or raw tool results.

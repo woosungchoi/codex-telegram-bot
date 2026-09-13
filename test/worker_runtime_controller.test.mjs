@@ -10,7 +10,10 @@ function createHarness({
   workerRestartRecoveryAttempts = 3,
   terminalJob = null,
   contextError = null,
-  eventErrors = []
+  eventErrors = [],
+  clockStep = 10,
+  eventLimit = Infinity,
+  progressError = null
 } = {}) {
   const chat = { threadId: "thread-existing", outputSchema: { type: "object" } };
   const deliveries = {};
@@ -30,7 +33,7 @@ function createHarness({
       eventReadCount += 1;
       if (error) throw error;
       const jobEvents = eventsByJob?.[jobId] || events;
-      return { events: jobEvents.filter((event) => event.seq > afterSeq) };
+      return { events: jobEvents.filter((event) => event.seq > afterSeq).slice(0, eventLimit) };
     },
     async getJobStatus(jobId) {
       calls.push(["status", jobId]);
@@ -74,7 +77,7 @@ function createHarness({
           throw contextError;
         }
         : record("context"),
-      maybeSendLiveProgress: record("progress"),
+      maybeSendLiveProgress: progressError ? async () => { throw progressError; } : record("progress"),
       recordActiveTurnFailed: record("active-failed"),
       recordCodexStreamFinalResponseSeen: record("final-seen"),
       recordCodexStreamFirstItem: record("first-item"),
@@ -91,7 +94,7 @@ function createHarness({
     sleep: record("sleep"),
     now: () => new Date("2026-07-21T04:05:06.000Z"),
     nowMs: () => {
-      clock += 10;
+      clock += clockStep;
       return clock;
     },
     logger: { warn: (...args) => calls.push(["warn", ...args]) }
@@ -377,4 +380,25 @@ test("failed worker terminal events close the stream with an error outcome", asy
     /boom/
   );
   assert.equal(calls.find(([name]) => name === "stream-closed")[2].outcome, "error");
+});
+
+test("a fast 101-event page makes one durable cursor checkpoint", async () => {
+  const events = Array.from({ length: 100 }, (_, i) => ({ seq: i + 1, type: "item.updated", item: { id: "answer", type: "agent_message", text: `part ${i}` } }));
+  events.push({ seq: 101, type: "worker.job.completed", status: "completed" });
+  const h = createHarness({ events, clockStep: 0 });
+  await h.controller.waitForWorkerJob({}, "chat", "job-1", { abortController: new AbortController() }, null);
+  assert.equal(h.calls.filter(([name]) => name === "save").length, 1);
+  assert.equal(h.deliveries["chat:job-1"].seq, 101);
+});
+
+test("checkpoints cover each page and failed partial processing, never unhandled events", async () => {
+  const events = [1, 2, 3, 4].map((seq) => ({ seq, type: "item.updated", item: { id: "a", type: "agent_message", text: "part" } }));
+  events.push({ seq: 5, type: "worker.job.completed", status: "completed" });
+  const paged = createHarness({ events, eventLimit: 2, clockStep: 0 });
+  await paged.controller.waitForWorkerJob({}, "chat", "job-1", { abortController: new AbortController() }, null);
+  assert.equal(paged.calls.filter(([name]) => name === "save").length, 3);
+  const failed = createHarness({ events, progressError: new Error("render failed"), clockStep: 0 });
+  await assert.rejects(failed.controller.waitForWorkerJob({}, "chat", "job-1", { abortController: new AbortController() }, null), /render failed/);
+  assert.equal(failed.deliveries["chat:job-1"].seq, 1);
+  assert.equal(failed.calls.find(([name]) => name === "stream-closed")[2].outcome, "error");
 });

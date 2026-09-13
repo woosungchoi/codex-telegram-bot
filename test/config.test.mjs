@@ -37,6 +37,7 @@ test("readConfig preserves the complete flat default contract", () => {
     codexAppServerDirectTimeoutMs: 5000,
     codexWorkerMode: "sidecar",
     codexWorkerStateDir: "/app/state/worker",
+    codexWorkerLogRetentionDays: 30,
     codexWorkerSocket: "/app/state/worker/worker.sock",
     codexWorkerConnectTimeoutMs: 5000,
     codexWorkerEventPollMs: 1000,

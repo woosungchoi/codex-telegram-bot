@@ -16,7 +16,9 @@ export function createWorkerDeliveryJournal({
   appendRecoveryEvent,
   safeRecoveryWrite,
   updateSnapshot,
-  digestText
+  digestText,
+  onDeliverySent = null,
+  logger = console
 }) {
   async function recordTelegramReplyReady(chatKey, execution, text) {
     const metadata = telegramReplyMetadata(text);
@@ -79,7 +81,13 @@ export function createWorkerDeliveryJournal({
 
   async function recordTelegramReplyCompleted(chatKey, execution, text) {
     const metadata = telegramReplyMetadata(text);
-    await transitionWorkerDelivery(chatKey, execution, (entry) => markWorkerDeliverySent(entry));
+    const sent = await transitionWorkerDelivery(chatKey, execution, (entry) => markWorkerDeliverySent(entry));
+    if (sent && onDeliverySent) {
+      // Archival bookkeeping failure cannot turn a successful Telegram send into
+      // an ambiguous/failed delivery or trigger another send.
+      try { await onDeliverySent(sent); }
+      catch (error) { logger.warn("worker delivery receipt deferred:", error instanceof Error ? error.message : String(error)); }
+    }
     if (!settings.enabled) return;
     await safeRecoveryWrite(async () => {
       await appendRecoveryEvent({

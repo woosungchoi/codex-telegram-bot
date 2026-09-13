@@ -127,7 +127,7 @@ test("session scope, search and page survive refresh, cards, watching and accoun
   assert.equal(f.backendCalls.at(-1).args.cwd, f.root);
   assert.match(f.messages.at(-1).text, /현재 프로젝트/);
   await f.press("검색"); await f.send("needle"); await f.press("새로고침");
-  assert.deepEqual(f.backendCalls.at(-1).args, { cwd: f.root, query: "needle", cursor: null });
+  assert.deepEqual(f.backendCalls.at(-1).args, { cwd: f.root, query: "needle", cursor: null, fresh: true });
   await f.press("→"); await f.press("First session"); await f.press("실시간 관찰"); await f.press("관찰 중지"); await f.press("이전");
   assert.deepEqual(f.backendCalls.at(-1).args, { cwd: f.root, query: "needle", cursor: "page2" });
   await f.click(f.buttons().find((button) => button.text.trim() === "⬅️").callback_data); assert.equal(f.backendCalls.at(-1).args.cursor, null);
