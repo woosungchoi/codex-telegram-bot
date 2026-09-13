@@ -1,4 +1,4 @@
-import { decorateMenuKeyboard } from "./button_labels.js";
+import { commandParent, legacyMenuRows, previousPanelFor, renderMenu } from "./menu_definition.js";
 
 export function chunkButtons(buttons, size) {
   const rows = [];
@@ -15,10 +15,8 @@ export function inlineKeyboard(rows) {
 export function commandReplyKeyboard(ctx, text, keyboard) {
   if (!ctx.callbackQuery) return keyboard;
   const navigation = createNavigationKeyboardViews({ text });
-  const hasPrevious = keyboard?.reply_markup?.inline_keyboard?.some((row) => row.some((button) => /^(?:←|⬅)/u.test(button.text)));
-  const panel = ctx.callbackQuery.data === "act:restart" ? "settings_runtime_codex"
-    : ctx.callbackQuery.data?.startsWith("tool:") ? "tools" : "main";
-  return navigation.withMenuCloseButton(hasPrevious ? keyboard : navigation.withPreviousPanelButton(keyboard, panel));
+  const back = legacyMenuRows(keyboard?.reply_markup?.inline_keyboard).flat().find((button) => button.role === "back");
+  return navigation.withMenuCloseButton(navigation.withPreviousPanelButton(keyboard, back ? null : commandParent(ctx)));
 }
 
 export function createNavigationKeyboardViews({ text }) {
@@ -34,32 +32,11 @@ export function createNavigationKeyboardViews({ text }) {
   }
 
   function withPreviousButton(keyboard, callbackData) {
-    const rows = keyboard?.reply_markup?.inline_keyboard ? [...keyboard.reply_markup.inline_keyboard] : [];
-    const hasPreviousButton = rows.some((row) => row.some((button) => (
-      button?.callback_data === callbackData && /^(?:←|⬅)/u.test(String(button.text || ""))
-    )));
-    if (!hasPreviousButton) rows.push([{ text: `⬅️ ${t("back")}`, callback_data: callbackData }]);
-    return { ...keyboard, reply_markup: { ...keyboard?.reply_markup, inline_keyboard: rows } };
+    return renderMenu(keyboard, { text: t, previous: callbackData });
   }
 
   function withMenuCloseButton(keyboard) {
-    const callbackData = "ui:close:menu";
-    const rows = keyboard?.reply_markup?.inline_keyboard
-      ? keyboard.reply_markup.inline_keyboard
-        .map((row) => row.filter((button) => button?.callback_data !== callbackData))
-        .filter((row) => row.length > 0)
-      : [];
-    rows.push([{ text: t("close"), callback_data: callbackData }]);
-    return decorateMenuKeyboard({ ...keyboard, reply_markup: { ...keyboard?.reply_markup, inline_keyboard: rows } });
-  }
-
-  function previousPanelFor(panel) {
-    if (panel === "main") return null;
-    if (["status", "queue", "settings", "tools", "help"].includes(panel)) return "main";
-    if (panel.startsWith("settings_timezone_")) return "settings_timezone";
-    if (panel.startsWith("settings_runtime_")) return "settings_runtime";
-    if (panel.startsWith("settings_")) return "settings";
-    return "main";
+    return renderMenu(keyboard, { text: t, close: true });
   }
 
   function backToMainKeyboard() {

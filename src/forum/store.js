@@ -1,10 +1,9 @@
 import { telegramChatKey, telegramContextMeta, telegramTopicId } from "../telegram/context.js";
 import { projectOptions, workspaceState } from "../workspace/store.js";
+import { normalizeForumState } from "../state/schema.js";
 
 export function forumState(state) {
-  state.forum ||= {};
-  state.forum.groups ||= {};
-  state.forum.jobs ||= {};
+  state.forum = normalizeForumState(state.forum);
   return state.forum;
 }
 

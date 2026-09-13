@@ -121,6 +121,37 @@ export function createWorkerRuntimeRecoveryController({
       })) started += 1;
     }
 
+    for (const [key, rawEntry] of Object.entries(stateStore.getWorkerDeliveries())) {
+      const entry = normalizeWorkerDeliveryEntry(key, rawEntry);
+      const job = entry ? jobs[entry.jobId] : null;
+      const snapshot = entry ? snapshots[entry.chatKey] : null;
+      if (
+        !entry
+        || entry.deliveryStatus !== "streaming"
+        || (job?.status !== "accepted" && job?.status !== "running")
+        || (job?.id && String(job.id) !== entry.jobId)
+        || (job?.chatKey && String(job.chatKey) !== entry.chatKey)
+        || String(snapshot?.workerJobId || "") === entry.jobId
+        || stateStore.activeTurns.has(entry.chatKey)
+      ) continue;
+      const repairedSnapshot = {
+        ...workerRecoverySnapshot(entry.chatKey, job),
+        recoveryReason: "active_worker_snapshot_mismatch"
+      };
+      await replaceActiveTurnSnapshot(settings.recoveryDir, entry.chatKey, repairedSnapshot);
+      if (startWorkerJobRecovery(
+        entry.chatKey,
+        repairedSnapshot,
+        job,
+        {
+          source,
+          expectedDigest: "",
+          showProgress: true,
+          reason: "active_worker_snapshot_mismatch"
+        }
+      )) started += 1;
+    }
+
     for (const candidate of selection.safe) {
       if (stateStore.activeTurns.has(candidate.chatKey)) {
         await turn.appendRecoveryEvent({

@@ -289,6 +289,7 @@ test("running worker snapshots resume through final delivery and queue drain", a
   );
   assert.equal(harness.reactions.at(-1)[1], "done");
 });
+
 test("startup recovery converts a restart-failed worker job into a new recovery turn", async (t) => {
   const workerJob = {
     id: "job-restarted",
@@ -353,6 +354,91 @@ test("startup recovery does not override an explicit user stop after a worker re
   const snapshots = await readActiveTurnSnapshots(harness.recoveryDir);
   assert.equal(snapshots.turns["chat-1"].workerJobId, "job-stopped");
   assert.equal(snapshots.turns["chat-1"].recoveryReason, "user_stop");
+});
+
+test("running worker delivery resumes when a failed duplicate turn replaced its snapshot", async (t) => {
+  const workerJob = {
+    id: "job-1",
+    chatKey: "chat-1",
+    chatId: "chat-1",
+    status: "running",
+    threadId: "thread-1",
+    transport: "sdk"
+  };
+  const harness = await createHarness(t, {
+    workerEnabled: true,
+    workerJob,
+    workerResult: {
+      turn: { response: "recovered answer" },
+      threadId: "thread-1"
+    }
+  });
+  harness.deliveries["chat-1:job-1"] = {
+    chatKey: "chat-1",
+    jobId: "job-1",
+    seq: 4,
+    schemaVersion: 2,
+    deliveryStatus: "streaming"
+  };
+  await replaceActiveTurnSnapshot(harness.recoveryDir, "chat-1", {
+    chatId: "chat-1",
+    inputPreview: "new turn",
+    recoveryEligible: false,
+    recoveryReason: "Active worker job already exists for chat chat-1: job-1",
+    startedAt: new Date().toISOString()
+  });
+
+  assert.equal(await harness.controller.recoverActiveWorkerJobs({ source: "test" }), 1);
+  for (let index = 0; index < 10; index += 1) {
+    if (harness.events.some(({ type }) => type === "worker_recovery_completed")) break;
+    await waitForImmediate();
+  }
+
+  assert.equal(harness.answerReplies.length, 1);
+  assert.equal(harness.answerReplies[0][1], "recovered answer");
+  const started = harness.events.find(({ type }) => type === "worker_recovery_started");
+  assert.equal(started.jobId, "job-1");
+  assert.equal(started.reason, "active_worker_snapshot_mismatch");
+  const repaired = (await readActiveTurnSnapshots(harness.recoveryDir)).turns["chat-1"];
+  assert.equal(repaired.workerJobId, "job-1");
+  assert.equal(repaired.recoveryEligible, true);
+  assert.equal(repaired.recoveryReason, "active_worker_snapshot_mismatch");
+  assert.equal(harness.activeTurns.has("chat-1"), false);
+});
+
+test("running worker delivery does not bypass a stopped snapshot that owns the job", async (t) => {
+  const workerJob = {
+    id: "job-1",
+    chatKey: "chat-1",
+    status: "running",
+    threadId: "thread-1",
+    transport: "sdk"
+  };
+  const harness = await createHarness(t, {
+    workerEnabled: true,
+    workerJob,
+    workerResult: {
+      turn: { response: "must not be delivered" },
+      threadId: "thread-1"
+    }
+  });
+  harness.deliveries["chat-1:job-1"] = {
+    chatKey: "chat-1",
+    jobId: "job-1",
+    seq: 4,
+    schemaVersion: 2,
+    deliveryStatus: "streaming"
+  };
+  await replaceActiveTurnSnapshot(harness.recoveryDir, "chat-1", {
+    chatId: "chat-1",
+    recoveryEligible: false,
+    recoveryReason: "user_stop",
+    workerJobId: "job-1"
+  });
+
+  assert.equal(await harness.controller.recoverActiveWorkerJobs({ source: "test" }), 0);
+  assert.equal(harness.answerReplies.length, 0);
+  assert.equal(harness.activeTurns.has("chat-1"), false);
 });
 
 for (const mode of ["running", "completed", "already_sent", "backfill"]) {

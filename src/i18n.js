@@ -44,6 +44,10 @@ export const TELEGRAM_LANGUAGE_CODES = Object.freeze(
   [...new Set(LANGUAGE_CHOICES.map(({ telegramLanguageCode }) => telegramLanguageCode).filter(Boolean))]
 );
 
+export function findText(language, key) {
+  return UI_TEXT[language]?.[key] ?? UI_TEXT[DEFAULT_LANGUAGE]?.[key];
+}
+
 export function textFor(language, key) {
-  return UI_TEXT[language]?.[key] ?? UI_TEXT[DEFAULT_LANGUAGE]?.[key] ?? key;
+  return findText(language, key) ?? key;
 }

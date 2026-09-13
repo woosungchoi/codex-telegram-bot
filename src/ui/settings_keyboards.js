@@ -57,7 +57,7 @@ export function createSettingsKeyboardViews({
         { text: t("locale"), callback_data: "p:settings_locale" },
         { text: t("main"), callback_data: "p:main" }
       ],
-      [{ text: `← ${t("back")}`, callback_data: "p:main" }]
+      [{ role: "back", text: `← ${t("back")}`, callback_data: "p:main" }]
     ]));
   }
 
@@ -197,7 +197,7 @@ export function createSettingsKeyboardViews({
         callback_data: `set:timezone:${id}`
       })), columns),
       [{ text: t("settings"), callback_data: "p:settings" }, { text: t("main"), callback_data: "p:main" }],
-      [{ text: `← ${t("back")}`, callback_data: "p:settings_timezone" }]
+      [{ role: "back", text: `← ${t("back")}`, callback_data: "p:settings_timezone" }]
     ]);
   }
 

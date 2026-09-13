@@ -113,7 +113,7 @@ export function createToolCallbackController({
               style: "primary"
             }
           ],
-          [{ text: `← ${localization.text("back")}`, callback_data: "tool:codex_maintenance" }]
+          [{ role: "back", text: `← ${localization.text("back")}`, callback_data: "tool:codex_maintenance" }]
         ]))
       );
     } else if (action === "codex_maintenance_sqlite_repair_apply") {
@@ -153,7 +153,7 @@ export function createToolCallbackController({
             { text: localization.text("forgetRun"), callback_data: "confirm:forget" },
             { text: localization.text("cancel"), callback_data: "p:tools" }
           ],
-          [{ text: `← ${localization.text("back")}`, callback_data: "p:tools" }]
+          [{ role: "back", text: `← ${localization.text("back")}`, callback_data: "p:tools" }]
         ]))
       );
     }

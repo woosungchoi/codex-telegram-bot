@@ -1,3 +1,4 @@
+import { renderMenu } from "./menu_definition.js";
 import { inlineKeyboard } from "./keyboard_helpers.js";
 
 export function createOperationsKeyboardViews({
@@ -66,9 +67,9 @@ export function createOperationsKeyboardViews({
     if (hasActiveTurn(chatKey) || sideTurnCount(chatKey) > 0) {
       rows.splice(1, 0, [{ text: t("stop"), callback_data: "act:stop" }]);
     }
-    rows.push([{ text: `← ${t("back")}`, callback_data: "p:main" }]);
+    rows.push([{ role: "back", text: `← ${t("back")}`, callback_data: "p:main" }]);
     const keyboard = inlineKeyboard(rows);
-    return options?.closable === false ? keyboard : withMenuCloseButton(keyboard);
+    return options?.closable === false ? renderMenu(keyboard, { text: t, close: false }) : withMenuCloseButton(keyboard);
   }
 
   function toolsKeyboard() {
@@ -97,7 +98,7 @@ export function createOperationsKeyboardViews({
       ],
       [{ text: t("codexMaintenance"), callback_data: "tool:codex_maintenance", style: "primary" }],
       [{ text: t("main"), callback_data: "p:main" }],
-      [{ text: `← ${t("back")}`, callback_data: "p:main" }]
+      [{ role: "back", text: `← ${t("back")}`, callback_data: "p:main" }]
     ]));
   }
 
@@ -107,7 +108,7 @@ export function createOperationsKeyboardViews({
         { text: t("tools"), callback_data: "p:tools" },
         { text: t("main"), callback_data: "p:main" }
       ],
-      [{ text: `← ${t("back")}`, callback_data: "p:tools" }]
+      [{ role: "back", text: `← ${t("back")}`, callback_data: "p:tools" }]
     ]));
   }
 
@@ -144,7 +145,7 @@ export function createOperationsKeyboardViews({
         { text: t("tools"), callback_data: "p:tools" },
         { text: t("main"), callback_data: "p:main" }
       ],
-      [{ text: `← ${t("back")}`, callback_data: "p:tools" }]
+      [{ role: "back", text: `← ${t("back")}`, callback_data: "p:tools" }]
     ]));
   }
 
@@ -155,7 +156,7 @@ export function createOperationsKeyboardViews({
         callback_data: "tool:codex_maintenance",
         style: "primary"
       }
-    ], [{ text: `← ${t("back")}`, callback_data: "tool:codex_maintenance" }]]));
+    ], [{ role: "back", text: `← ${t("back")}`, callback_data: "tool:codex_maintenance" }]]));
   }
 
   function queueKeyboard(chatKey) {
@@ -187,7 +188,7 @@ export function createOperationsKeyboardViews({
       ]);
     }
     rows.push([{ text: t("main"), callback_data: "p:main" }]);
-    rows.push([{ text: `← ${t("back")}`, callback_data: "p:main" }]);
+    rows.push([{ role: "back", text: `← ${t("back")}`, callback_data: "p:main" }]);
     return withMenuCloseButton(inlineKeyboard(rows));
   }
 
@@ -197,7 +198,7 @@ export function createOperationsKeyboardViews({
         text: "Confirm upload cleanup",
         callback_data: `upload_cleanup_confirm:${planId}`
       }
-    ], [{ text: `← ${t("back")}`, callback_data: "p:tools" }]]));
+    ], [{ role: "back", text: `← ${t("back")}`, callback_data: "p:tools" }]]));
   }
 
   return {

@@ -3,6 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { randomBytes } from "node:crypto";
 import { telegramContextMeta, telegramTopicId } from "../telegram/context.js";
+import { normalizeWorkspaceState } from "../state/schema.js";
 
 export const newId = () => randomBytes(8).toString("hex");
 export const topicId = (ctx) => telegramContextMeta(ctx).messageThreadId;
@@ -10,8 +11,7 @@ export const scopeKey = (ctx) => `${ctx.chat.id}:${topicId(ctx) || 0}:${ctx.from
 export const destinationKey = (meta) => `${meta.chatId}:${telegramTopicId(meta) || 0}`;
 
 export function workspaceState(state) {
-  state.workspace ||= {};
-  for (const key of ["projects", "tasks", "flows", "panels", "panelPreferences"]) state.workspace[key] ||= {};
+  state.workspace = normalizeWorkspaceState(state.workspace);
   return state.workspace;
 }
 

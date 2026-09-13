@@ -50,6 +50,41 @@ test("worker store serializes concurrent event appends", async () => {
   assert.equal((await store.readJobEvents("job-1", { afterSeq: 0, limit: 50 })).length, 20);
 });
 
+test("worker store ignores only an incomplete trailing event until it is complete", async () => {
+  const { store } = await tempStore();
+  const first = JSON.stringify({ seq: 1, type: "worker.job.started" });
+  const second = JSON.stringify({
+    seq: 2,
+    type: "item.completed",
+    item: { id: "msg", type: "agent_message", text: "a long response" }
+  });
+  const splitAt = second.indexOf("long");
+  const eventFile = path.join(store.paths.eventsDir, "job-1.jsonl");
+  await fs.writeFile(eventFile, `${first}\n${second.slice(0, splitAt)}`, "utf8");
+
+  assert.deepEqual(
+    (await store.readJobEvents("job-1", { afterSeq: 0 })).map((event) => event.seq),
+    [1]
+  );
+
+  await fs.appendFile(eventFile, `${second.slice(splitAt)}\n`, "utf8");
+  assert.deepEqual(
+    (await store.readJobEvents("job-1", { afterSeq: 0 })).map((event) => event.seq),
+    [1, 2]
+  );
+});
+
+test("worker store rejects malformed completed event records", async () => {
+  const { store } = await tempStore();
+  const eventFile = path.join(store.paths.eventsDir, "job-1.jsonl");
+  await fs.writeFile(eventFile, '{"seq":1,"type":"broken"\n', "utf8");
+
+  await assert.rejects(
+    () => store.readJobEvents("job-1", { afterSeq: 0 }),
+    /JSON/
+  );
+});
+
 test("worker store persists active jobs", async () => {
   const { store } = await tempStore();
   await store.upsertActiveJob({ id: "job-1", chatKey: "chat-1", status: "running" });
