@@ -49,6 +49,9 @@ function readCodexRuntimeConfig(env, paths, selections) {
     ),
     codexWorkerMode: selections.workerMode,
     codexWorkerStateDir: workerStateDir,
+    codexWorkerLogRetentionDays: parseNonnegativeInteger(
+      env.CODEX_WORKER_LOG_RETENTION_DAYS, 30, "CODEX_WORKER_LOG_RETENTION_DAYS"
+    ),
     codexWorkerSocket: env.CODEX_WORKER_SOCKET?.trim() || path.join(workerStateDir, "worker.sock"),
     codexWorkerConnectTimeoutMs: parseNonnegativeInteger(
       env.CODEX_WORKER_CONNECT_TIMEOUT_MS,

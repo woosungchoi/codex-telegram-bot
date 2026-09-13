@@ -11,7 +11,7 @@ export const scopeKey = (ctx) => `${ctx.chat.id}:${topicId(ctx) || 0}:${ctx.from
 export const destinationKey = (meta) => `${meta.chatId}:${telegramTopicId(meta) || 0}`;
 
 export function workspaceState(state) {
-  state.workspace = normalizeWorkspaceState(state.workspace);
+  state.workspace = normalizeWorkspaceState(state.workspace, { validateRecords: false });
   return state.workspace;
 }
 

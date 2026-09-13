@@ -50,6 +50,7 @@ export function createSessionsController({
       cwd,
       query: view.query,
       cursor: view.cursor,
+      ...(args.fresh === true ? { fresh: true } : {}),
     });
     const timeZone =
       settings.ui?.timeZone || settings.config.telegramTimeZone || "UTC";
@@ -97,7 +98,7 @@ export function createSessionsController({
     ]);
     rows.push([
       btn(t("search"), "session-search", { view: firstPage }),
-      btn(t("refresh"), "sessions", firstPage),
+      btn(t("refresh"), "sessions", { ...firstPage, fresh: true }),
     ]);
     if (view.query)
       rows.push([
@@ -193,7 +194,9 @@ export function createSessionsController({
     if (a.type === "session-resume") {
       assertIdle(ctx);
       await readyAccount(a.accountId);
-      const session = await backend.readSession(a.accountId, a.session.id);
+      const session = await backend.readSession(a.accountId, a.session.id, {
+        fresh: true,
+      });
       await validateDirectory(session.cwd);
       const tail = await readTail(
         session.path,

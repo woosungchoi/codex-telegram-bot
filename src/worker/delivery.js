@@ -156,7 +156,7 @@ export function classifyWorkerDeliveryRecovery(input = {}, { now = new Date(), m
   if (input.snapshot?.recoveryEligible === false && !isLegacyProgressFailureSnapshot(status, input.snapshot)) {
     return classification(false, false, "recovery_disabled");
   }
-  // waitForWorkerJob persists each cursor before processing the event. A cursor
+  // waitForWorkerJob checkpoints every page and before terminal delivery. A cursor
   // below a completed job's terminal seq therefore proves final delivery was
   // never reached, but only for the snapshot that still owns this exact job.
   return classification(true, false, status === "streaming" ? "streaming_cursor_gap" : "legacy_cursor_gap");

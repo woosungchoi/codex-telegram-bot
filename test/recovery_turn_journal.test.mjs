@@ -9,7 +9,7 @@ import { applyAccountEvent, rememberAccountThread } from "../src/accounts/contex
 import { recoveryCandidateFromSnapshot } from "../src/recovery/state.js";
 import { createRecoveryTurn } from "../src/recovery/startup.js";
 
-function createFixture({ enabled = false, recoveryDir = "/tmp/unused-recovery-journal", chat = {} } = {}) {
+function createFixture({ enabled = false, recoveryDir = "/tmp/unused-recovery-journal", chat = {}, onDeliverySent = null } = {}) {
   const state = { worker: { deliveries: {} } };
   let saves = 0;
   const journal = createTurnRecoveryJournal({
@@ -20,6 +20,8 @@ function createFixture({ enabled = false, recoveryDir = "/tmp/unused-recovery-jo
       defaultModel: "model"
     },
     state,
+    onDeliverySent,
+    logger: { warn() {} },
     activeTurns: new Map(),
     threadCache: new Map(),
     chats: { get: () => chat },
@@ -129,4 +131,31 @@ test("worker response digest mismatches become non-ambiguous integrity failures"
   assert.equal(entry.lastError.kind, "integrity");
   assert.equal(entry.lastError.code, "RESPONSE_DIGEST_MISMATCH");
   assert.equal(saves(), 1);
+});
+
+test("stream snapshot bursts flush their latest metadata at iterator close", async (t) => {
+  const recoveryDir = await fs.mkdtemp(path.join(os.tmpdir(), "snapshot-batch-"));
+  t.after(() => fs.rm(recoveryDir, { recursive: true, force: true }));
+  const { journal } = createFixture({ enabled: true, recoveryDir });
+  await journal.recordActiveTurnStarted("chat", { id: "t", text: "work" });
+  await journal.recordCodexStreamStarted("chat", "user");
+  for (let i = 0; i < 20; i++) await journal.recordStreamItemEvent("chat", { type: "item.completed", item: { id: `item-${i}`, type: "agent_message" } });
+  assert.equal((await readActiveTurnSnapshots(recoveryDir)).turns.chat.lastCompletedItemId, undefined);
+  await journal.recordCodexStreamIteratorClosed("chat", { outcome: "completed" });
+  const snapshot = (await readActiveTurnSnapshots(recoveryDir)).turns.chat;
+  assert.equal(snapshot.lastCompletedItemId, "item-19");
+  assert.equal(snapshot.streamOutcome, "completed");
+  const lines = (await fs.readFile(path.join(recoveryDir, "recovery-journal.jsonl"), "utf8")).trim().split("\n").map(JSON.parse);
+  assert.equal(lines.filter((e) => e.type === "stream_item").length, 20);
+});
+
+test("archive receipt failure never changes a confirmed Telegram delivery into failure", async () => {
+  let seen;
+  const { journal, state } = createFixture({ onDeliverySent: async (entry) => { seen = entry; throw new Error("old worker"); } });
+  const execution = { executionMode: "sidecar", workerJobId: "job", workerLastSeq: 4 };
+  await journal.recordTelegramReplyReady("chat", execution, "done");
+  await journal.recordTelegramReplyStarted("chat", execution, "done");
+  await journal.recordTelegramReplyCompleted("chat", execution, "done");
+  assert.equal(seen.deliveryStatus, "delivery_sent");
+  assert.equal(state.worker.deliveries["chat:job"].deliveryStatus, "delivery_sent");
 });

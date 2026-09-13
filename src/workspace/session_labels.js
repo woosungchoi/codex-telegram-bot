@@ -1,6 +1,9 @@
 import fs from "node:fs/promises";
 import { constants } from "node:fs";
 import path from "node:path";
+import { createQueryCache } from "../utils/query_cache.js";
+
+const requestCache = createQueryCache({ ttlMs: 60_000, maxEntries: 256 });
 
 const HEAD_BYTES = 1024 * 1024;
 const TAIL_BYTES = 256 * 1024;
@@ -75,6 +78,8 @@ export async function readSessionRequest(file, sessionsDir) {
   try {
     const stat = await handle.stat();
     if (!stat.isFile()) return "";
+    const key = JSON.stringify([root, real, stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs]);
+    return await requestCache.get(key, async () => {
     const read = async (start, length) => {
       const buffer = Buffer.alloc(length);
       const { bytesRead } = await handle.read(buffer, 0, length, start);
@@ -84,6 +89,7 @@ export async function readSessionRequest(file, sessionsDir) {
     if (request || stat.size <= HEAD_BYTES) return request;
     const tail = await read(stat.size - TAIL_BYTES, TAIL_BYTES);
     return requestFromLines(tail.slice(tail.indexOf("\n") + 1));
+    });
   } finally { await handle.close(); }
 }
 

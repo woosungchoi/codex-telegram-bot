@@ -3,7 +3,7 @@ import { createAccountStore, cleanLabel } from "./store.js";
 import { selectedAccountId } from "./context.js";
 import { signInAccount, inspectAccount } from "./auth.js";
 import { accountText } from "./messages.js";
-import { formatAccountUsageHtml, readAccountUsage } from "./usage.js";
+import { createAccountUsageReader, formatAccountUsageHtml, readAccountUsage } from "./usage.js";
 import { consumeAccountResetCredit } from "./reset_credits.js";
 import { createResetCreditsController } from "./reset_controller.js";
 import { b, code, escapeHtml } from "../telegram/html.js";
@@ -13,6 +13,7 @@ import { telegramChatKey } from "../telegram/context.js";
 import { isTelegramServiceMessage } from "../telegram/service_messages.js";
 
 export function registerAccountCommands(r, { store = createAccountStore(r.config), signIn = signInAccount, inspect = inspectAccount, readUsage = readAccountUsage, consumeCredit = consumeAccountResetCredit, now = Date.now } = {}) {
+  const usageReader = createAccountUsageReader(r.config, { read: readUsage, now });
   const pending = new Map();
   const operations = new Map();
   const t = (key) => accountText(r.state.ui?.language || r.config.telegramLanguage, key);
@@ -22,7 +23,11 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
   const readFlow = (ctx) => r.state.accountUi?.[flowKey(ctx)];
   const menuKeyboard = () => keyboard([[button(t("menu"), "acct:list")]]);
   const resets = createResetCreditsController(r, {
-    store, readUsage, consumeCredit, showUsage, text: t, keyboard, button, flowKey, readFlow, clearFlow, now
+    store, readUsage: (_config, id) => usageReader.read(id, { fresh: true }),
+    consumeCredit: async (...args) => {
+      usageReader.invalidate();
+      try { return await consumeCredit(...args); } finally { usageReader.invalidate(); }
+    }, showUsage, text: t, keyboard, button, flowKey, readFlow, clearFlow, now
   });
   async function serialize(ctx, action) {
     const key = flowKey(ctx);
@@ -142,11 +147,11 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     rows.push([button(t("usageButton"), `acct:usage:${selected}:accounts`), button(t("resetButton"), "acct:reset")]);
     return r.replyHtml(ctx, lines.filter((line) => line !== undefined).join("\n"), keyboard(rows, "p:main"));
   }
-  async function showUsage(ctx, requestedId, notice = "", parent = "main") {
+  async function showUsage(ctx, requestedId, notice = "", parent = "main", fresh = false) {
     const id = requestedId || selectedAccountId(r.getChatState(r.getChatKey(ctx)));
     const usageCallback = (accountId) => `acct:usage:${accountId}${parent === "accounts" ? ":accounts" : ""}`;
     const rows = [
-      [button(t("usageRefresh"), usageCallback(id))],
+      [button(t("usageRefresh"), usageCallback(id).replace("acct:usage:", "acct:usagerefresh:"))],
       [button(t("resetButton"), `acct:reset:${id}`)],
       [button(t("menu"), "acct:list"), button(t("main"), "p:main")]
     ];
@@ -164,7 +169,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
       } else {
         const release = await store.acquire(id, { allowUnavailable: true });
         try {
-          const usage = await readUsage(r.config, id);
+          const usage = await usageReader.read(id, { fresh });
           html = formatAccountUsageHtml(usage, { label: account.label, text: t, formatDateTime: r.formatDateTime });
         } finally { await release(); }
       }
@@ -180,6 +185,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     const account = await store.get(id);
     if (account.status !== "ready") throw new Error("This account needs sign-in. Use /reauth.");
     const chatKey = r.getChatKey(ctx);
+    usageReader.invalidate();
     r.getChatState(chatKey).accountId = id;
     r.threadCache.delete(chatKey);
     await r.saveState();
@@ -202,6 +208,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
               { ...keyboard([[{ text: "🔐 ChatGPT", url: verificationUrl }, button(t("cancel"), "acct:cancel")]]), protect_content: true, link_preview_options: { is_disabled: true } });
           }
         });
+        usageReader.invalidate();
         await r.replyHtml(ctx, `${t("done")}\n${b(account.label)}`,
           keyboard([[button(`${t("use")} · ${account.label}`, `acct:use:${account.id}`)], [button(t("menu"), "acct:list")]]));
       } catch (error) {
@@ -233,6 +240,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
       if ((await store.get(id)).status === "pending") throw new Error("Sign-in is still pending. Complete it or use /reauth cancel.");
       const release = await store.acquire(id, { allowUnavailable: true });
       try { await store.update(id, await inspect(r.config, id)); } finally { await release(); }
+      usageReader.invalidate();
       return show(ctx, t("refreshed"));
     }
     if (operation === "remove" || operation === "delete") return promptRemoval(ctx, id);
@@ -243,6 +251,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
       const account = await store.get(accountId);
       if (account.status === "pending" && pending.size) throw new Error("Sign-in is still pending. Use /reauth cancel first.");
       await store.remove(accountId);
+      usageReader.invalidate();
       for (const [key, chat] of Object.entries(r.state.chats || {})) {
         if (chat.accountId === accountId) chat.accountId = "default";
         if (chat.threadAccountId === accountId) { delete chat.threadId; delete chat.threadAccountId; }
@@ -277,7 +286,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
   }));
   r.bot.action(/^acct:([a-z]+)(?::([a-z0-9-]+))?(?::(accounts))?$/, (ctx) => guard(ctx, async () => {
     if (!["confirm", "cancelui", "resetpick", "resetpage", "resetconfirm"].includes(ctx.match[1])) await clearFlow(ctx);
-    if (ctx.match[1] === "usage") return showUsage(ctx, ctx.match[2], "", ctx.match[3]);
+    if (["usage", "usagerefresh"].includes(ctx.match[1])) return showUsage(ctx, ctx.match[2], "", ctx.match[3], ctx.match[1] === "usagerefresh");
     return action(ctx, ctx.match[1], ctx.match[2]);
   }));
   r.bot.on("callback_query", async (ctx, next) => {

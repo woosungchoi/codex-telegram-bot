@@ -99,3 +99,13 @@ test("side turns are tracked, counted, aborted, and removed", () => {
   fixture.controller.untrackSideTurn("chat", second);
   assert.equal(fixture.controller.getSideTurnCount("chat"), 0);
 });
+
+test("cancelled startup timer cannot dequeue a persisted turn after shutdown", async () => {
+  let callback;
+  const f = createFixture({ timers: { setTimeout: (fn) => { callback = fn; return 1; }, clearTimeout() {} } });
+  await f.controller.enqueuePendingTurn("chat", { id: "saved", text: "continue", enqueuedAt: "2026-07-21T00:00:00.000Z" });
+  const stop = f.controller.startPersistedQueues(); stop(); callback();
+  await Promise.resolve();
+  assert.equal(f.pendingTurns.get("chat").length, 1);
+  assert.equal(f.activeTurns.size, 0);
+});

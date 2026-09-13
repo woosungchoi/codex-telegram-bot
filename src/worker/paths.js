@@ -6,6 +6,7 @@ export function workerPaths(config = {}) {
     stateDir,
     socket: config.codexWorkerSocket || path.join(stateDir, "worker.sock"),
     jobsDir: path.join(stateDir, "jobs"),
+    archivesDir: path.join(stateDir, "archives"),
     eventsDir: path.join(stateDir, "events"),
     activeJobs: path.join(stateDir, "active-jobs.json"),
     corruptDir: path.join(stateDir, "corrupt")
