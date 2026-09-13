@@ -75,6 +75,18 @@ function createFixture() {
   return { bot, calls, chat, handlers };
 }
 
+test("new and resume results opened from menu buttons include previous navigation", async () => {
+  for (const action of ["new", "resume_last"]) {
+    const { calls, handlers } = createFixture();
+    const ctx = { callbackQuery: { data: `act:${action}` } };
+    if (action === "new") await handlers.handleNewCommand(ctx);
+    else await handlers.handleResumeCommand(ctx, "last");
+    const reply = calls.filter(([name]) => name === "reply").at(-1);
+    const buttons = reply[3].reply_markup.inline_keyboard.flat();
+    assert.ok(buttons.some((button) => button.text.startsWith("⬅️ ") && button.callback_data === "p:main"));
+  }
+});
+
 test("chat router registers model, reasoning, and option command families", () => {
   const { bot } = createFixture();
   for (const command of [

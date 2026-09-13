@@ -1,4 +1,5 @@
 import { b, code } from "./html.js";
+import { commandReplyKeyboard } from "../ui/keyboard_helpers.js";
 
 export function registerAdminCommands({
   bot,
@@ -20,6 +21,8 @@ export function registerAdminCommands({
   formatting,
   persistence
 }) {
+  const replyHtml = telegram.replyHtml;
+  telegram = { ...telegram, replyHtml: (ctx, html, extra) => replyHtml(ctx, html, commandReplyKeyboard(ctx, localization.text, extra)) };
   bot.command("config", (ctx) => telegram.replyHtml(ctx, diagnostics.formatConfig()));
   bot.command("doctor", async (ctx) => telegram.replyHtml(
     ctx,

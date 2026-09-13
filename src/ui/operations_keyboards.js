@@ -14,14 +14,14 @@ export function createOperationsKeyboardViews({
 
   function mainPanelKeyboard(chatKey) {
     const active = hasActiveTurn(chatKey);
-    return inlineKeyboard([
+    return withMenuCloseButton(inlineKeyboard([
       [
-        { text: t("status"), callback_data: "p:status" },
-        { text: t("queue"), callback_data: "p:queue" }
+        { text: `📋 ${t("status")}`, callback_data: "p:status" },
+        { text: `📥 ${t("queue")}`, callback_data: "p:queue" }
       ],
       [
-        { text: t("settings"), callback_data: "p:settings" },
-        { text: t("tools"), callback_data: "p:tools" }
+        { text: `⚙️ ${t("settings")}`, callback_data: "p:settings" },
+        { text: `🛠️ ${t("tools")}`, callback_data: "p:tools" }
       ],
       [
         { text: t("accounts"), callback_data: "acct:list" },
@@ -41,14 +41,14 @@ export function createOperationsKeyboardViews({
         { text: t("workspaceTopics"), callback_data: "w:forum" }
       ],
       [
-        { text: t("newThread"), callback_data: "act:new" },
-        { text: t("resumeLast"), callback_data: "act:resume_last" }
+        { text: `🆕 ${t("newThread")}`, callback_data: "act:new" },
+        { text: `▶️ ${t("resumeLast")}`, callback_data: "act:resume_last" }
       ],
       [
-        { text: active ? t("stop") : t("help"), callback_data: active ? "act:stop" : "p:help" }
+        { text: active ? `🛑 ${t("stop")}` : `❓ ${t("help")}`, callback_data: active ? "act:stop" : "p:help" }
       ],
-      [{ text: t("close"), callback_data: "ui:close:menu" }]
-    ]);
+      [{ text: `✖ ${t("close")}`, callback_data: "ui:close:menu" }]
+    ]));
   }
 
   function statusKeyboard(chatKey, options) {
@@ -72,8 +72,8 @@ export function createOperationsKeyboardViews({
   }
 
   function toolsKeyboard() {
-    return inlineKeyboard([
-      [{ text: t("workspaceMcp"), callback_data: "w:mcp" }],
+    return withMenuCloseButton(inlineKeyboard([
+      [{ text: t("workspaceMcp"), callback_data: "w:mcp:tools" }],
       [
         { text: "Health", callback_data: "tool:health" },
         { text: "Doctor", callback_data: "tool:doctor" }
@@ -98,7 +98,7 @@ export function createOperationsKeyboardViews({
       [{ text: t("codexMaintenance"), callback_data: "tool:codex_maintenance", style: "primary" }],
       [{ text: t("main"), callback_data: "p:main" }],
       [{ text: `← ${t("back")}`, callback_data: "p:main" }]
-    ]);
+    ]));
   }
 
   function withToolsBack() {
@@ -149,13 +149,13 @@ export function createOperationsKeyboardViews({
   }
 
   function codexMaintenanceBusyKeyboard() {
-    return inlineKeyboard([[
+    return withMenuCloseButton(inlineKeyboard([[
       {
         text: t("processing"),
         callback_data: "tool:codex_maintenance",
         style: "primary"
       }
-    ]]);
+    ], [{ text: `← ${t("back")}`, callback_data: "tool:codex_maintenance" }]]));
   }
 
   function queueKeyboard(chatKey) {
@@ -192,12 +192,12 @@ export function createOperationsKeyboardViews({
   }
 
   function uploadCleanupKeyboard(planId) {
-    return inlineKeyboard([[
+    return withMenuCloseButton(inlineKeyboard([[
       {
         text: "Confirm upload cleanup",
         callback_data: `upload_cleanup_confirm:${planId}`
       }
-    ]]);
+    ], [{ text: `← ${t("back")}`, callback_data: "p:tools" }]]));
   }
 
   return {

@@ -171,7 +171,7 @@ test("General prompts dispatch once through buttons; results and notices use dis
   const f = await fixture(t);
   await f.send("/forum_setup"); const topic = await f.create();
   await f.send("Fix login");
-  const choice = f.messages.at(-1), button = f.buttons(choice).find((x) => x.text === "App");
+  const choice = f.messages.at(-1), button = f.buttons(choice).find((x) => x.text === "📨 App");
   await Promise.all([f.click(button.callback_data, choice), f.click(button.callback_data, choice)]);
   const list = Object.values(f.state.forum.jobs);
   assert.equal(list.length, 1);
@@ -198,7 +198,7 @@ test("General prompts dispatch once through buttons; results and notices use dis
   await f.forum.jobs.tick(); assert.equal(f.messages.length, count);
   await f.send("/some/folder needs review");
   assert.equal(f.forwarded.length, 0);
-  assert.ok(f.buttons().some((button) => button.text === "App"));
+  assert.ok(f.buttons().some((button) => button.text === "📨 App"));
 });
 
 test("dispatch from AI Chat and queue hydration preserve the target and originating topic", async (t) => {
@@ -301,7 +301,7 @@ test("foreign users and stale cross-topic callbacks cannot send a job", async (t
   const f = await fixture(t);
   await f.send("/forum_setup"); await f.create();
   await f.send("Only once");
-  const msg = f.messages.at(-1), button = f.buttons(msg).find((x) => x.text === "App");
+  const msg = f.messages.at(-1), button = f.buttons(msg).find((x) => x.text === "📨 App");
   await f.click(button.callback_data, msg, { userId: 2 });
   await f.click(button.callback_data, msg, { threadId: 21 });
   assert.equal(Object.keys(forumState(f.state).jobs).length, 0);

@@ -96,6 +96,13 @@ function createFixture() {
   return { activeTurns, calls, commands, handlers };
 }
 
+test("stopping from a menu keeps previous navigation even when no turn is running", async () => {
+  const { calls, handlers } = createFixture();
+  await handlers.handleStopCommand({ callbackQuery: { data: "act:stop" } });
+  const buttons = calls.find(([name]) => name === "reply")[3].reply_markup.inline_keyboard.flat();
+  assert.ok(buttons.some((button) => button.text.startsWith("⬅️ ") && button.callback_data === "p:main"));
+});
+
 test("admin router registers operational and cleanup commands", () => {
   const { commands } = createFixture();
   for (const command of ["health", "restart", "queue_mode_side", "cleanup_uploads"]) {

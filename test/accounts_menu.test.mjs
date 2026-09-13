@@ -71,6 +71,7 @@ function boot(t, storage, options = {}) {
     }
   });
   bot.command("menu", (ctx) => r.replyHtml(ctx, "Main menu", views.mainPanelKeyboard("1")));
+  bot.action("p:main", (ctx) => r.replyHtml(ctx, "Main menu", views.mainPanelKeyboard("1")));
   bot.action("ui:close:menu", handleMenuClose);
   bot.command("help", () => { otherCommands.push("help"); });
   bot.action("main:help", async (ctx) => { await ctx.answerCbQuery(); otherCommands.push("main:help"); });
@@ -335,7 +336,7 @@ test("account list closes through the shared menu handler without changing accou
   const f = await fixture(t);
   await f.send("/accounts");
   const close = f.buttons().filter((button) => button.callback_data === "ui:close:menu");
-  assert.deepEqual(close, [{ text: "닫기", callback_data: "ui:close:menu" }]);
+  assert.deepEqual(close, [{ text: "✖️ 닫기", callback_data: "ui:close:menu" }]);
   await f.click(close[0].callback_data);
   const edit = f.apiCalls.find((call) => call.method === "editMessageText");
   assert.equal(edit.payload.text, "menuClosed");
@@ -717,6 +718,55 @@ test("account list and slash usage share the panel, and navigation clears name i
   assert.equal(f.forwarded.length, 0);
 });
 
+test("usage previous returns to its entry menu through refresh, account switching, errors and restart", async (t) => {
+  for (const origin of ["main", "accounts"]) {
+    const f = await fixture(t, { readUsage: async () => usageSample() });
+    const other = await f.store.create("Other");
+    await f.store.update(other.id, { status: "ready" });
+    await f.send(origin === "main" ? "/menu" : "/accounts");
+    await f.click(f.buttonData("acct:usage"));
+    const panel = f.messages.at(-1);
+    const expected = origin === "main" ? "p:main" : "acct:list";
+    const assertBack = () => assert.deepEqual(f.buttons(panel).filter((button) => button.text === "⬅️ 이전")
+      .map((button) => button.callback_data), [expected]);
+    assertBack();
+    await f.click(f.buttons(panel).find((button) => button.text === "🔄 새로고침").callback_data, panel);
+    assertBack();
+    await f.click(f.buttonData(`acct:usage:${other.id}`, panel), panel);
+    assertBack();
+    const refresh = f.buttons(panel).find((button) => button.text === "🔄 새로고침").callback_data;
+    const restarted = f.restart();
+    await restarted.click(refresh, panel);
+    const edit = restarted.apiCalls.find((call) => call.method === "editMessageText");
+    assert.equal(edit.payload.reply_markup.inline_keyboard.flat().find((button) => button.text === "⬅️ 이전").callback_data, expected);
+    await f.store.remove(other.id);
+    await f.click(refresh, panel);
+    assertBack();
+    assert.match(panel.text, /더 이상 등록되어 있지/);
+    assert.ok(f.buttons(panel).every((button) => Buffer.byteLength(button.callback_data) <= 64));
+    await f.click(expected, panel);
+    assert.match(f.messages.at(-1).text, origin === "main" ? /Main menu/ : /Codex 계정/);
+    assert.equal(f.r.state.chats["1"].threadId, "original-thread");
+    assert.equal(f.r.state.chats["1"].accountId, undefined);
+  }
+});
+
+test("previous cancels account name input and invalidates removal confirmation without deleting", async (t) => {
+  const f = await fixture(t);
+  const other = await f.store.create("Keep me");
+  await f.send("/accounts");
+  await f.click(`acct:remove:${other.id}`);
+  const confirmation = f.messages.at(-1), confirm = f.buttonData("acct:confirm:");
+  await f.click(f.buttons().find((button) => button.text === "⬅️ 이전").callback_data);
+  assert.equal(f.savedState().accountUi["1:1"], undefined);
+  await f.click(confirm, confirmation);
+  assert.equal((await f.store.get(other.id)).label, "Keep me");
+  await f.click("acct:rename:default");
+  await f.click(f.buttons().find((button) => button.text === "⬅️ 이전").callback_data);
+  await f.send("Ordinary message");
+  assert.equal(f.forwarded.at(-1).text, "Ordinary message");
+});
+
 test("usage commands and callbacks reject foreign users and groups before reading account data", async (t) => {
   const calls = [];
   const f = await fixture(t, { readUsage: async () => { calls.push(true); return usageSample(); } });
@@ -801,7 +851,7 @@ test("usage account buttons switch quotas and credits without changing task sele
   await f.send("/usage");
   const panel = f.messages.at(-1), total = f.messages.length;
   const button = f.buttons(panel).find((item) => item.callback_data === `acct:usage:${other.id}`);
-  assert.equal(button.text, "<다른 계정>");
+  assert.equal(button.text, "📊 <다른 계정>");
   await f.click(button.callback_data, panel);
   assert.match(panel.html, /조회 계정: <b>&lt;다른 계정&gt;<\/b>/);
   assert.match(panel.html, /사용 10% · 남음 <b>90%/);

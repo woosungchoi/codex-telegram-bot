@@ -125,7 +125,9 @@ test("cleanup controller creates a deterministic approval plan and renders its c
       `cleanup:quarantine:${plan.id}`,
       `cleanup:delete:${plan.id}`,
       `cleanup:both:${plan.id}`,
-      `cleanup:ignore:${plan.id}`
+      `cleanup:ignore:${plan.id}`,
+      "p:tools",
+      "ui:close:menu"
     ]
   );
   const html = harness.controller.formatCleanupPlanHtml(plan);

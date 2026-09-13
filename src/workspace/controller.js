@@ -186,12 +186,12 @@ export function registerWorkspaceMenus(r, {
   }
   async function chooseTaskProject(ctx, draft, editing = false) {
     const choices = [[btn(t("currentProject"), "task-project", { draft, editing, preset: currentPreset(ctx) })],
-      ...projects(ctx).map((p) => [btn(p.name, "task-project", { draft, editing, preset: p })])];
+      ...projects(ctx).map((p) => [btn(p.name, "task-project", { draft, editing, preset: p })]), nav("tasks")];
     return ui.show(ctx, `${b(t("chooseProject"))}\n${escapeHtml(draft.name)}`, choices);
   }
   async function chooseSchedule(ctx, draft) {
     return ui.show(ctx, `${b(t("schedule"))}\n${code(r.state.ui?.timeZone || r.config.telegramTimeZone || "UTC")}`, [
-      ...["once", "daily", "weekly", "monthly", "interval"].map((kind) => [btn(t(kind), "task-schedule", { draft, kind })])
+      ...["once", "daily", "weekly", "monthly", "interval"].map((kind) => [btn(t(kind), "task-schedule", { draft, kind })]), nav("tasks")
     ]);
   }
   async function confirmTask(ctx, draft) {
@@ -257,7 +257,7 @@ export function registerWorkspaceMenus(r, {
   async function action(ctx, a) {
     if (a.type === "forum" || a.type.startsWith("forum-")) return forum.action(ctx, a);
     if (a.type === "close") return ui.close(ctx);
-    if (a.type === "home") { await ui.clear(ctx); return r.sendPanel(ctx, "main"); }
+    if (a.type === "home") { await ui.clear(ctx); return r.sendPanel(ctx, a.panel === "tools" ? "tools" : "main", { edit: true }); }
     if (a.type === "projects") return projectList(ctx, a.query, a.page);
     if (a.type === "project") return projectCard(ctx, project(ctx, a.id));
     if (a.type === "browse") return folderList(ctx, a.cwd, a.page);
@@ -416,7 +416,10 @@ export function registerWorkspaceMenus(r, {
   }
   r.bot.command("newtask", (ctx) => ui.guard(ctx, () => action(ctx, { type: "task-new" })));
   r.bot.command("cancel", (ctx) => ui.guard(ctx, () => ui.close(ctx)));
-  r.bot.action(/^w:(projects|sessions|tasks|dashboard|mcp|stop|hide)$/, (ctx) => ui.guard(ctx, () => action(ctx, { type: ctx.match[1] })));
+  r.bot.action(/^w:(projects|sessions|tasks|dashboard|mcp|stop|hide)(?::(tools))?$/, (ctx) => ui.guard(ctx, () => {
+    ctx.state.workspaceParentPanel = ctx.match[2];
+    return action(ctx, { type: ctx.match[1] });
+  }));
   ui.register(action, onInput);
   forum.registerMessages();
   return {

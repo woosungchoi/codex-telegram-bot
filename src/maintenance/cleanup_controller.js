@@ -12,6 +12,7 @@ import {
 } from "../fs/private.js";
 import { b, code } from "../telegram/html.js";
 import { parseCleanupExecutionMode } from "./cleanup_mode.js";
+import { createNavigationKeyboardViews } from "../ui/keyboard_helpers.js";
 
 export function createCleanupController({
   stateStore,
@@ -30,6 +31,7 @@ export function createCleanupController({
     formatCount,
     formatResult
   } = formatting;
+  const navigation = createNavigationKeyboardViews({ text: t });
 
   async function createCleanupPlan(source) {
     stateStore.prunePlans();
@@ -168,7 +170,7 @@ export function createCleanupController({
     const plan = stateStore.plans[planId];
     const quarantineCount = plan?.quarantineCandidates?.length ?? 0;
     const deleteCount = plan?.deleteCandidates?.length ?? 0;
-    return {
+    return navigation.withMenuCloseButton(navigation.withPreviousPanelButton({
       reply_markup: {
         inline_keyboard: [
           [
@@ -189,7 +191,7 @@ export function createCleanupController({
           ]
         ]
       }
-    };
+    }, "tools"));
   }
 
   function cleanupButton(text, callbackData, style) {

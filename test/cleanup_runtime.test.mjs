@@ -85,6 +85,19 @@ test("cleanup runtime protects saved, cached, and running Codex threads", async 
   ]);
 });
 
+test("cleanup processing and final results keep previous and close without retaining delete actions", async () => {
+  const { calls, controller } = createFixture();
+  await controller.editCleanupProcessingMessage({}, "both", { id: "plan-1", quarantineCandidates: [], deleteCandidates: [] });
+  await controller.editCleanupMessage({}, "Finished");
+  await controller.editUploadCleanupMessage({}, "Finished uploads");
+  for (const call of calls) {
+    const buttons = call[3].reply_markup.inline_keyboard.flat();
+    assert.equal(buttons.filter((button) => button.text.startsWith("⬅️ ") && button.callback_data === "p:tools").length, 1);
+    assert.equal(buttons.filter((button) => button.callback_data === "ui:close:menu").length, 1);
+    assert.ok(buttons.every((button) => !/cleanup:(?:both|delete|quarantine):|upload_cleanup_confirm:/.test(button.callback_data)));
+  }
+});
+
 test("daily cleanup runs once, prunes expired plans, and persists the date", async () => {
   const { calls, controller, state } = createFixture();
   await controller.runDailyCleanupCheck();

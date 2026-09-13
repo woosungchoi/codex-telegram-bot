@@ -24,6 +24,7 @@ import {
   rememberRestartUpdate,
 } from "./state.js";
 import { createWorkerRuntimeRecoveryController } from "./worker_runtime_controller.js";
+import { commandReplyKeyboard } from "../ui/keyboard_helpers.js";
 
 export {
   createWorkerRecoveryTurn,
@@ -108,7 +109,7 @@ export function createRuntimeRecoveryController({
       isDuplicate: isDuplicateRestartCommandUpdate,
       requestRestart,
       rememberUpdate: (updateId) => rememberRestartUpdate(settings.recoveryDir, updateId),
-      reply: telegram.replyHtml,
+      reply: (ctx, html, extra) => telegram.replyHtml(ctx, html, commandReplyKeyboard(ctx, t, extra)),
       formatScheduled: formatting.restartScheduled
     });
   }

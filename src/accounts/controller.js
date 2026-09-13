@@ -16,7 +16,9 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
   const operations = new Map();
   const t = (key) => accountText(r.state.ui?.language || r.config.telegramLanguage, key);
   const navigation = createNavigationKeyboardViews({ text: t });
-  const keyboard = (rows) => navigation.withMenuCloseButton(inlineKeyboard(rows));
+  const keyboard = (rows, previous = "acct:list") => navigation.withMenuCloseButton(
+    navigation.withPreviousButton(inlineKeyboard(rows), previous)
+  );
   const button = (text, data) => ({ text, callback_data: data });
   const flowKey = (ctx) => `${telegramChatKey(ctx)}:${ctx.from?.id}`;
   const readFlow = (ctx) => r.state.accountUi?.[flowKey(ctx)];
@@ -36,10 +38,10 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
     if (ctx.chat?.type !== "private" || !r.config.allowedUserIds.has(String(ctx.from?.id))
       || !r.config.codexAccountAdminUserIds.has(String(ctx.from?.id))) {
-      return r.replyHtml(ctx, t("private"));
+      return r.replyHtml(ctx, t("private"), keyboard([], "p:main"));
     }
     try { return await serialize(ctx, action); } catch (error) {
-      return r.replyHtml(ctx, `${t("failed")}\n${code(r.redactText?.(error.message) || error.message)}`);
+      return r.replyHtml(ctx, `${t("failed")}\n${code(r.redactText?.(error.message) || error.message)}`, menuKeyboard());
     }
   }
   async function clearFlow(ctx) {
@@ -59,7 +61,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     await r.saveState();
   }
   async function promptName(ctx, kind, id) {
-    if (kind === "login" && pending.has(String(ctx.from.id))) return r.replyHtml(ctx, t("busy"));
+    if (kind === "login" && pending.has(String(ctx.from.id))) return r.replyHtml(ctx, t("busy"), menuKeyboard());
     const account = kind === "rename" ? await store.get(id) : null;
     return prompt(ctx, kind, id, [
       b(t("namePrompt")), account ? b(account.label) : "",
@@ -108,10 +110,10 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
         if (current?.expiresAt <= now()) await clearFlow(ctx);
         return r.replyHtml(ctx, t("uiExpired"), menuKeyboard());
       }
-      if (!["login", "rename"].includes(current.kind)) return r.replyHtml(ctx, t(current.kind === "delete" ? "deleteButtons" : "resetButtons"));
+      if (!["login", "rename"].includes(current.kind)) return r.replyHtml(ctx, t(current.kind === "delete" ? "deleteButtons" : "resetButtons"), menuKeyboard());
       let label;
       try { label = cleanLabel(text || ""); } catch {
-        return r.replyHtml(ctx, t("nameInvalid"));
+        return r.replyHtml(ctx, t("nameInvalid"), menuKeyboard());
       }
       await clearFlow(ctx);
       if (current.kind === "login") return begin(ctx, label);
@@ -139,13 +141,14 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     }
     lines.push("", `${t("rotate")}: ${settings.autoRotate ? t("on") : t("off")}`, escapeHtml(t("commands")));
     rows.push([button(t("add"), "acct:login"), button(`${t("rotate")} ${settings.autoRotate ? t("off") : t("on")}`, `acct:rotate:${settings.autoRotate ? "off" : "on"}`)]);
-    rows.push([button(t("usageButton"), "acct:usage"), button(t("resetButton"), "acct:reset")]);
-    return r.replyHtml(ctx, lines.filter((line) => line !== undefined).join("\n"), keyboard(rows));
+    rows.push([button(t("usageButton"), `acct:usage:${selected}:accounts`), button(t("resetButton"), "acct:reset")]);
+    return r.replyHtml(ctx, lines.filter((line) => line !== undefined).join("\n"), keyboard(rows, "p:main"));
   }
-  async function showUsage(ctx, requestedId, notice = "") {
+  async function showUsage(ctx, requestedId, notice = "", parent = "main") {
     const id = requestedId || selectedAccountId(r.getChatState(r.getChatKey(ctx)));
+    const usageCallback = (accountId) => `acct:usage:${accountId}${parent === "accounts" ? ":accounts" : ""}`;
     const rows = [
-      [button(t("usageRefresh"), `acct:usage:${id}`)],
+      [button(t("usageRefresh"), usageCallback(id))],
       [button(t("resetButton"), `acct:reset:${id}`)],
       [button(t("menu"), "acct:list"), button(t("main"), "p:main")]
     ];
@@ -153,7 +156,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     try {
       const accounts = await store.list();
       rows.splice(1, 0, ...accounts.map((item) => [
-        button(`${item.id === id ? "✅ " : ""}${item.label}`, `acct:usage:${item.id}`)
+        button(`${item.id === id ? "✅ " : ""}${item.label}`, usageCallback(item.id))
       ]));
       account = accounts.find((item) => item.id === id);
       if (!account) {
@@ -172,7 +175,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     }
     if (notice) html = `${notice}\n\n${html}`;
     html += `\n\n${t("usageBrowseHint")}`;
-    const extra = keyboard(rows);
+    const extra = keyboard(rows, parent === "accounts" ? "acct:list" : "p:main");
     return ctx.callbackQuery ? r.editOrReplyHtml(ctx, html, extra) : r.replyHtml(ctx, html, extra);
   }
   async function use(ctx, id) {
@@ -186,11 +189,11 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
   }
   async function begin(ctx, label) {
     const key = String(ctx.from.id);
-    if (pending.has(key)) return r.replyHtml(ctx, t("busy"));
+    if (pending.has(key)) return r.replyHtml(ctx, t("busy"), menuKeyboard());
     const abort = new AbortController();
     const session = { abort, codeMessage: null };
     pending.set(key, session);
-    try { await r.replyHtml(ctx, t("start")); } catch (error) { pending.delete(key); throw error; }
+    try { await r.replyHtml(ctx, t("start"), menuKeyboard()); } catch (error) { pending.delete(key); throw error; }
     session.promise = (async () => {
       try {
         const account = await signIn({
@@ -198,13 +201,13 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
           onCode: async ({ verificationUrl, userCode }) => {
             session.codeMessage = await r.replyHtml(ctx,
               `${b("🔐 ChatGPT")}\n${t("code")}\n\n${code(userCode)}`,
-              { ...inlineKeyboard([[{ text: "🔐 ChatGPT", url: verificationUrl }, button(t("cancel"), "acct:cancel")]]), protect_content: true, link_preview_options: { is_disabled: true } });
+              { ...keyboard([[{ text: "🔐 ChatGPT", url: verificationUrl }, button(t("cancel"), "acct:cancel")]]), protect_content: true, link_preview_options: { is_disabled: true } });
           }
         });
         await r.replyHtml(ctx, `${t("done")}\n${b(account.label)}`,
           keyboard([[button(`${t("use")} · ${account.label}`, `acct:use:${account.id}`)], [button(t("menu"), "acct:list")]]));
       } catch (error) {
-        await r.replyHtml(ctx, abort.signal.aborted ? t("cancelled") : `${t("failed")}\n${code(r.redactText?.(error.message) || error.message)}`).catch(() => {});
+        await r.replyHtml(ctx, abort.signal.aborted ? t("cancelled") : `${t("failed")}\n${code(r.redactText?.(error.message) || error.message)}`, menuKeyboard()).catch(() => {});
       } finally {
         if (session.codeMessage?.message_id) await r.bot.telegram.deleteMessage(ctx.chat.id, session.codeMessage.message_id).catch(() => {});
         pending.delete(key);
@@ -274,8 +277,9 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     await clearFlow(ctx);
     return showUsage(ctx);
   }));
-  r.bot.action(/^acct:([a-z]+)(?::([a-z0-9-]+))?$/, (ctx) => guard(ctx, async () => {
+  r.bot.action(/^acct:([a-z]+)(?::([a-z0-9-]+))?(?::(accounts))?$/, (ctx) => guard(ctx, async () => {
     if (!["confirm", "cancelui", "resetpick", "resetpage", "resetconfirm"].includes(ctx.match[1])) await clearFlow(ctx);
+    if (ctx.match[1] === "usage") return showUsage(ctx, ctx.match[2], "", ctx.match[3]);
     return action(ctx, ctx.match[1], ctx.match[2]);
   }));
   r.bot.on("callback_query", async (ctx, next) => {
