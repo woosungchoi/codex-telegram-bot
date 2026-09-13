@@ -4,22 +4,47 @@ All notable public changes are documented here.
 
 ## Unreleased
 
-- Add real route and execution composition tests, CI coverage artifacts, and
-  checks for controller dependencies, types, formatting and translation contracts.
-- Share menu navigation rules and consolidate account, workspace and forum
-  translations in the locale catalogs. Split workspace feature controllers.
-- Version and validate saved state while preserving durable work and recovery
-  records; remove only expired account and workspace UI flows during startup.
-- Add a read-only repository difference checker with reviewed file fingerprints.
+## 1.3.5 - 2026-09-13
 
-- Recover a running worker whose snapshot was displaced by a failed duplicate
-  turn, and tolerate only incomplete trailing event-log records during polling.
+- Add emoji labels throughout Telegram command descriptions and control panels,
+  including nested Settings and Tools menus. Add Previous navigation to usage,
+  account, workspace and tool results while preserving the entry menu and scope.
+- Split workspace feature controllers, share menu navigation rules, and validate
+  account, workspace and forum translations in the locale catalogs.
+- Add real route/execution integration tests, selective type checks, architecture
+  boundaries, source formatting and CI coverage artifacts. Add a read-only
+  repository difference checker with reviewed file fingerprints.
+- Version and validate persisted state on load and before atomic saves; keep
+  workspace/forum reads lightweight and expire only stale interactive UI flows.
+- Start saved queues when Telegram identity is ready, without waiting for the
+  long-polling loop to finish. Cancel pending startup on shutdown or launch failure.
+- Index worker event logs with bounded sparse byte offsets so repeated polling
+  reads new data. Preserve replay, truncation/replacement handling, and incomplete
+  trailing records; reject malformed completed records.
+- Coalesce ordinary streaming cursor and recovery-snapshot writes while retaining
+  immediate queue, account/reset, error and final-delivery checkpoints. Repair
+  running-worker recovery snapshots displaced by failed duplicate turns.
+- Cache usage and session reads briefly, deduplicate concurrent requests, and cache
+  session titles by file identity. Isolate account/authentication keys; explicit
+  Refresh and session resume read current data, and account/reset changes invalidate
+  usage results.
+- Archive completed, confirmed-delivered worker logs after 30 days by default.
+  Protect active/recoverable jobs and uncertain deliveries, verify gzip contents
+  before removing originals, and retain archive replay. Old logs without delivery
+  proof remain protected; archives and job metadata are not automatically deleted.
+- Add `CODEX_WORKER_LOG_RETENTION_DAYS` (`0` disables automatic archival),
+  `npm run worker:logs -- --dry-run` / `--apply`, and a reproducible synthetic
+  benchmark with `npm run benchmark:runtime`.
 
-- Add emoji labels to all Telegram command descriptions and control panel
-  buttons, including nested Settings and Tools options.
-- Add Previous navigation to usage, account, workspace and tool result screens.
-  Keep the usage entry menu across account browsing and refreshes; return MCP
-  to Tools when opened there, and leave input steps without applying changes.
+See [maintenance checks](docs/maintainability.md) and
+[runtime performance and log retention](docs/runtime-optimization.md) for the
+validation commands, cache/checkpoint behavior and upgrade notes. Update both
+bot and worker, letting active jobs finish before restarting the worker; back up
+its whole state directory, including jobs and archives.
+
+Thank you to **artickc** and the contributors to
+[Grok Telegram Bot](https://github.com/artickc/grok-telegram-bot) for the account,
+workspace and project-topic workflow ideas that this release continues to refine.
 
 ## 1.3.4 - 2026-09-13
 
