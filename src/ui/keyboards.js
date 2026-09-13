@@ -57,12 +57,19 @@ export function createRuntimeKeyboardViews({
     text,
     withMenuCloseButton: navigation.withMenuCloseButton
   });
+  // These keyboards are also rendered directly after setting changes and
+  // connection checks, without going through the panel controller.
+  const runtimeMenus = Object.fromEntries(Object.entries(runtimeSettings).map(([name, build]) => [
+    name, (...args) => navigation.withMenuCloseButton(navigation.withPreviousPanelButton(
+      build(...args), name === "runtimeKeyboard" ? "settings" : "settings_runtime"
+    ))
+  ]));
 
   return {
     ...navigation,
     ...selection,
     ...settings,
-    ...runtimeSettings,
+    ...runtimeMenus,
     ...operations,
     inlineKeyboard
   };

@@ -1,4 +1,5 @@
 import { b, code } from "./html.js";
+import { commandReplyKeyboard } from "../ui/keyboard_helpers.js";
 
 export function registerChatCommands({
   bot,
@@ -20,6 +21,8 @@ export function registerChatCommands({
   filesystem,
   persistence
 }) {
+  const replyHtml = telegram.replyHtml;
+  telegram = { ...telegram, replyHtml: (ctx, html, extra) => replyHtml(ctx, html, commandReplyKeyboard(ctx, localization.text, extra)) };
   bot.start(async (ctx) => {
     await telegram.replyHtml(ctx, panels.helpHtml());
   });

@@ -18,7 +18,44 @@ test("main and tools menus expose all five workspace features", () => {
   const v = createRuntimeKeyboardViews({ text: (k) => k, hasActiveTurn: () => false });
   const actions = v.mainPanelKeyboard("1").reply_markup.inline_keyboard.flat().map((b) => b.callback_data);
   for (const key of ["projects", "sessions", "tasks", "dashboard", "mcp"]) assert.ok(actions.includes(`w:${key}`));
-  assert.ok(v.toolsKeyboard().reply_markup.inline_keyboard.flat().some((b) => b.callback_data === "w:mcp"));
+  assert.ok(v.toolsKeyboard().reply_markup.inline_keyboard.flat().some((b) => b.callback_data === "w:mcp:tools"));
+});
+
+test("workspace root menus return to main, and MCP preserves tools as its parent", async (t) => {
+  const panels = [];
+  const f = await workspaceFixture(t, { configure: (r) => {
+    r.sendPanel = async (_ctx, panel, options) => panels.push({ panel, options });
+  } });
+  for (const feature of ["projects", "sessions", "tasks", "dashboard", "mcp", "forum"]) {
+    await f.send("/projects");
+    await f.click(`w:${feature}`);
+    assert.ok(f.buttons().every((button) => /^[\p{Extended_Pictographic}\p{Regional_Indicator}]/u.test(button.text)), feature);
+    assert.equal(f.buttons().filter((button) => button.text === "⬅️ 이전").length, 1, feature);
+    await f.press("이전");
+    assert.deepEqual(panels.at(-1), { panel: "main", options: { edit: true } });
+    assert.equal(f.state.workspace.flows["1:0:1"], undefined);
+  }
+  await f.send("/mcp");
+  await f.click("w:mcp:tools");
+  await f.press("연결 점검");
+  await f.press("이전");
+  assert.equal(panels.at(-1).panel, "tools");
+});
+
+test("previous leaves workspace input and cards without saving, queuing or accepting old buttons", async (t) => {
+  const f = await workspaceFixture(t);
+  await f.send("/projects");
+  await f.press("현재 프로젝트 저장");
+  const old = { ...f.messages.at(-1) }, oldBack = f.buttons().find((button) => button.text === "⬅️ 이전").callback_data;
+  await f.press("이전");
+  assert.match(f.messages.at(-1).text, /프로젝트/);
+  await f.send("Not a project name");
+  assert.deepEqual(f.forwarded, ["Not a project name"]);
+  assert.equal(Object.values(f.state.workspace.projects)[0].length, 0);
+  await f.click(oldBack, old);
+  assert.match(f.messages.at(-1).text, /만료/);
+  assert.ok(f.buttons().some((button) => button.text === "⬅️ 이전"));
+  assert.equal(f.queue.size, 0);
 });
 test("projects save presets, rename, favorite, switch and delete without deleting folders", async (t) => {
   const f = await workspaceFixture(t);

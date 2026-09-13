@@ -1,23 +1,26 @@
 import { b, code } from "../telegram/html.js";
+import { createNavigationKeyboardViews } from "../ui/keyboard_helpers.js";
 
 export function createCleanupUi({ telegram, localization, formatting }) {
+  const navigation = createNavigationKeyboardViews({ text: localization.text });
+  const withBack = (keyboard) => navigation.withMenuCloseButton(navigation.withPreviousPanelButton(keyboard, "tools"));
   async function editCleanupMessage(ctx, html) {
-    return telegram.editOrReplyHtml(ctx, html, emptyKeyboard());
+    return telegram.editOrReplyHtml(ctx, html, withBack());
   }
 
   async function editUploadCleanupMessage(ctx, html) {
-    return telegram.editOrReplyHtml(ctx, html, emptyKeyboard());
+    return telegram.editOrReplyHtml(ctx, html, withBack());
   }
 
   async function editCleanupProcessingMessage(ctx, action, plan) {
-    return telegram.editOrReplyHtml(ctx, formatCleanupProcessingHtml(action, plan), {
+    return telegram.editOrReplyHtml(ctx, formatCleanupProcessingHtml(action, plan), withBack({
       reply_markup: {
         inline_keyboard: [[{
           text: localization.text("cleanupProcessingButton"),
           callback_data: `cleanup:processing:${plan.id}`
         }]]
       }
-    });
+    }));
   }
 
   function cleanupActionLabel(action) {
@@ -122,8 +125,4 @@ export function createCleanupUi({ telegram, localization, formatting }) {
     formatCleanupIgnoredHtml,
     formatCleanupResultHtml
   };
-}
-
-function emptyKeyboard() {
-  return { reply_markup: { inline_keyboard: [] } };
 }

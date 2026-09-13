@@ -1,3 +1,5 @@
+import { decorateMenuKeyboard } from "./button_labels.js";
+
 export function chunkButtons(buttons, size) {
   const rows = [];
   for (let index = 0; index < buttons.length; index += size) {
@@ -10,6 +12,15 @@ export function inlineKeyboard(rows) {
   return { reply_markup: { inline_keyboard: rows } };
 }
 
+export function commandReplyKeyboard(ctx, text, keyboard) {
+  if (!ctx.callbackQuery) return keyboard;
+  const navigation = createNavigationKeyboardViews({ text });
+  const hasPrevious = keyboard?.reply_markup?.inline_keyboard?.some((row) => row.some((button) => /^(?:←|⬅)/u.test(button.text)));
+  const panel = ctx.callbackQuery.data === "act:restart" ? "settings_runtime_codex"
+    : ctx.callbackQuery.data?.startsWith("tool:") ? "tools" : "main";
+  return navigation.withMenuCloseButton(hasPrevious ? keyboard : navigation.withPreviousPanelButton(keyboard, panel));
+}
+
 export function createNavigationKeyboardViews({ text }) {
   const t = text;
 
@@ -19,13 +30,16 @@ export function createNavigationKeyboardViews({ text }) {
 
   function withPreviousPanelButton(keyboard, previousPanel) {
     if (!previousPanel) return keyboard;
-    const callbackData = `p:${previousPanel}`;
+    return withPreviousButton(keyboard, `p:${previousPanel}`);
+  }
+
+  function withPreviousButton(keyboard, callbackData) {
     const rows = keyboard?.reply_markup?.inline_keyboard ? [...keyboard.reply_markup.inline_keyboard] : [];
     const hasPreviousButton = rows.some((row) => row.some((button) => (
-      button?.callback_data === callbackData && String(button.text || "").includes("←")
+      button?.callback_data === callbackData && /^(?:←|⬅)/u.test(String(button.text || ""))
     )));
-    if (!hasPreviousButton) rows.push([{ text: `← ${t("back")}`, callback_data: callbackData }]);
-    return inlineKeyboard(rows);
+    if (!hasPreviousButton) rows.push([{ text: `⬅️ ${t("back")}`, callback_data: callbackData }]);
+    return { ...keyboard, reply_markup: { ...keyboard?.reply_markup, inline_keyboard: rows } };
   }
 
   function withMenuCloseButton(keyboard) {
@@ -36,7 +50,7 @@ export function createNavigationKeyboardViews({ text }) {
         .filter((row) => row.length > 0)
       : [];
     rows.push([{ text: t("close"), callback_data: callbackData }]);
-    return inlineKeyboard(rows);
+    return decorateMenuKeyboard({ ...keyboard, reply_markup: { ...keyboard?.reply_markup, inline_keyboard: rows } });
   }
 
   function previousPanelFor(panel) {
@@ -49,7 +63,7 @@ export function createNavigationKeyboardViews({ text }) {
   }
 
   function backToMainKeyboard() {
-    return withMenuCloseButton(inlineKeyboard([[{ text: t("main"), callback_data: "p:main" }]]));
+    return withMenuCloseButton(withPreviousPanelButton(inlineKeyboard([[{ text: t("main"), callback_data: "p:main" }]]), "main"));
   }
 
   return {
@@ -57,6 +71,7 @@ export function createNavigationKeyboardViews({ text }) {
     emptyInlineKeyboard,
     previousPanelFor,
     withMenuCloseButton,
+    withPreviousButton,
     withPreviousPanelButton
   };
 }

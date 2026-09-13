@@ -74,13 +74,15 @@ test("main and stable menu stages expose exactly one close button", () => {
   }
   const mainClose = closeButtons(keyboardViews.mainPanelKeyboard("chat"))[0];
   assert.deepEqual(mainClose, {
-    text: "Close",
+    text: "✖️ Close",
     callback_data: "ui:close:menu"
   });
 });
 
 test("menu close decoration is immutable, idempotent, unique, and last", () => {
   const keyboard = {
+    protect_content: true,
+    link_preview_options: { is_disabled: true },
     reply_markup: {
       inline_keyboard: [
         [
@@ -96,10 +98,12 @@ test("menu close decoration is immutable, idempotent, unique, and last", () => {
 
   const decorated = keyboardViews.withMenuCloseButton(keyboard);
   assert.deepEqual(keyboard, original);
+  assert.equal(decorated.protect_content, true);
+  assert.deepEqual(decorated.link_preview_options, { is_disabled: true });
   assert.deepEqual(decorated.reply_markup.inline_keyboard, [
-    [{ text: "Main", callback_data: "p:main" }],
-    [{ text: "Back", callback_data: "p:settings" }],
-    [{ text: "Close", callback_data: "ui:close:menu" }]
+    [{ text: "🏠 Main", callback_data: "p:main" }],
+    [{ text: "⚙️ Back", callback_data: "p:settings" }],
+    [{ text: "✖️ Close", callback_data: "ui:close:menu" }]
   ]);
   assert.deepEqual(keyboardViews.withMenuCloseButton(decorated), decorated);
 });
@@ -152,14 +156,14 @@ test("cleanup runtime menu exposes manual and three automatic execution modes", 
   );
 });
 
-test("selection and processing keyboards do not offer menu close", () => {
+test("standalone selection stays cancellable while operation screens offer back and close", () => {
   const selection = keyboardViews.withSelectionCancel(
     keyboardViews.emptyInlineKeyboard(),
     { token: "abc123" }
   );
   assert.equal(closeButtons(selection).length, 0);
-  assert.equal(closeButtons(keyboardViews.codexMaintenanceBusyKeyboard()).length, 0);
-  assert.equal(closeButtons(keyboardViews.uploadCleanupKeyboard("plan-1")).length, 0);
+  assert.equal(closeButtons(keyboardViews.codexMaintenanceBusyKeyboard()).length, 1);
+  assert.equal(closeButtons(keyboardViews.uploadCleanupKeyboard("plan-1")).length, 1);
 });
 
 test("settings model flow includes settings, main, previous, and close navigation", () => {
@@ -178,7 +182,7 @@ test("settings model flow includes settings, main, previous, and close navigatio
   assert.ok(
     navigation.some(
       ({ callback_data: callbackData, text }) =>
-        callbackData === "p:settings_model" && text.includes("←")
+        callbackData === "p:settings_model" && text.includes("⬅️")
     )
   );
   assert.equal(

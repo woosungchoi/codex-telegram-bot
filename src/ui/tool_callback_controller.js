@@ -57,14 +57,14 @@ export function createToolCallbackController({
         ["file", result.path],
         ["size", formatting.bytes(result.bytes)],
         ["chats", result.chatCount]
-      ]));
+      ]), keyboards.withToolsBack());
       await telegram.replyDocument(ctx, result.path, "Codex Telegram Bot backup");
     } else if (action === "export") {
       const file = await backup.createChatExport(chatKey);
       await telegram.replyHtml(ctx, formatting.keyValue("Chat export created:", [
         ["file", file.path],
         ["size", formatting.bytes(file.bytes)]
-      ]));
+      ]), keyboards.withToolsBack());
       await telegram.replyDocument(ctx, file.path, "Current chat export");
     } else if (action === "cleanup") {
       await cleanup.handleCommand(ctx);

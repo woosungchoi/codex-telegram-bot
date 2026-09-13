@@ -1,7 +1,7 @@
 const strings = {
   projects: ["📁 Projects", "📁 프로젝트", "📁 專案"], sessions: ["🗂 Sessions", "🗂 세션", "🗂 工作階段"],
   tasks: ["⏰ Scheduled tasks", "⏰ 예약 작업", "⏰ 排程工作"], dashboard: ["📌 Task dashboard", "📌 작업 상태판", "📌 工作狀態板"],
-  mcp: ["🧩 MCP servers", "🧩 MCP 관리", "🧩 MCP 管理"], back: ["← Back", "← 뒤로", "← 返回"],
+  mcp: ["🧩 MCP servers", "🧩 MCP 관리", "🧩 MCP 管理"], back: ["⬅️ Previous", "⬅️ 이전", "⬅️ 返回"],
   close: ["✖ Close", "✖ 닫기", "✖ 關閉"], cancel: ["Cancel", "취소", "取消"], save: ["✅ Save", "✅ 저장", "✅ 儲存"],
   confirm: ["✅ Confirm", "✅ 확인", "✅ 確認"], refresh: ["🔄 Refresh", "🔄 새로고침", "🔄 重新整理"],
   search: ["🔎 Search", "🔎 검색", "🔎 搜尋"], clearSearch: ["Clear search", "검색 초기화", "清除搜尋"],

@@ -74,7 +74,15 @@ test("tool callback creates and sends a state backup", async () => {
   const { calls, controller } = createFixture();
   await controller.handleToolButton({}, "backup");
   assert.equal(calls[0][0], "reply");
+  assert.deepEqual(calls[0][3], { panel: "tools" });
   assert.deepEqual(calls[1], ["document", {}, "/tmp/state.json", "Codex Telegram Bot backup"]);
+});
+
+test("export result retains navigation back to tools", async () => {
+  const { calls, controller } = createFixture();
+  await controller.handleToolButton({}, "export");
+  assert.deepEqual(calls[0][3], { panel: "tools" });
+  assert.equal(calls[1][0], "document");
 });
 
 test("destructive maintenance actions stop when the chat is active", async () => {

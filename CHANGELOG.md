@@ -4,6 +4,12 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+- Add emoji labels to all Telegram command descriptions and control panel
+  buttons, including nested Settings and Tools options.
+- Add Previous navigation to usage, account, workspace and tool result screens.
+  Keep the usage entry menu across account browsing and refreshes; return MCP
+  to Tools when opened there, and leave input steps without applying changes.
+
 ## 1.3.4 - 2026-09-13
 
 - Add Projects, Sessions, Scheduled tasks, Task dashboard and MCP servers to
