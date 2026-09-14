@@ -50,6 +50,7 @@ function createHarness({ root, sessionScan, deleteCandidates = [], protectedIds 
       })
     },
     telegram: {
+      editOrReplyHtml: async (...args) => sent.push(["edit", ...args]),
       replyHtml: async (...args) => sent.push(["reply", ...args]),
       sendHtmlMessage: async (...args) => sent.push(["send", ...args])
     },
@@ -77,6 +78,18 @@ async function createFixture(t) {
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   return root;
 }
+
+test("cleanup previews edit callback menus while commands send a new message", async (t) => {
+  const harness = createHarness({ root: await createFixture(t) });
+  const plan = await harness.controller.createCleanupPlan("manual");
+  const command = {}, callback = { callbackQuery: { message: { message_id: 42 } } };
+  await harness.controller.sendCleanupPlan(command, plan);
+  await harness.controller.sendCleanupPlan(callback, plan);
+  assert.deepEqual(harness.sent.map(([method]) => method), ["reply", "edit"]);
+  assert.equal(harness.sent[1][1], callback);
+  assert.equal(harness.sent[0][2], harness.sent[1][2]);
+  assert.deepEqual(harness.sent[0][3], harness.sent[1][3]);
+});
 
 test("cleanup controller creates a deterministic approval plan and renders its controls", async (t) => {
   const root = await createFixture(t);

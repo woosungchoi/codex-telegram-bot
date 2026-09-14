@@ -72,7 +72,9 @@ test("full middleware rejects a foreign user, isolates topics, and consumes stal
   await f.click(button.callback_data, old, { userId: 999 });
   assert.equal(f.messages.length, 1);
   await f.click(button.callback_data, old, { threadId: 8 });
-  assert.match(f.messages.at(-1).html, /만료/);
+  assert.match(f.apiCalls.findLast((call) => call.method === "answerCallbackQuery").payload.text, /만료/);
+  assert.equal(f.messages.length, 1);
+  assert.equal(f.messages.at(-1).html, old.html);
   await f.click(button.callback_data, old);
   await f.send("/accounts", { threadId: 7 });
   await f.send("do work", { threadId: 7 });
@@ -82,5 +84,6 @@ test("full middleware rejects a foreign user, isolates topics, and consumes stal
   const callback = f.buttons()[0].callback_data;
   f.clock.now += 16 * 60_000;
   await f.click(callback, expired);
-  assert.match(f.messages.at(-1).html, /만료/);
+  assert.match(f.apiCalls.findLast((call) => call.method === "answerCallbackQuery").payload.text, /만료/);
+  assert.equal(f.messages.at(-1).html, expired.html);
 });

@@ -46,14 +46,28 @@ export function createWorkspaceUi(r, t, { now = Date.now } = {}) {
     if (ctx.callbackQuery) await r.editOrReplyHtml(ctx, b(t("close")), { reply_markup: { inline_keyboard: [] } });
     else await r.replyHtml(ctx, b(t("cancel")));
   }
-  async function guard(ctx, fn) {
-    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+  async function guard(ctx, fn, validate) {
+    const answer = async (text) => {
+      if (ctx.callbackQuery) await (text === undefined ? ctx.answerCbQuery() : ctx.answerCbQuery(text)).catch(() => {});
+    };
+    if (!validate) await answer();
     const key = scopeKey(ctx);
-    const promise = (locks.get(key) || Promise.resolve()).catch(() => {}).then(fn);
+    const promise = (locks.get(key) || Promise.resolve()).catch(() => {}).then(async () => {
+      if (validate) {
+        try { validate(); } catch { await answer(t("expired")); return; }
+        await answer();
+      }
+      return fn();
+    });
     locks.set(key, promise);
     try { return await promise; } catch (error) {
-      await r.replyHtml(ctx, `${b(t("error"))}\n${code(String(r.redactText?.(error.message) || error.message).slice(0, 1600))}`,
-        navigation.withMenuCloseButton(navigation.withPreviousPanelButton(undefined, ctx.state.workspaceParentPanel === "tools" ? "tools" : "main")));
+      const html = `${b(t("error"))}\n${code(String(r.redactText?.(error.message) || error.message).slice(0, 1600))}`;
+      const flow = state.flows[key];
+      const extra = ctx.callbackQuery && flow?.messageId === ctx.callbackQuery.message?.message_id && flow.expiresAt > now()
+        ? { reply_markup: flow.markup }
+        : navigation.withMenuCloseButton(navigation.withPreviousPanelButton(undefined, ctx.state.workspaceParentPanel === "tools" ? "tools" : "main"));
+      if (ctx.callbackQuery) await r.editOrReplyHtml(ctx, html, extra);
+      else await r.replyHtml(ctx, html, extra);
     } finally { if (locks.get(key) === promise) locks.delete(key); }
   }
   function read(ctx, token) {
@@ -70,7 +84,7 @@ export function createWorkspaceUi(r, t, { now = Date.now } = {}) {
       if (!action) throw new Error(t("expired"));
       ctx.state.workspaceParentPanel = flow.parentPanel;
       return onAction(ctx, action, flow.data);
-    }));
+    }, () => read(ctx, ctx.match[1])));
     r.bot.on("callback_query", async (ctx, next) => { await clear(ctx); return next(); });
     r.bot.on("message", async (ctx, next) => {
       if (isTelegramServiceMessage(ctx.message)) return next();

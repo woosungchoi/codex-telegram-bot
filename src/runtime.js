@@ -1051,6 +1051,7 @@ const {
     readMaintenanceReport: readCodexMaintenanceReport
   },
   telegram: {
+    editOrReplyHtml,
     replyHtml,
     sendHtmlMessage
   },

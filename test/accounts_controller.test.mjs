@@ -17,6 +17,7 @@ async function fixture(t) {
     } },
     threadCache: new Map(), getChatKey: () => "1", getChatState: () => state.chats["1"],
     getCommandArgs: (ctx) => ctx.args || "", saveState: async () => {},
+    editOrReplyHtml: async (_ctx, text, extra) => { messages.push({ text, extra }); },
     replyHtml: async (_ctx, text, extra) => { messages.push({ text, extra }); return { message_id: messages.length }; }
   };
   const context = ({ userId = 1, chat = { id: 1, type: "private" }, args = "", match } = {}) => {
@@ -37,7 +38,8 @@ test("non-admin users and group callbacks cannot manage accounts", async (t) => 
   await f.commands.get("reauth")(f.context({ userId: 2 }));
   assert.deepEqual(f.answers, []);
   await f.callback(f.context({ chat: { id: -100, type: "supergroup" }, match: ["acct:rotate:on", "rotate", "on"] }));
-  assert.deepEqual(f.answers, [["callback-id"]]);
+  assert.equal(f.answers[0][0], "callback-id");
+  assert.match(f.answers[0][1], /개인 채팅/);
   assert.equal((await f.store.read()).autoRotate, false);
   assert.equal((await f.store.list()).length, 1);
   assert.ok(f.messages.every((m) => m.text.includes("개인 채팅")));
