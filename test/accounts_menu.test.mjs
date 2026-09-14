@@ -18,15 +18,15 @@ async function fixture(t, options = {}) {
 function boot(t, storage, options = {}) {
   const bot = new Telegraf("123:test");
   bot.botInfo = { id: 123, is_bot: true, first_name: "Test Bot", username: "test_bot" };
-  const messages = [], forwarded = [], apiCalls = [], signIns = [], otherCommands = [];
-  let seq = 100;
+  const messages = options.messages || [], forwarded = [], apiCalls = [], signIns = [], otherCommands = [];
+  let seq = Math.max(100, ...messages.map((message) => message.message_id));
   const api = async (method, payload) => {
     apiCalls.push({ method, payload });
     if (method === "editMessageText") {
       const message = messages.find((item) => item.message_id === payload.message_id);
       if (message) Object.assign(message, {
         html: payload.text, text: payload.text.replace(/<[^>]*>/g, ""),
-        extra: { ...message.extra, reply_markup: payload.reply_markup }
+        extra: { ...message.extra, reply_markup: payload.reply_markup }, reply_markup: payload.reply_markup
       });
     }
     return true;
@@ -47,7 +47,7 @@ function boot(t, storage, options = {}) {
     replyHtml: async (ctx, html, extra) => {
       const message = {
         message_id: ++seq, date: 0, from: bot.botInfo, chat: ctx.chat,
-        text: html.replace(/<[^>]*>/g, ""), html, extra
+        text: html.replace(/<[^>]*>/g, ""), html, extra, reply_markup: extra?.reply_markup
       };
       messages.push(message);
       return message;
@@ -59,7 +59,7 @@ function boot(t, storage, options = {}) {
     await onCode({ verificationUrl: "https://auth.openai.com/codex/device", userCode: "TEST-1234" });
     return store.update(account.id, { status: "ready" });
   });
-  const controller = registerAccountCommands(r, { store: storage.store, signIn, readUsage: options.readUsage, consumeCredit: options.consumeCredit, now: () => storage.clock.now });
+  const controller = registerAccountCommands(r, { store: storage.store, signIn, inspect: options.inspect, readUsage: options.readUsage, consumeCredit: options.consumeCredit, now: () => storage.clock.now });
   t.after(() => controller.close());
   const text = (key) => key;
   const views = createRuntimeKeyboardViews({ text, hasActiveTurn: () => false });
@@ -100,10 +100,84 @@ function boot(t, storage, options = {}) {
   return {
     ...storage, r, controller, messages, forwarded, apiCalls, signIns, otherCommands,
     send, click, buttons, buttonData, finishLogin,
+    callbackText: () => apiCalls.findLast((call) => call.method === "answerCallbackQuery")?.payload.text,
     savedState: () => JSON.parse(saved),
-    restart: () => boot(t, storage, { ...options, state: JSON.parse(saved) })
+    restart: () => boot(t, storage, { ...options, messages, state: JSON.parse(saved) })
   };
 }
+
+test("account navigation, status checks and prompts edit the original menu", async (t) => {
+  let checks = 0;
+  const f = await fixture(t, { inspect: async () => { checks++; return { status: "ready", usedPercent: 42 }; } });
+  const account = await f.store.create("Other");
+  await f.store.update(account.id, { status: "ready" });
+  await f.send("/accounts");
+  const panel = f.messages.at(-1), count = f.messages.length;
+  for (const data of ["acct:check:default", `acct:use:${account.id}`, "acct:rotate:on", "acct:rotate:off", "acct:list"]) {
+    await f.click(data, panel);
+    assert.equal(f.messages.length, count);
+  }
+  for (const data of ["acct:login", `acct:rename:${account.id}`, `acct:remove:${account.id}`]) {
+    await f.click(data, panel);
+    assert.equal(f.savedState().accountUi["1:1"].promptId, panel.message_id);
+    await f.click(f.buttonData("acct:cancelui:", panel), panel);
+    assert.equal(f.messages.length, count);
+  }
+  assert.equal(checks, 1);
+  assert.equal(f.r.state.chats["1"].accountId, account.id);
+  assert.equal(f.r.state.chats["1"].threadId, "original-thread");
+  assert.ok(f.apiCalls.filter((call) => call.method === "editMessageText").every((call) => call.payload.message_id === panel.message_id));
+  await f.send("/accounts");
+  assert.equal(f.messages.length, count + 1);
+});
+
+test("account and Reset prompts retain their binding when an edit returns no message", async (t) => {
+  const f = await fixture(t, { readUsage: async () => resetUsage() });
+  const edit = f.r.editOrReplyHtml;
+  f.r.editOrReplyHtml = async (...args) => { await edit(...args); };
+  await f.send("/accounts");
+  const panel = f.messages.at(-1);
+  for (const data of ["acct:rename:default", "acct:reset:default"]) {
+    await f.click(data, panel);
+    assert.equal(f.savedState().accountUi["1:1"].promptId, panel.message_id);
+  }
+  await f.click(f.buttonData("acct:resetpick:"), panel);
+  assert.equal(f.savedState().accountUi["1:1"].promptId, panel.message_id);
+  assert.equal(f.messages.length, 1);
+});
+
+test("account and Reset confirmations bind to a replacement message after unavailable edits", async (t) => {
+  const f = await fixture(t, { readUsage: async () => resetUsage() });
+  await f.send("/accounts");
+  const original = f.messages.at(-1);
+  f.r.editOrReplyHtml = f.r.replyHtml;
+  await f.click("acct:rename:default", original);
+  const replacement = f.messages.at(-1);
+  assert.notEqual(replacement.message_id, original.message_id);
+  assert.equal(f.savedState().accountUi["1:1"].promptId, replacement.message_id);
+  await f.click("acct:reset:default", replacement);
+  assert.equal(f.savedState().accountUi["1:1"].promptId, f.messages.at(-1).message_id);
+});
+
+test("Reset navigation and repeated confirmations keep one panel and consume once", async (t) => {
+  let consumed = 0;
+  const f = await fixture(t, { readUsage: async () => resetUsage(10), consumeCredit: async () => { consumed++; return { outcome: "reset" }; } });
+  await f.send("/accounts");
+  const panel = f.messages.at(-1);
+  await f.click("acct:reset:default", panel);
+  await f.click("acct:reset:default", panel);
+  for (const page of [1, 1, 0]) {
+    const token = f.savedState().accountUi["1:1"].token;
+    await f.click(`acct:resetpage:${token}-${page}`, panel);
+  }
+  await f.click(f.buttonData("acct:resetpick:"), panel);
+  const confirm = f.buttonData("acct:resetconfirm:");
+  await Promise.all([f.click(confirm, panel), f.click(confirm, panel)]);
+  assert.equal(consumed, 1);
+  assert.equal(f.messages.length, 1);
+  assert.match(panel.text, /Reset권을 사용했습니다/);
+  assert.match(f.callbackText(), /만료/);
+});
 
 test("account menu accepts a name before device login and offers navigation afterwards", async (t) => {
   const f = await fixture(t);
@@ -164,7 +238,7 @@ test("cancel and slash commands release name input while replies to old prompts 
   const f = await fixture(t);
   await f.send("/accounts");
   await f.click("acct:rename:default");
-  const prompt = f.messages.at(-1);
+  const prompt = JSON.parse(JSON.stringify(f.messages.at(-1)));
   await f.click(f.buttonData("acct:cancelui:"), prompt);
   await f.send("늦은 이름", { replyTo: prompt });
   assert.match(f.messages.at(-1).text, /만료/);
@@ -203,9 +277,9 @@ test("stale Cancel buttons and replies cannot change a newer name prompt", async
   const f = await fixture(t);
   await f.send("/accounts");
   await f.click("acct:rename:default");
-  const oldPrompt = f.messages.at(-1), oldCancel = f.buttonData("acct:cancelui:");
+  const oldPrompt = JSON.parse(JSON.stringify(f.messages.at(-1))), oldCancel = f.buttonData("acct:cancelui:");
   await f.click("acct:rename:default");
-  const newPrompt = f.messages.at(-1), token = f.savedState().accountUi["1:1"].token;
+  const newPrompt = JSON.parse(JSON.stringify(f.messages.at(-1))), token = f.savedState().accountUi["1:1"].token;
   await f.click(oldCancel, oldPrompt);
   await f.send("古い入力", { replyTo: oldPrompt });
   assert.equal(f.savedState().accountUi["1:1"].token, token);
@@ -240,7 +314,7 @@ test("removal needs a matching confirmation; cancellation and replay cannot remo
   assert.deepEqual(f.r.state.chats["1"], { accountId: "default", accountThreads: { default: "keep" } });
   assert.equal(f.r.threadCache.has("1"), false);
   await f.click(confirm, prompt);
-  assert.match(f.messages.at(-1).text, /만료/);
+  assert.match(f.callbackText(), /만료/);
   assert.equal(f.forwarded.length, 0);
 });
 
@@ -271,7 +345,7 @@ test("persisted deletion confirmations retain their binding and expiry across re
   restarted.clock.now += 5 * 60_000;
   await restarted.click(expiredConfirm, expiredPrompt);
   assert.ok(await f.store.get(account.id));
-  assert.match(restarted.messages.at(-1).text, /만료/);
+  assert.match(restarted.callbackText(), /만료/);
   await restarted.click(`acct:remove:${account.id}`);
   const prompt = restarted.messages.at(-1), confirm = restarted.buttonData("acct:confirm:");
   const again = restarted.restart();
@@ -285,11 +359,11 @@ test("foreign users and group callbacks cannot submit or cancel account menu ste
   await f.click("acct:rename:default");
   const prompt = f.messages.at(-1), cancel = f.buttonData("acct:cancelui:");
   await f.click(cancel, prompt, { userId: 2 });
-  assert.match(f.messages.at(-1).text, /개인 채팅/);
+  assert.match(f.callbackText(), /개인 채팅/);
   await f.send("not-admin", { userId: 2, replyTo: prompt });
   assert.match(f.messages.at(-1).text, /개인 채팅/);
   await f.click(cancel, prompt, { chat: { id: -100, type: "supergroup" } });
-  assert.match(f.messages.at(-1).text, /개인 채팅/);
+  assert.match(f.callbackText(), /개인 채팅/);
   await f.send("관리자 이름");
   assert.equal((await f.store.get("default")).label, "관리자 이름");
   assert.equal(f.forwarded.length, 0);
@@ -329,7 +403,7 @@ test("main menu account buttons open the guarded list and registration prompt", 
   await f.finishLogin();
   assert.deepEqual(f.signIns, ["메뉴에서 등록"]);
   await f.click(list, menu, { userId: 2 });
-  assert.match(f.messages.at(-1).text, /개인 채팅/);
+  assert.match(f.callbackText(), /개인 채팅/);
 });
 
 test("account list closes through the shared menu handler without changing accounts", async (t) => {
@@ -362,7 +436,7 @@ test("closing name and deletion prompts clears their pending operations", async 
   assert.equal(f.savedState().accountUi["1:1"], undefined);
   await f.click(confirm, prompt);
   assert.ok(await f.store.get(account.id));
-  assert.match(f.messages.at(-1).text, /만료/);
+  assert.match(f.callbackText(), /만료/);
 });
 
 function usageSample(usedPercent = 52) {
@@ -476,7 +550,7 @@ test("Reset confirmation is bound to the admin, chat, prompt, token and expiry; 
   f.clock.now += 5 * 60_000 + 1;
   await f.click(data, confirmation);
   assert.equal(consumed, 0);
-  assert.match(f.messages.at(-1).text, /만료/);
+  assert.match(f.callbackText(), /만료/);
   assert.equal(f.r.state.accountUi["1:1"], undefined);
 });
 
@@ -491,7 +565,7 @@ test("cancel and close discard Reset confirmations without consuming credits", a
     if (action === "close") await f.click("ui:close:menu");
     if (action === "command") await f.send("/help");
     await f.click(confirm, message);
-    assert.match(f.messages.at(-1).text, /만료/);
+    assert.match(f.callbackText(), /만료/);
     assert.equal(f.r.state.accountUi["1:1"], undefined);
   }
 });

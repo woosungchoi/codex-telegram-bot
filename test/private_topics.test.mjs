@@ -59,6 +59,8 @@ test("private topic setup guides BotFather and refreshes enabled state without a
   assert.match(f.messages.at(-1).text, /BotFather/);
   assert.ok(f.buttons().some((item) => item.url === "https://t.me/BotFather"));
   await f.press("개인 대화 토픽 설정");
+  assert.equal(f.messages.length, 1);
+  assert.match(setupMenu.text, /BotFather/);
   assert.equal(f.group(), undefined);
   assert.equal(f.apiCalls.filter((item) => item.method === "createForumTopic").length, 0);
   f.mode.enabled = true;
@@ -67,6 +69,7 @@ test("private topic setup guides BotFather and refreshes enabled state without a
   assert.equal(f.group().chatType, "private");
   assert.equal(f.group().ownerId, 1);
   assert.match(setupMenu.text, /개인 대화 토픽 설정 완료/);
+  assert.equal(f.messages.length, 1);
   assert.equal(f.apiCalls.filter((item) => item.method === "getMe").length, 2);
   assert.equal(f.apiCalls.filter((item) => item.method === "createForumTopic").length, 0);
 });

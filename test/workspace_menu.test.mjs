@@ -14,6 +14,21 @@ async function registerTask(f, options = {}) {
   await f.press("현재 폴더·계정·모델 사용"); await f.press("N분 간격"); await f.send("5", options); await f.press("✅ 저장");
   return Object.values(f.state.workspace.tasks)[0];
 }
+test("expired workspace buttons acknowledge once and preserve the menu without a new message", async (t) => {
+  const f = await workspaceFixture(t);
+  await f.send("/projects");
+  const panel = f.messages.at(-1), count = f.messages.length;
+  const before = JSON.stringify(panel);
+  const data = f.buttons().find((button) => button.callback_data.startsWith("ws:")).callback_data;
+  f.clock.now += 16 * 60_000;
+  await f.click(data, panel);
+  assert.equal(f.messages.length, count);
+  const answers = f.apiCalls.filter((call) => call.method === "answerCallbackQuery");
+  assert.equal(answers.length, 1);
+  assert.match(answers[0].payload.text, /만료/);
+  assert.equal(JSON.stringify(panel), before);
+});
+
 test("main and tools menus expose all five workspace features", () => {
   const v = createRuntimeKeyboardViews({ text: (k) => k, hasActiveTurn: () => false });
   const actions = v.mainPanelKeyboard("1").reply_markup.inline_keyboard.flat().map((b) => b.callback_data);
@@ -53,7 +68,7 @@ test("previous leaves workspace input and cards without saving, queuing or accep
   assert.deepEqual(f.forwarded, ["Not a project name"]);
   assert.equal(Object.values(f.state.workspace.projects)[0].length, 0);
   await f.click(oldBack, old);
-  assert.match(f.messages.at(-1).text, /만료/);
+  assert.match(f.apiCalls.findLast((call) => call.method === "answerCallbackQuery").payload.text, /만료/);
   assert.ok(f.buttons().some((button) => button.text === "⬅️ 이전"));
   assert.equal(f.queue.size, 0);
 });
@@ -83,10 +98,13 @@ test("old, foreign-user and cross-topic buttons cannot mutate state", async (t) 
   const f = await workspaceFixture(t);
   await f.send("/projects"); await f.press("현재 프로젝트 저장"); await f.send("Project");
   const msg = f.messages.at(-1), data = f.buttons().find((b) => b.text.includes("즐겨찾기")).callback_data;
-  await f.click(data, msg, { userId: 2 }); assert.match(f.messages.at(-1).text, /만료/);
-  await f.click(data, msg, { threadId: 10 }); assert.match(f.messages.at(-1).text, /만료/);
+  const before = JSON.stringify(msg), count = f.messages.length;
+  await f.click(data, msg, { userId: 2 }); assert.match(f.apiCalls.findLast((call) => call.method === "answerCallbackQuery").payload.text, /만료/);
+  await f.click(data, msg, { threadId: 10 }); assert.match(f.apiCalls.findLast((call) => call.method === "answerCallbackQuery").payload.text, /만료/);
+  assert.equal(JSON.stringify(msg), before);
+  assert.equal(f.messages.length, count);
   assert.equal(Object.values(f.state.workspace.projects)[0][0].favorite, false);
-  f.clock.now += 16 * 60_000; await f.click(data, msg); assert.match(f.messages.at(-1).text, /만료/);
+  f.clock.now += 16 * 60_000; await f.click(data, msg); assert.match(f.apiCalls.findLast((call) => call.method === "answerCallbackQuery").payload.text, /만료/);
 });
 test("project switching refuses an active turn and preserves the original context", async (t) => {
   const f = await workspaceFixture(t);

@@ -7,7 +7,7 @@ const PAGE_SIZE = 8;
 const FLOW_TTL = 5 * 60_000;
 const OUTCOME_TEXT = { reset: "resetDone", alreadyRedeemed: "resetAlreadyDone", nothingToReset: "resetNotNeeded", noCredit: "resetNoCredit" };
 
-export function createResetCreditsController(r, { store, readUsage, consumeCredit, showUsage, text: t, keyboard, button, flowKey, readFlow, clearFlow, now }) {
+export function createResetCreditsController(r, { store, readUsage, consumeCredit, showUsage, replyMenu, text: t, keyboard, button, flowKey, readFlow, clearFlow, now }) {
   const busyAccounts = new Set();
   const date = (ms) => r.formatDateTime ? r.formatDateTime(ms) : new Date(ms).toISOString();
   const title = (choice) => choice.automatic ? t("resetAutomatic") : choice.title?.trim() || t("usageResetCredit");
@@ -22,7 +22,7 @@ export function createResetCreditsController(r, { store, readUsage, consumeCredi
   ].filter(Boolean).join("\n");
 
   async function replyFlow(ctx, flow, html, rows) {
-    const message = await r.replyHtml(ctx, html, keyboard(rows));
+    const message = await replyMenu(ctx, html, keyboard(rows));
     r.state.accountUi ||= {};
     r.state.accountUi[flowKey(ctx)] = { ...flow, promptId: message.message_id, expiresAt: now() + FLOW_TTL };
     await r.saveState();
@@ -32,7 +32,7 @@ export function createResetCreditsController(r, { store, readUsage, consumeCredi
     if (!flow || flow.kind !== kind || flow.token !== token || flow.expiresAt <= now()
       || flow.promptId !== ctx.callbackQuery?.message?.message_id) {
       if (flow?.expiresAt <= now()) await clearFlow(ctx);
-      await r.replyHtml(ctx, t("uiExpired"), keyboard([[button(t("menu"), "acct:list")]]));
+      await replyMenu(ctx, t("uiExpired"), keyboard([[button(t("menu"), "acct:list")]]));
       return null;
     }
     return flow;
@@ -74,8 +74,8 @@ export function createResetCreditsController(r, { store, readUsage, consumeCredi
     try {
       const accounts = await store.list();
       account = accounts.find((item) => item.id === id);
-      if (!account) return r.replyHtml(ctx, t("usageAccountMissing"), keyboard([[button(t("menu"), "acct:list")]]));
-      if (account.status === "pending") return r.replyHtml(ctx, t("usagePending"), keyboard(navigation(id)));
+      if (!account) return replyMenu(ctx, t("usageAccountMissing"), keyboard([[button(t("menu"), "acct:list")]]));
+      if (account.status === "pending") return replyMenu(ctx, t("usagePending"), keyboard(navigation(id)));
       const attempt = r.state.accountResetAttempts?.[id];
       if (attempt) return confirmation(ctx, account, attempt, true);
       const release = await store.acquire(id, { allowUnavailable: true });
@@ -84,14 +84,14 @@ export function createResetCreditsController(r, { store, readUsage, consumeCredi
       const summary = usage.rateLimitResetCredits;
       const message = usage.account?.type !== "chatgpt" ? t("usageSignIn")
         : !Number.isInteger(summary?.availableCount) || summary.availableCount < 0 ? t("usageResetCreditsUnavailable") : "";
-      if (message) return r.replyHtml(ctx, `${b(account.label)}\n\n${message}`, keyboard(navigation(id)));
+      if (message) return replyMenu(ctx, `${b(account.label)}\n\n${message}`, keyboard(navigation(id)));
       return renderList(ctx, {
         kind: "reset-list", token: randomBytes(8).toString("hex"), accountId: id, label: account.label,
         accounts: accounts.map(({ id, label }) => ({ id, label })),
         choices: resetCreditChoices(summary, now()), availableCount: summary.availableCount
       });
     } catch {
-      return r.replyHtml(ctx, [b(t("resetTitle")), account ? b(account.label) : "", t("resetLoadFailed")].filter(Boolean).join("\n\n"), keyboard(navigation(id)));
+      return replyMenu(ctx, [b(t("resetTitle")), account ? b(account.label) : "", t("resetLoadFailed")].filter(Boolean).join("\n\n"), keyboard(navigation(id)));
     }
   }
   async function pickOrPage(ctx, value, pageOnly) {
@@ -114,12 +114,12 @@ export function createResetCreditsController(r, { store, readUsage, consumeCredi
     const flow = await validFlow(ctx, token, "reset-confirm");
     if (!flow) return;
     const id = flow.accountId;
-    if (busyAccounts.has(id)) return r.replyHtml(ctx, t("resetBusy"), keyboard(navigation(id)));
+    if (busyAccounts.has(id)) return replyMenu(ctx, t("resetBusy"), keyboard(navigation(id)));
     busyAccounts.add(id);
     let release;
     try {
       const account = await store.get(id);
-      if (account.status === "pending") return r.replyHtml(ctx, t("usagePending"), keyboard(navigation(id)));
+      if (account.status === "pending") return replyMenu(ctx, t("usagePending"), keyboard(navigation(id)));
       const pending = r.state.accountResetAttempts?.[id];
       if (pending && pending.idempotencyKey !== flow.attempt.idempotencyKey) return confirmation(ctx, account, pending, true);
       // A stale retry must never turn into a new redemption after another prompt resolved it.

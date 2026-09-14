@@ -71,6 +71,7 @@ export function createCleanupController({
   }
 
   async function sendCleanupPlan(ctx, plan) {
+    if (ctx.callbackQuery) return telegram.editOrReplyHtml(ctx, formatCleanupPlanHtml(plan), cleanupKeyboard(plan.id));
     await telegram.replyHtml(ctx, formatCleanupPlanHtml(plan), cleanupKeyboard(plan.id));
   }
 

@@ -27,8 +27,13 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     consumeCredit: async (...args) => {
       usageReader.invalidate();
       try { return await consumeCredit(...args); } finally { usageReader.invalidate(); }
-    }, showUsage, text: t, keyboard, button, flowKey, readFlow, clearFlow, now
+    }, showUsage, replyMenu, text: t, keyboard, button, flowKey, readFlow, clearFlow, now
   });
+  async function replyMenu(ctx, html, extra) {
+    if (!ctx.callbackQuery) return r.replyHtml(ctx, html, extra);
+    const message = await r.editOrReplyHtml(ctx, html, extra);
+    return message?.message_id ? message : ctx.callbackQuery.message;
+  }
   async function serialize(ctx, action) {
     const key = flowKey(ctx);
     const operation = (operations.get(key) || Promise.resolve()).catch(() => {}).then(action);
@@ -37,14 +42,35 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
       if (operations.get(key) === operation) operations.delete(key);
     }
   }
-  async function guard(ctx, action) {
-    if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => {});
+  async function guard(ctx, action, callbackFlow) {
+    let answered = false;
+    const answer = async (text) => {
+      if (!ctx.callbackQuery || answered) return;
+      answered = true;
+      await (text === undefined ? ctx.answerCbQuery() : ctx.answerCbQuery(text)).catch(() => {});
+    };
     if (ctx.chat?.type !== "private" || !r.config.allowedUserIds.has(String(ctx.from?.id))
       || !r.config.codexAccountAdminUserIds.has(String(ctx.from?.id))) {
-      return r.replyHtml(ctx, t("private"), keyboard([], "p:main"));
+      if (ctx.callbackQuery) return answer(t("private"));
+      return replyMenu(ctx, t("private"), keyboard([], "p:main"));
     }
-    try { return await serialize(ctx, action); } catch (error) {
-      return r.replyHtml(ctx, `${t("failed")}\n${code(r.redactText?.(error.message) || error.message)}`, menuKeyboard());
+    if (!callbackFlow) await answer();
+    try { return await serialize(ctx, async () => {
+      if (callbackFlow) {
+        // Validate after earlier clicks finish; stale tokens must not replace a newer panel or result.
+        const flow = readFlow(ctx);
+        if (!flow || flow.token !== callbackFlow.token || (callbackFlow.kind && flow.kind !== callbackFlow.kind)
+          || flow.promptId !== ctx.callbackQuery.message?.message_id || flow.expiresAt <= now()) {
+          if (flow?.expiresAt <= now()) await clearFlow(ctx);
+          await answer(t("uiExpired"));
+          return;
+        }
+        await answer();
+      }
+      return action();
+    }); } catch (error) {
+      await answer();
+      return replyMenu(ctx, `${t("failed")}\n${code(r.redactText?.(error.message) || error.message)}`, menuKeyboard());
     }
   }
   async function clearFlow(ctx) {
@@ -56,7 +82,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     const token = randomBytes(8).toString("hex");
     const rows = kind === "delete" ? [[button(t("confirmDelete"), `acct:confirm:${token}`)]] : [];
     rows.push([button(t("cancel"), `acct:cancelui:${token}`)]);
-    const message = await r.replyHtml(ctx, html, keyboard(rows));
+    const message = await replyMenu(ctx, html, keyboard(rows));
     r.state.accountUi ||= {};
     r.state.accountUi[flowKey(ctx)] = {
       kind, accountId, token, promptId: message.message_id, expiresAt: now() + 5 * 60_000
@@ -64,7 +90,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     await r.saveState();
   }
   async function promptName(ctx, kind, id) {
-    if (kind === "login" && pending.has(String(ctx.from.id))) return r.replyHtml(ctx, t("busy"), menuKeyboard());
+    if (kind === "login" && pending.has(String(ctx.from.id))) return replyMenu(ctx, t("busy"), menuKeyboard());
     const account = kind === "rename" ? await store.get(id) : null;
     return prompt(ctx, kind, id, [
       b(t("namePrompt")), account ? b(account.label) : "",
@@ -73,7 +99,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
   }
   async function promptRemoval(ctx, id) {
     const account = await store.get(id);
-    if (account.legacy) return r.replyHtml(ctx, t("defaultProtected"), menuKeyboard());
+    if (account.legacy) return replyMenu(ctx, t("defaultProtected"), menuKeyboard());
     return prompt(ctx, "delete", id, `${t("deleteConfirm")}\n\n${b(account.label)}`);
   }
   async function consumeCallbackFlow(ctx, token, kind) {
@@ -81,7 +107,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     if (!flow || flow.token !== token || (kind && flow.kind !== kind)
       || flow.promptId !== ctx.callbackQuery?.message?.message_id || flow.expiresAt <= now()) {
       if (flow?.expiresAt <= now()) await clearFlow(ctx);
-      await r.replyHtml(ctx, t("uiExpired"), menuKeyboard());
+      await replyMenu(ctx, t("uiExpired"), menuKeyboard());
       return null;
     }
     await clearFlow(ctx);
@@ -103,13 +129,16 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     const promptReply = isNamePromptReply(ctx);
     if (!flow && !promptReply) return next();
     const replyId = ctx.message?.reply_to_message?.message_id;
+    const replyToken = ctx.message?.reply_to_message?.reply_markup?.inline_keyboard?.flat()
+      .find((button) => button.callback_data?.startsWith("acct:cancelui:"))?.callback_data.slice("acct:cancelui:".length);
     if (flow && replyId && replyId !== flow.promptId && !promptReply) {
       await serialize(ctx, () => clearFlow(ctx));
       return next();
     }
     return guard(ctx, async () => {
       const current = readFlow(ctx);
-      if (!current || current.expiresAt <= now() || (replyId && replyId !== current.promptId)) {
+      if (!current || current.expiresAt <= now() || (replyId && replyId !== current.promptId)
+        || (replyToken && replyToken !== current.token)) {
         if (current?.expiresAt <= now()) await clearFlow(ctx);
         return r.replyHtml(ctx, t("uiExpired"), menuKeyboard());
       }
@@ -145,7 +174,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     lines.push("", `${t("rotate")}: ${settings.autoRotate ? t("on") : t("off")}`, escapeHtml(t("commands")));
     rows.push([button(t("add"), "acct:login"), button(`${t("rotate")} ${settings.autoRotate ? t("off") : t("on")}`, `acct:rotate:${settings.autoRotate ? "off" : "on"}`)]);
     rows.push([button(t("usageButton"), `acct:usage:${selected}:accounts`), button(t("resetButton"), "acct:reset")]);
-    return r.replyHtml(ctx, lines.filter((line) => line !== undefined).join("\n"), keyboard(rows, "p:main"));
+    return replyMenu(ctx, lines.filter((line) => line !== undefined).join("\n"), keyboard(rows, "p:main"));
   }
   async function showUsage(ctx, requestedId, notice = "", parent = "main", fresh = false) {
     const id = requestedId || selectedAccountId(r.getChatState(r.getChatKey(ctx)));
@@ -179,7 +208,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     if (notice) html = `${notice}\n\n${html}`;
     html += `\n\n${t("usageBrowseHint")}`;
     const extra = keyboard(rows, parent === "accounts" ? "acct:list" : "p:main");
-    return ctx.callbackQuery ? r.editOrReplyHtml(ctx, html, extra) : r.replyHtml(ctx, html, extra);
+    return replyMenu(ctx, html, extra);
   }
   async function use(ctx, id) {
     const account = await store.get(id);
@@ -284,11 +313,16 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
     await clearFlow(ctx);
     return showUsage(ctx);
   }));
-  r.bot.action(/^acct:([a-z]+)(?::([a-z0-9-]+))?(?::(accounts))?$/, (ctx) => guard(ctx, async () => {
-    if (!["confirm", "cancelui", "resetpick", "resetpage", "resetconfirm"].includes(ctx.match[1])) await clearFlow(ctx);
-    if (["usage", "usagerefresh"].includes(ctx.match[1])) return showUsage(ctx, ctx.match[2], "", ctx.match[3], ctx.match[1] === "usagerefresh");
-    return action(ctx, ctx.match[1], ctx.match[2]);
-  }));
+  r.bot.action(/^acct:([a-z]+)(?::([a-z0-9-]+))?(?::(accounts))?$/, (ctx) => {
+    const kinds = { confirm: "delete", cancelui: null, resetpick: "reset-list", resetpage: "reset-list", resetconfirm: "reset-confirm" };
+    const callbackFlow = Object.hasOwn(kinds, ctx.match[1])
+      ? { kind: kinds[ctx.match[1]], token: ctx.match[2]?.split("-")[0] } : null;
+    return guard(ctx, async () => {
+      if (!callbackFlow) await clearFlow(ctx);
+      if (["usage", "usagerefresh"].includes(ctx.match[1])) return showUsage(ctx, ctx.match[2], "", ctx.match[3], ctx.match[1] === "usagerefresh");
+      return action(ctx, ctx.match[1], ctx.match[2]);
+    }, callbackFlow);
+  });
   r.bot.on("callback_query", async (ctx, next) => {
     await serialize(ctx, () => clearFlow(ctx));
     return next();
