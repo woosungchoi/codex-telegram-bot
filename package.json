@@ -62,7 +62,7 @@
   "dependencies": {
     "@openai/codex-sdk": "0.154.0",
     "dotenv": "^17.2.3",
-    "markdown-it": "^15.0.1",
+    "markdown-it": "^15.0.2",
     "node-fetch": "^3.3.2",
     "proxy-agent": "^8.0.2",
     "telegraf": "^4.16.3"
@@ -71,8 +71,8 @@
     "@openai/codex": "0.154.0",
     "eslint": "10.10.0",
     "prettier": "3.9.6",
-    "typescript": "5.9.3",
-    "@types/node": "22.20.2"
+    "typescript": "7.0.2",
+    "@types/node": "26.5.1"
   },
   "overrides": {
     "brace-expansion": "5.0.9"
