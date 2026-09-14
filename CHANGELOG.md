@@ -4,6 +4,22 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+## 1.3.6 - 2026-09-14
+
+- Update account status, selection, rotation and input/confirmation menus in the
+  existing Telegram message. Keep Reset credit lists, pages and results in the
+  same panel, with correct prompt bindings after unchanged edits or edit fallback.
+- Update individual queue controls and cleanup previews in place instead of
+  appending a new message after each button press.
+- Show expired or unauthorized callback notices without overwriting the current
+  menu. Serialize confirmation validation so repeated clicks cannot replace a
+  completed result or redeem another Reset credit.
+- Keep workspace error notices in the current panel and preserve valid retry
+  buttons, including private-chat topic setup guidance.
+- Add regression coverage for message identity, prompt bindings, stale callbacks,
+  duplicate confirmations, queue controls, cleanup previews and topic setup.
+- Update the GitHub Actions coverage artifact uploader to version 7.
+
 ## 1.3.5 - 2026-09-13
 
 - Add emoji labels throughout Telegram command descriptions and control panels,
