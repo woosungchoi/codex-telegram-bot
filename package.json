@@ -52,7 +52,7 @@
     "validate:locales": "node scripts/validate-locales.mjs",
     "verify": "npm run check && npm run lint && npm run format:check && npm run format:source && npm run typecheck && npm run check:architecture && npm test",
     "test": "node --test",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
     "check:architecture": "node scripts/check-architecture.mjs",
     "test:coverage": "node scripts/collect-coverage.mjs",
     "format:source": "prettier --check src/workspace/*_controller.js src/workspace/controller.js src/workspace/capabilities.js src/workspace/contracts.d.ts src/workspace/presentation.js src/state/schema.js src/ui/menu_definition.js src/i18n/validation.js scripts/check-architecture.mjs scripts/collect-coverage.mjs scripts/coverage-summary.mjs scripts/repository-sync.mjs test/state_migration.test.mjs test/architecture.test.mjs test/coverage_summary.test.mjs test/repository_sync.test.mjs tsconfig.json src/worker/event_log.js src/worker/log_retention.js src/utils/query_cache.js src/accounts/query_identity.js scripts/worker-log-maintenance.mjs scripts/benchmark-runtime.mjs test/bootstrap_polling.test.mjs test/query_cache.test.mjs test/worker_event_log.test.mjs test/worker_log_retention.test.mjs",
@@ -62,17 +62,18 @@
   "dependencies": {
     "@openai/codex-sdk": "0.154.0",
     "dotenv": "^17.2.3",
-    "markdown-it": "^15.0.1",
+    "markdown-it": "^15.0.2",
     "node-fetch": "^3.3.2",
     "proxy-agent": "^8.0.2",
     "telegraf": "^4.16.3"
   },
   "devDependencies": {
     "@openai/codex": "0.154.0",
+    "@types/node": "26.5.1",
+    "@typescript/typescript6": "6.0.2",
     "eslint": "10.10.0",
     "prettier": "3.9.6",
-    "typescript": "5.9.3",
-    "@types/node": "22.20.2"
+    "typescript": "7.0.2"
   },
   "overrides": {
     "brace-expansion": "5.0.9"
