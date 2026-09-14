@@ -20,6 +20,14 @@ static local imports and re-exports for cycles, feature imports of runtime, and
 workspace controller coupling. It does not analyze dynamic imports. Format the
 files listed in `npm run format:source` when touching this maintained surface.
 
+TypeScript 7 runs `typecheck`. `strict: false` explicitly preserves the existing
+incremental JSDoc checking policy; annotated controller interfaces remain checked.
+The architecture guard imports the compiler API from `@typescript/typescript6`
+because TypeScript 7 does not expose that JavaScript API. Keep this compatibility
+package separate from the `typescript` CLI dependency when updating either one.
+The npm script calls the package-local TypeScript 7 entry point explicitly so
+the compatibility package's transitive `tsc` binary cannot shadow it.
+
 ## Menus and translations
 
 `ui/menu_definition.js` owns the panel parent tree and rendering rules. Give new
