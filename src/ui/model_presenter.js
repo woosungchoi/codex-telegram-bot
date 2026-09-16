@@ -1,3 +1,4 @@
+import { createMessageFormatter } from "../i18n.js";
 import {
   findCodexModel,
   readCodexModelCatalog,
@@ -7,6 +8,7 @@ import { b, code } from "../telegram/html.js";
 import { accountConfig, selectedAccountId } from "../accounts/context.js";
 
 export function createModelPresenter({ settings, state, chats, localization, formatting }) {
+  const msg = createMessageFormatter(localization.text);
   async function listCodexModels(chatKey) {
     const config = chatKey ? accountConfig(settings.config, selectedAccountId(state.chats[chatKey])) : settings.config;
     return readCodexModelCatalog(config.codexModelsCacheFile);
@@ -20,14 +22,14 @@ export function createModelPresenter({ settings, state, chats, localization, for
     const supported = reasoningOptionsForModel(models, model).map(({ effort }) => effort);
     const lines = [
       b(localization.text("thinkingSettingsTitle")),
-      `Model: ${code(model || "default")}`,
-      `Current thinking: ${code(reasoning)}`
+      msg("ui.modelLine", { value1: code(model || msg("ui.default")) }),
+      msg("ui.currentThinkingLine", { value1: code(reasoning) })
     ];
     if (catalogModel) {
-      lines.push(`Catalog default: ${code(catalogModel.defaultReasoning || "unknown")}`);
+      lines.push(msg("ui.catalogDefaultLine", { value1: code(catalogModel.defaultReasoning || msg("ui.unknown")) }));
     }
     lines.push(
-      `Supported thinking: ${code(supported.length > 0 ? supported.join(", ") : "none")}`,
+      msg("ui.supportedThinkingLine", { value1: code(supported.length > 0 ? supported.join(", ") : msg("ui.none")) }),
       "",
       localization.text("thinkingSettingsDescription")
     );
@@ -39,16 +41,16 @@ export function createModelPresenter({ settings, state, chats, localization, for
     const supported = reasoningOptionsForModel(models, session.modelSlug).map(({ effort }) => effort);
     const lines = [
       b(localization.text("thinkingSettingsTitle")),
-      `${localization.text("selectedModelLabel")}: ${code(session.modelSlug || "default")}`,
+      `${localization.text("selectedModelLabel")}: ${code(session.modelSlug || msg("ui.default"))}`,
       `${localization.text("selectedThinkingLabel")}: ${code(session.reasoningChoice || localization.text("notSelected"))}`
     ];
     if (catalogModel) {
       lines.push(
-        `${localization.text("catalogDefaultLabel")}: ${code(catalogModel.defaultReasoning || "unknown")}`
+        `${localization.text("catalogDefaultLabel")}: ${code(catalogModel.defaultReasoning || msg("ui.unknown"))}`
       );
     }
     lines.push(
-      `${localization.text("supportedThinkingLabel")}: ${code(supported.length > 0 ? supported.join(", ") : "none")}`,
+      `${localization.text("supportedThinkingLabel")}: ${code(supported.length > 0 ? supported.join(", ") : msg("ui.none"))}`,
       "",
       localization.text("thinkingSettingsDescription")
     );
@@ -56,11 +58,11 @@ export function createModelPresenter({ settings, state, chats, localization, for
   }
 
   function formatStandaloneFastPromptHtml(chatKey, session) {
-    const currentTier = chats.getEffectiveOptions(chatKey).serviceTier ?? "default";
+    const currentTier = chats.getEffectiveOptions(chatKey).serviceTier ?? msg("ui.default");
     return [
       b(localization.text("fastSelectionTitle")),
-      `${localization.text("selectedModelLabel")}: ${code(session.modelSlug || "default")}`,
-      `${localization.text("selectedThinkingLabel")}: ${code(session.reasoningChoice || "default")}`,
+      `${localization.text("selectedModelLabel")}: ${code(session.modelSlug || msg("ui.default"))}`,
+      `${localization.text("selectedThinkingLabel")}: ${code(session.reasoningChoice || msg("ui.default"))}`,
       `${localization.text("currentFastLabel")}: ${code(currentTier === "fast" ? localization.text("on") : localization.text("off"))}`,
       "",
       localization.text("fastSelectionDescription")
@@ -70,7 +72,7 @@ export function createModelPresenter({ settings, state, chats, localization, for
   function formatStandaloneSelectionResultHtml(chatKey, includeFast = false) {
     const options = chats.getEffectiveOptions(chatKey);
     const lines = [
-      `${localization.text("selectedModelLabel")}: ${code(options.model || "default")}`,
+      `${localization.text("selectedModelLabel")}: ${code(options.model || msg("ui.default"))}`,
       `${localization.text("selectedThinkingLabel")}: ${code(options.modelReasoningEffort)}`
     ];
     if (includeFast) {
@@ -87,35 +89,35 @@ export function createModelPresenter({ settings, state, chats, localization, for
     const fastModels = models
       .filter((model) => model.fastSupported)
       .map((model) => model.slug);
-    return formatting.keyValue("Fast service tier:", [
-      ["fast", options.serviceTier === "fast" ? "on" : "off"],
-      ["service_tier", options.serviceTier || "default"],
-      ["current model", options.model || "default"],
-      ["fast-supported models", fastModels.length > 0 ? fastModels.join(", ") : "unknown"]
+    return formatting.keyValue(msg("ui.fastServiceTier"), [
+      [msg("ui.fast"), options.serviceTier === "fast" ? msg("ui.on") : msg("ui.off")],
+      [msg("ui.serviceTier"), options.serviceTier || msg("ui.default")],
+      [msg("ui.currentModel"), options.model || msg("ui.default")],
+      [msg("ui.fastSupportedModels"), fastModels.length > 0 ? fastModels.join(", ") : msg("ui.unknown")]
     ]);
   }
 
   function formatOptionsHtml(chatKey) {
     const options = chats.getEffectiveOptions(chatKey);
-    return formatting.keyValue("Options:", [
-      ["model", options.model || "default"],
-      ["workingDirectory", options.workingDirectory],
-      ["sandboxMode", options.sandboxMode],
-      ["approvalPolicy", options.approvalPolicy],
-      ["skipGitRepoCheck", options.skipGitRepoCheck],
-      ["modelReasoningEffort", options.modelReasoningEffort],
-      ["serviceTier", options.serviceTier || "default"],
-      ["webSearchMode", options.webSearchMode],
-      ["networkAccessEnabled", formatting.optional(options.networkAccessEnabled)],
-      ["additionalDirectories", (options.additionalDirectories ?? []).join(", ") || "none"],
-      ["streamEvents", options.streamEvents],
-      ["liveProgressEnabled", options.liveProgressEnabled],
-      ["liveProgressSource", options.liveProgressSource],
-      ["liveProgressDeletePolicy", options.liveProgressDeletePolicy],
-      ["language", localization.language()],
-      ["timeZone", localization.timeZone()],
-      ["locale", localization.locale()],
-      ["outputSchema", chats.get(chatKey).outputSchema ? "enabled" : "disabled"]
+    return formatting.keyValue(msg("ui.options"), [
+      [msg("ui.model"), options.model || msg("ui.default")],
+      [msg("ui.workingDirectory"), options.workingDirectory],
+      [msg("ui.sandboxMode"), options.sandboxMode],
+      [msg("ui.approvalPolicy"), options.approvalPolicy],
+      [msg("ui.skipGitRepoCheck"), options.skipGitRepoCheck],
+      [msg("ui.modelReasoningEffort"), options.modelReasoningEffort],
+      [msg("ui.serviceTier2"), options.serviceTier || msg("ui.default")],
+      [msg("ui.webSearchMode"), options.webSearchMode],
+      [msg("ui.networkAccessEnabled"), formatting.optional(options.networkAccessEnabled)],
+      [msg("ui.additionalDirectories"), (options.additionalDirectories ?? []).join(", ") || msg("ui.none")],
+      [msg("ui.streamEvents"), options.streamEvents],
+      [msg("ui.liveProgressEnabled"), options.liveProgressEnabled],
+      [msg("ui.liveProgressSource"), options.liveProgressSource],
+      [msg("ui.liveProgressDeletePolicy"), options.liveProgressDeletePolicy],
+      [msg("ui.language"), localization.language()],
+      [msg("ui.timeZone"), localization.timeZone()],
+      [msg("ui.locale"), localization.locale()],
+      [msg("ui.outputSchema"), chats.get(chatKey).outputSchema ? msg("ui.enabled") : msg("ui.disabled")]
     ]);
   }
 

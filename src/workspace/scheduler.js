@@ -1,3 +1,4 @@
+import { errorText, LocalizedError } from "../i18n.js";
 import { authorizeTelegramUpdate } from "../security.js";
 import { directory, newId, workspaceState } from "./store.js";
 import { nextOccurrence, occurrenceKey } from "./schedule.js";
@@ -45,17 +46,17 @@ export function createTaskScheduler(r, { accounts, now = Date.now } = {}) {
     }
   }
   async function run(task, { manual = false } = {}) {
-    if (busy(task) || LIVE.has(task.run?.status)) throw new Error("This scheduled task already has an unfinished run.");
-    if (atCapacity()) throw new Error("Three scheduled runs are already pending. Wait for one to finish.");
-    if (String(r.bot.botInfo?.id) !== String(task.destination.botId)) throw new Error("The originating Telegram bot does not match.");
+    if (busy(task) || LIVE.has(task.run?.status)) throw new LocalizedError("errors.thisScheduledTaskAlreadyHasAnUnfinishedRun");
+    if (atCapacity()) throw new LocalizedError("errors.threeScheduledRunsAreAlreadyPendingWaitForOne");
+    if (String(r.bot.botInfo?.id) !== String(task.destination.botId)) throw new LocalizedError("errors.theOriginatingTelegramBotDoesNotMatch");
     const authorization = authorizeTelegramUpdate({
       from: { id: task.userId }, chat: { id: task.destination.chatId },
       message: { message_thread_id: task.destination.messageThreadId }
     }, r.config);
-    if (!authorization.ok) throw new Error("The task owner or destination is no longer authorized.");
+    if (!authorization.ok) throw new LocalizedError("errors.theTaskOwnerOrDestinationIsNoLongerAuthorized");
     locks.add(task.id);
     try {
-      await accounts.get(task.accountId).then((a) => { if (a.status !== "ready") throw new Error("The saved account needs sign-in."); });
+      await accounts.get(task.accountId).then((a) => { if (a.status !== "ready") throw new LocalizedError("errors.theSavedAccountNeedsSignIn"); });
       await directory(task.options.workingDirectory);
       const key = taskChatKey(task.id);
       const id = `schedule-${task.id}-${newId()}`;
@@ -82,7 +83,7 @@ export function createTaskScheduler(r, { accounts, now = Date.now } = {}) {
       };
       // enqueue saves the receipt and the queue together in the same state file.
       const queued = await r.enqueuePendingTurn(key, prepared);
-      if (!queued.ok) { Object.assign(task, old); await r.saveState(); throw new Error("The scheduled task queue is full."); }
+      if (!queued.ok) { Object.assign(task, old); await r.saveState(); throw new LocalizedError("errors.theScheduledTaskQueueIsFull"); }
       await r.startQueueDrainIfIdle(key, r.createSyntheticCtx(prepared));
       return task.run;
     } finally { locks.delete(task.id); }
@@ -98,7 +99,7 @@ export function createTaskScheduler(r, { accounts, now = Date.now } = {}) {
         if (r.isQueuePaused(task.destination.chatKey)) continue;
         try { await run(task); } catch (error) {
           task.enabled = false;
-          task.error = r.redactText?.(error.message) || error.message;
+          task.error = r.redactText?.(errorText(error, r.state.ui?.language || r.config.telegramLanguage)) || errorText(error, r.state.ui?.language || r.config.telegramLanguage);
           await r.saveState();
         }
       }

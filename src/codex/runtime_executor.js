@@ -1,3 +1,4 @@
+import { createMessageFormatter } from "../i18n.js";
 import {
   appServerThreadReadEvents,
   readAppServerThread
@@ -33,6 +34,8 @@ export function createCodexRuntimeExecutor({
   sleep,
   now = Date.now
 }) {
+  const msg = createMessageFormatter(t);
+
   async function runCodexTurn(
     ctx,
     chatKey,
@@ -107,7 +110,7 @@ export function createCodexRuntimeExecutor({
           }
         }
         if (event.type === "account.rotation") {
-          await telegram.replyHtml(ctx, formatting.keyValue("🔁 Codex account", [["Account", event.accountLabel || event.accountId]]));
+          await telegram.replyHtml(ctx, formatting.keyValue(msg("ui.accountRotated"), [[msg("workspace.account"), event.accountLabel || event.accountId]]));
           continue;
         }
         const update = applyCodexStreamEvent(streamState, event);

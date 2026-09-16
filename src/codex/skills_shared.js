@@ -1,3 +1,4 @@
+import { textFor } from "../i18n.js";
 import path from "node:path";
 
 export const STATUS_ORDER = ["local/system", "local/custom", "plugin enabled", "plugin cached", "plugin disabled"];
@@ -6,7 +7,7 @@ const FILE_URL_PATH_PATTERN = /\bfile:\/\/([^/\s]*)(\/[^/\s<>"'`|=,:;?&]+(?:\/[^
 const ABSOLUTE_POSIX_PATH_PATTERN = /(^|[^A-Za-z0-9/<])(\/[^/\s<>"'`|=,:;?&]+(?:\/[^/\s<>"'`|=,:;?&]+)*(?:\s+[^/\s<>"'`|=,.:;?&]+(?:\s+[^/\s<>"'`|=,.:;?&]+)*\/[^/\s<>"'`|=,:;?&]+(?:\/[^/\s<>"'`|=,:;?&]+)*)*)/gu;
 
 export function addWarning(warnings, message, targetPath, codexHome) {
-  warnings.push({ message: sanitizeDisplayText(message), target: sanitizeDisplayText(relativeCodexPath(codexHome, targetPath)) });
+  warnings.push({ messageKey: message, message: sanitizeDisplayText(textFor("en", message)), target: sanitizeDisplayText(relativeCodexPath(codexHome, targetPath)) });
 }
 
 export function relativeCodexPath(codexHome, targetPath) {

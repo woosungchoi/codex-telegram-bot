@@ -1,3 +1,4 @@
+import { LocalizedError } from "../i18n.js";
 import { createAccountStore, DEFAULT_ACCOUNT_ID } from "./store.js";
 import { accountConfig } from "./context.js";
 import { classifyAccountFailure, codexEventError, hasAttemptActivity } from "./errors.js";
@@ -66,7 +67,7 @@ export function createAccountThread({ config, accountId = DEFAULT_ACCOUNT_ID, th
         // finally block waits for the old CLI to exit, releasing its tools.
         options.signal?.throwIfAborted();
         if (failure) throw failure;
-        if (!completed) throw new Error("Codex stream ended without a completed turn.");
+        if (!completed) throw new LocalizedError("errors.incompleteCodexStream");
         await store.markSuccess(id);
         yield { type: "account.selected", fromAccountId: originAccountId, accountId: id };
         return;
@@ -83,7 +84,7 @@ export function createAccountThread({ config, accountId = DEFAULT_ACCOUNT_ID, th
       }
     }
     if (lastError && failures.length > 1) lastError.message += `\nAccount rotation exhausted (${failures.length}): ${failures.join("; ")}`;
-    throw lastError || new Error("No eligible accounts remain for this task. Open /accounts.");
+    throw lastError || new LocalizedError("errors.noEligibleAccounts");
   }
   return facade;
 }

@@ -1,3 +1,4 @@
+import { createMessageFormatter, LocalizedError } from "../i18n.js";
 // Calendar schedules use the saved IANA timezone, including daylight-saving changes.
 // A repeated local minute fires once; a missing local minute is skipped.
 function partsAt(ms, timeZone) {
@@ -13,7 +14,7 @@ function wallKey(ms, zone) {
 
 function localInstant(value, zone) {
   const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(value);
-  if (!m) throw new Error("Use YYYY-MM-DD HH:MM.");
+  if (!m) throw new LocalizedError("errors.useYYYYMMDDHHMM");
   const [, y, mo, d, h, mi] = m.map(Number);
   let guess = Date.UTC(y, mo - 1, d, h, mi);
   for (let i = 0; i < 5; i++) {
@@ -23,7 +24,7 @@ function localInstant(value, zone) {
     if (!shift) break;
     guess += shift;
   }
-  if (wallKey(guess, zone) !== value) throw new Error("This local date/time does not exist.");
+  if (wallKey(guess, zone) !== value) throw new LocalizedError("errors.thisLocalDateTimeDoesNotExist");
   return guess;
 }
 
@@ -32,19 +33,19 @@ export function parseSchedule(kind, value, timeZone, now = Date.now()) {
   const raw = String(value).trim();
   const result = { kind, timeZone };
   if (kind === "interval") {
-    if (!/^\d+$/.test(raw) || +raw < 5 || +raw > 525600) throw new Error("Interval: 5–525600 minutes.");
+    if (!/^\d+$/.test(raw) || +raw < 5 || +raw > 525600) throw new LocalizedError("errors.interval5525600Minutes");
     result.minutes = +raw;
   } else if (kind === "once") {
     result.at = localInstant(raw, timeZone);
-    if (result.at <= now) throw new Error("Choose a future date/time.");
+    if (result.at <= now) throw new LocalizedError("errors.chooseAFutureDateTime");
   } else {
     const m = /^(?:(\d{1,2})\s+)?([01]\d|2[0-3]):([0-5]\d)$/.exec(raw);
-    if (!m || !["daily", "weekly", "monthly"].includes(kind)) throw new Error("Use HH:MM, or a day number followed by HH:MM.");
+    if (!m || !["daily", "weekly", "monthly"].includes(kind)) throw new LocalizedError("errors.useHHMMOrADayNumberFollowedBy");
     result.time = `${m[2]}:${m[3]}`;
-    if (kind === "daily" && m[1]) throw new Error("Daily time: HH:MM.");
+    if (kind === "daily" && m[1]) throw new LocalizedError("errors.dailyTimeHHMM");
     if (kind !== "daily") {
       result.day = Number(m[1]);
-      if (!Number.isInteger(result.day) || result.day < 1 || result.day > (kind === "weekly" ? 7 : 31)) throw new Error("Weekly day: 1–7 (Mon–Sun); monthly day: 1–31.");
+      if (!Number.isInteger(result.day) || result.day < 1 || result.day > (kind === "weekly" ? 7 : 31)) throw new LocalizedError("errors.weeklyDay17MonSunMonthlyDay1");
     }
   }
   return result;
@@ -67,13 +68,14 @@ export function nextOccurrence(schedule, after = Date.now(), lastLocalKey = "") 
       if (at > after) return at;
     } catch { /* DST gap: skip this local occurrence. */ }
   }
-  throw new Error("No upcoming occurrence found.");
+  throw new LocalizedError("errors.noUpcomingOccurrenceFound");
 }
 
-export function scheduleLabel(s) {
-  const value = s.kind === "interval" ? `${s.minutes} min` : s.kind === "once"
+export function scheduleLabel(s, text) {
+  const msg = createMessageFormatter(text);
+  const value = s.kind === "interval" ? msg("workspace.intervalMinutes", { count: s.minutes }) : s.kind === "once"
     ? wallKey(s.at, s.timeZone) : `${s.day ? `${s.day} ` : ""}${s.time}`;
-  return `${s.kind} · ${value} · ${s.timeZone}`;
+  return `${msg(`workspace.${s.kind}`)} · ${value} · ${s.timeZone}`;
 }
 
 export function occurrenceKey(at, schedule) {

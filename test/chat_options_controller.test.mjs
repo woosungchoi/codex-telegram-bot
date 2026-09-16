@@ -1,3 +1,4 @@
+import { textFor } from "../src/i18n.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createChatOptionsController } from "../src/codex/chat_options_controller.js";
@@ -49,7 +50,7 @@ function createHarness() {
       validServiceTiers: new Set(["fast", "flex"]),
       validWebSearchModes: new Set(["disabled", "cached", "live"])
     },
-    text: (key) => key,
+    text: (key) => textFor("en", key),
     now: () => new Date("2026-07-21T06:07:08.000Z")
   });
   return { controller, ensured, replies, state, threadCache };

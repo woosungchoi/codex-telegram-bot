@@ -1,3 +1,4 @@
+import { createMessageFormatter } from "../i18n.js";
 import { code, stripHtml } from "../telegram/html.js";
 import { runTelegramProgressBestEffort } from "../telegram/api.js";
 import { progressTurnId } from "../telegram/progress_store.js";
@@ -17,6 +18,7 @@ export function createLiveProgressController({
   logger = console,
   now = Date.now
 }) {
+  const msg = createMessageFormatter((key) => localization.forLanguage(localization.language(), key));
   function formatTurn(turn) {
     return turn.finalResponse?.trim() || "";
   }
@@ -24,16 +26,16 @@ export function createLiveProgressController({
   function summarizeProgress(items) {
     const latest = items.at(-1);
     const counts = countBy(items, (item) => item.type);
-    const parts = ["Codex progress"];
-    if (counts.reasoning) parts.push(`reasoning:${counts.reasoning}`);
-    if (counts.command_execution) parts.push(`cmd:${counts.command_execution}`);
-    if (counts.file_change) parts.push(`files:${counts.file_change}`);
-    if (counts.web_search) parts.push(`web:${counts.web_search}`);
+    const parts = [msg("ui.codexProgress")];
+    if (counts.reasoning) parts.push(msg("ui.reasoningLine", { value1: counts.reasoning }));
+    if (counts.command_execution) parts.push(msg("ui.cmdLine", { value1: counts.command_execution }));
+    if (counts.file_change) parts.push(msg("ui.filesLine", { value1: counts.file_change }));
+    if (counts.web_search) parts.push(msg("ui.webLine", { value1: counts.web_search }));
     if (latest?.type === "command_execution") {
-      parts.push(`last: ${formatting.truncate(latest.command, 80)}`);
+      parts.push(msg("ui.lastLine", { value1: formatting.truncate(latest.command, 80) }));
     }
     if (latest?.type === "web_search") {
-      parts.push(`last: ${formatting.truncate(latest.query, 80)}`);
+      parts.push(msg("ui.lastLine", { value1: formatting.truncate(latest.query, 80) }));
     }
     return parts.join("\n");
   }
@@ -160,7 +162,7 @@ export function createLiveProgressController({
       };
     }
     if (item.type === "command_execution") {
-      const command = shortCommand(item.command || "");
+      const command = shortCommand(item.command || "", language);
       if (item.status === "failed") {
         return activity(`cmd-failed-${item.id}`, "liveCommandFailed", language, { command: code(command) }, true);
       }
@@ -179,7 +181,7 @@ export function createLiveProgressController({
       }, true);
     }
     if (item.type === "mcp_tool_call") {
-      const tool = shortToolName(item);
+      const tool = shortToolName(item, language);
       if (item.status === "failed") {
         return activity(`tool-failed-${item.id}`, "liveToolFailed", language, { tool: code(tool) }, true);
       }
@@ -220,13 +222,13 @@ export function createLiveProgressController({
       : formatCodexAnswerSafeHtml(body);
   }
 
-  function shortCommand(command) {
+  function shortCommand(command, language) {
     const redacted = formatting.redact(String(command || "").replace(/\s+/g, " ").trim());
-    return formatting.truncate(redacted || "command", 90);
+    return formatting.truncate(redacted || localization.forLanguage(language, "ui.command"), 90);
   }
 
-  function shortToolName(item) {
-    return formatting.truncate([item.server, item.tool].filter(Boolean).join("/") || "tool", 80);
+  function shortToolName(item, language) {
+    return formatting.truncate([item.server, item.tool].filter(Boolean).join("/") || localization.forLanguage(language, "ui.tool"), 80);
   }
 
   function summarizeFileChangePaths(item) {

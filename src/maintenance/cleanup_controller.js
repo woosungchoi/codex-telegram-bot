@@ -1,3 +1,4 @@
+import { createMessageFormatter } from "../i18n.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -31,6 +32,7 @@ export function createCleanupController({
     formatCount,
     formatResult
   } = formatting;
+  const msg = createMessageFormatter(t);
   const navigation = createNavigationKeyboardViews({ text: t });
 
   async function createCleanupPlan(source) {
@@ -356,7 +358,7 @@ export function createCleanupController({
       return [
         "",
         b(t("cleanupMaintenanceCheck")),
-        `- report: ${code(report.error || "unavailable")}`
+        msg("ui.maintenanceReport", { error: code(report.error || msg("ui.unavailable")) })
       ];
     }
     const sessions = report.sessions || {};
@@ -367,11 +369,11 @@ export function createCleanupController({
     return [
       "",
       b(t("cleanupMaintenanceCheck")),
-      `- sessions: ${code(formatCount(sessions.files ?? 0))} / ${code(formatBytes(sessions.bytes ?? 0))}`,
-      `- logs: ${code(formatBytes(logs.bytes ?? 0))} / rotate ${code(`${logs.rotateThresholdMb ?? policy.maintenanceLogRotateMb}MB`)}`,
-      `- stale worktrees: ${code(formatCount(staleWorktrees.candidates ?? 0))}`,
+      msg("ui.maintenanceSessions", { count: code(formatCount(sessions.files ?? 0)), size: code(formatBytes(sessions.bytes ?? 0)) }),
+      msg("ui.maintenanceLogs", { size: code(formatBytes(logs.bytes ?? 0)), threshold: code(`${logs.rotateThresholdMb ?? policy.maintenanceLogRotateMb}MB`) }),
+      msg("ui.maintenanceWorktrees", { count: code(formatCount(staleWorktrees.candidates ?? 0)) }),
       `- ${t("cleanupMaintenanceConfigPruneCandidates")}: ${code(formatCount(configPrune.candidates ?? 0))}`,
-      `- metadata bloat: title ${code(metadata.titlesOverLimit ?? 0)} / preview ${code(metadata.previewsOverLimit ?? 0)}`
+      msg("ui.maintenanceMetadata", { titles: code(metadata.titlesOverLimit ?? 0), previews: code(metadata.previewsOverLimit ?? 0) })
     ];
   }
 

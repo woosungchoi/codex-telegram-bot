@@ -1,3 +1,4 @@
+import { createMessageFormatter } from "../i18n.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -127,10 +128,11 @@ export async function resolvePhotoArtifactCandidates(candidates, options = {}) {
   return { photos, rejected };
 }
 
-export function formatRejectedPhotoArtifacts(rejected) {
+export function formatRejectedPhotoArtifacts(rejected, text) {
+  const msg = createMessageFormatter(text);
   if (!rejected?.length) return "";
   return rejected
-    .map((item) => `Image artifact not sent: \`${item.path}\` (${item.reason})`)
+    .map((item) => msg("ui.photoArtifactRejected", { path: `\`${item.path}\``, reason: msg(`photoRejection.${item.reason}`) }))
     .join("\n");
 }
 

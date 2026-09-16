@@ -1,3 +1,4 @@
+import { errorText } from "../i18n.js";
 import { runTelegramFinalDelivery, summarizeTelegramError } from "../telegram/api.js";
 import { b, code } from "../telegram/html.js";
 import { truncate } from "../utils/text.js";
@@ -357,7 +358,7 @@ export function createWorkerRuntimeRecoveryController({
           await turn.recordActiveTurnFailed(chatKey, message);
           await telegram.replyHtml(
             ctx,
-            `${b(t("recoveryStartFailedTitle"))}\n${t("recoveryStartFailedDetail")}\n${code(message)}`
+            `${b(t("recoveryStartFailedTitle"))}\n${t("recoveryStartFailedDetail")}\n${code(errorText(error, t))}`
           ).catch(() => {});
           await turn.appendRecoveryEvent({
             type: "worker_recovery_failed",
@@ -383,7 +384,7 @@ export function createWorkerRuntimeRecoveryController({
         await stateStore.save();
       }
       const response = turn.formatTurn(execution.turn);
-      const replyText = response || "Codex completed without a final message.";
+      const replyText = response || t("ui.completedWithoutMessage");
       const actualDigest = turn.digestText(replyText);
       if (!workerDeliveryDigestMatches(options.expectedDigest, actualDigest)) {
         active.stopRequested = true;

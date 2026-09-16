@@ -1,3 +1,4 @@
+import { createMessageFormatter } from "../i18n.js";
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -28,6 +29,7 @@ export function createRuntimeDiagnosticsCollectors({
   formatting,
   packages
 }) {
+  const msg = createMessageFormatter(localization.text);
   async function buildStatusDetails(chatKey) {
     const chat = chats.get(chatKey);
     const cached = threadCache.get(chatKey);
@@ -59,19 +61,19 @@ export function createRuntimeDiagnosticsCollectors({
     const activeSnapshots = Object.values(active.turns ?? {});
     const dedupeEntries = Object.entries(dedupe.recentRecoveryKeys ?? {});
     return [
-      ["enabled", config.botRestartRecoveryEnabled ? "yes" : "no"],
-      ["active snapshots", activeSnapshots.length],
-      ["restart marker", marker?.restartId || "none"],
-      ["marker mode", marker?.mode || "none"],
-      ["marker recoveries", marker?.recoveries?.length ?? 0],
-      ["stale seconds", config.botRecoveryStaleSeconds],
-      ["suspend after", config.botRecoverySuspendAfter],
+      [msg("ui.enabled"), config.botRestartRecoveryEnabled ? msg("ui.yes") : msg("ui.no")],
+      [msg("ui.activeSnapshots"), activeSnapshots.length],
+      [msg("ui.restartMarker"), marker?.restartId || msg("ui.none")],
+      [msg("ui.markerMode"), marker?.mode || msg("ui.none")],
+      [msg("ui.markerRecoveries"), marker?.recoveries?.length ?? 0],
+      [msg("ui.staleSeconds"), config.botRecoveryStaleSeconds],
+      [msg("ui.suspendAfter"), config.botRecoverySuspendAfter],
       [
-        "backfill poll",
-        config.botRecoveryBackfillPollMs > 0 ? `${config.botRecoveryBackfillPollMs}ms` : "off"
+        msg("ui.backfillPoll"),
+        config.botRecoveryBackfillPollMs > 0 ? `${config.botRecoveryBackfillPollMs}ms` : msg("ui.off")
       ],
-      ["recent recovery keys", dedupeEntries.length],
-      ["last active", activeSnapshots.at(-1)?.chatKey || "none"]
+      [msg("ui.recentRecoveryKeys"), dedupeEntries.length],
+      [msg("ui.lastActive"), activeSnapshots.at(-1)?.chatKey || msg("ui.none")]
     ];
   }
 
@@ -80,36 +82,36 @@ export function createRuntimeDiagnosticsCollectors({
     const [botPackage, sdkPackage, cliVersion, modelsMeta, yoloWrapper] = await Promise.all([
       packages.readJson(settings.packageFile),
       packages.readPackage("@openai/codex-sdk"),
-      readCommandOutput(config.codexPath, ["--version"], 5000),
+      readCommandOutput(config.codexPath, ["--version"], 5000, msg),
       readModelsCacheMeta(),
       readYoloWrapperStatus()
     ]);
     const effective = options.get(chatKey);
-    const declaredSdk = botPackage?.dependencies?.["@openai/codex-sdk"] || "unknown";
+    const declaredSdk = botPackage?.dependencies?.["@openai/codex-sdk"] || msg("ui.unknown");
     return [
-      ["bot version", botPackage?.version || "unknown"],
-      ["node", process.version],
-      ["codex-sdk installed", sdkPackage?.version || "unknown"],
-      ["codex-sdk declared", declaredSdk],
-      ["codex cli", cliVersion.ok ? cliVersion.output : `error: ${cliVersion.error}`],
-      ["codex path", config.codexPath],
-      ["yolo wrapper", yoloWrapper],
-      ["models cache", modelsMeta.status],
-      ["models cache client", modelsMeta.clientVersion],
-      ["models cache fetched", modelsMeta.fetchedAt],
-      ["fast models", modelsMeta.fastModels],
-      ["current model", effective.model || "default"],
-      ["current thinking", effective.modelReasoningEffort],
-      ["current serviceTier", effective.serviceTier || "default"],
-      ["worker mode", settings.runtimeValue("codexWorkerMode")],
-      ["worker socket", config.codexWorkerSocket],
-      ["codex transport", settings.runtimeValue("codexTransport")],
-      ["app-server direct timeout", `${settings.runtimeValue("codexAppServerDirectTimeoutMs")}ms`],
+      [msg("ui.botVersion"), botPackage?.version || msg("ui.unknown")],
+      [msg("ui.node"), process.version],
+      [msg("ui.codexSdkInstalled"), sdkPackage?.version || msg("ui.unknown")],
+      [msg("ui.codexSdkDeclared"), declaredSdk],
+      [msg("ui.codexCli"), cliVersion.ok ? cliVersion.output : msg("ui.errorLine", { value1: cliVersion.error })],
+      [msg("ui.codexPath"), config.codexPath],
+      [msg("ui.yoloWrapper"), yoloWrapper],
+      [msg("ui.modelsCache"), modelsMeta.status],
+      [msg("ui.modelsCacheClient"), modelsMeta.clientVersion],
+      [msg("ui.modelsCacheFetched"), modelsMeta.fetchedAt],
+      [msg("ui.fastModels"), modelsMeta.fastModels],
+      [msg("ui.currentModel"), effective.model || msg("ui.default")],
+      [msg("ui.currentThinking"), effective.modelReasoningEffort],
+      [msg("ui.currentServiceTier"), effective.serviceTier || msg("ui.default")],
+      [msg("ui.workerMode"), settings.runtimeValue("codexWorkerMode")],
+      [msg("ui.workerSocket"), config.codexWorkerSocket],
+      [msg("ui.codexTransport"), settings.runtimeValue("codexTransport")],
+      [msg("ui.appServerDirectTimeout"), `${settings.runtimeValue("codexAppServerDirectTimeoutMs")}ms`],
       [
-        "recovery backfill poll",
-        config.botRecoveryBackfillPollMs > 0 ? `${config.botRecoveryBackfillPollMs}ms` : "off"
+        msg("ui.recoveryBackfillPoll"),
+        config.botRecoveryBackfillPollMs > 0 ? `${config.botRecoveryBackfillPollMs}ms` : msg("ui.off")
       ],
-      ["upgrade smoke test", "/status -> /model -> /fast_status -> message -> /new -> /resume_last"]
+      [msg("ui.upgradeSmokeTest"), "/status -> /model -> /fast_status -> message -> /new -> /resume_last"]
     ];
   }
 
@@ -126,54 +128,54 @@ export function createRuntimeDiagnosticsCollectors({
       uploadPlan
     ] = await Promise.all([
       checkStateReadWrite(),
-      checkDirectoryWritable(config.backupDir),
+      checkDirectoryWritable(config.backupDir, msg),
       getDiskSummary(config.codexWorkdir),
       getDiskSummary(path.dirname(config.stateFile)),
-      readCommandOutput("systemctl", ["--user", "is-active", "codex-telegram-bot.service"], 3000),
-      readCommandOutput("systemctl", ["--user", "is-active", "codex-telegram-worker.service"], 3000),
+      readCommandOutput("systemctl", ["--user", "is-active", "codex-telegram-bot.service"], 3000, msg),
+      readCommandOutput("systemctl", ["--user", "is-active", "codex-telegram-worker.service"], 3000, msg),
       uploads.createCleanupPlan({ dryRun: true }).catch(() => null)
     ]);
     return [
-      ["service", serviceStatus.ok ? serviceStatus.output : "unknown"],
-      ["worker service", workerServiceStatus.ok ? workerServiceStatus.output : "unknown"],
-      ["uptime", formatting.duration(process.uptime())],
-      ["memory rss", formatting.bytes(memory.rss)],
-      ["memory heap", `${formatting.bytes(memory.heapUsed)} / ${formatting.bytes(memory.heapTotal)}`],
-      ["active turns", activeTurns.size],
-      ["side turns", queue.countSideTurns()],
-      ["cached threads", threadCache.size],
-      ["saved chats", Object.keys(state.chats).length],
+      [msg("ui.service"), serviceStatus.ok ? serviceStatus.output : msg("ui.unknown")],
+      [msg("ui.workerService"), workerServiceStatus.ok ? workerServiceStatus.output : msg("ui.unknown")],
+      [msg("ui.uptime"), formatting.duration(process.uptime())],
+      [msg("ui.memoryRss"), formatting.bytes(memory.rss)],
+      [msg("ui.memoryHeap"), `${formatting.bytes(memory.heapUsed)} / ${formatting.bytes(memory.heapTotal)}`],
+      [msg("ui.activeTurns"), activeTurns.size],
+      [msg("ui.sideTurns"), queue.countSideTurns()],
+      [msg("ui.cachedThreads"), threadCache.size],
+      [msg("ui.savedChats"), Object.keys(state.chats).length],
       [
-        "live progress",
+        msg("ui.liveProgress2"),
         settings.runtimeValue("telegramLiveProgressEnabled")
-          ? `${settings.runtimeValue("telegramLiveProgressMode")}, ${config.telegramLiveProgressSource}, ${config.telegramLiveProgressDeletePolicy}, ${Math.round(settings.runtimeValue("telegramLiveProgressIntervalMs") / 1000)}s interval`
-          : "off"
+          ? msg("ui.sIntervalLine", { value1: settings.runtimeValue("telegramLiveProgressMode"), value2: config.telegramLiveProgressSource, value3: config.telegramLiveProgressDeletePolicy, value4: Math.round(settings.runtimeValue("telegramLiveProgressIntervalMs") / 1000) })
+          : msg("ui.off")
       ],
       [
-        "queue expiry",
+        msg("ui.queueExpiry"),
         settings.runtimeValue("telegramPendingTurnMaxAgeSeconds") <= 0
-          ? "off"
+          ? msg("ui.off")
           : formatting.duration(settings.runtimeValue("telegramPendingTurnMaxAgeSeconds"))
       ],
-      ["state read/write", stateCheck],
-      ["backup dir write", backupCheck],
-      ["workdir disk", workdirDisk],
-      ["state disk", stateDisk],
+      [msg("ui.stateReadWrite"), stateCheck],
+      [msg("ui.backupDirWrite"), backupCheck],
+      [msg("ui.workdirDisk"), workdirDisk],
+      [msg("ui.stateDisk"), stateDisk],
       [
-        "uploads",
+        msg("ui.uploads"),
         uploadPlan
-          ? `${formatting.count(uploadPlan.candidates.length + uploadPlan.preserved.length)} / ${formatting.bytes(uploadPlan.totalBytes)}; cleanup ${formatting.count(uploadPlan.candidates.length)} / ${formatting.bytes(uploadPlan.candidateBytes)}`
-          : "unavailable"
+          ? msg("ui.cleanupLine", { value1: formatting.count(uploadPlan.candidates.length + uploadPlan.preserved.length), value2: formatting.bytes(uploadPlan.totalBytes), value3: formatting.count(uploadPlan.candidates.length), value4: formatting.bytes(uploadPlan.candidateBytes) })
+          : msg("ui.unavailable")
       ],
-      ["pending turns", queue.countPendingTurns()],
-      ["backup dir", config.backupDir],
-      ["time zone", localization.timeZone()],
-      ["locale", localization.locale()],
+      [msg("ui.pendingTurns"), queue.countPendingTurns()],
+      [msg("ui.backupDir"), config.backupDir],
+      [msg("ui.timeZone2"), localization.timeZone()],
+      [msg("ui.locale"), localization.locale()],
       [
-        "snapshots",
+        msg("ui.snapshots"),
         settings.runtimeValue("snapshotEnabled")
-          ? `on, ${settings.runtimeValue("snapshotNotifyTime")} ${localization.timeZone()}, ${settings.runtimeValue("snapshotRetentionDays")}d retention`
-          : "off"
+          ? msg("ui.onDRetentionLine", { value1: settings.runtimeValue("snapshotNotifyTime"), value2: localization.timeZone(), value3: settings.runtimeValue("snapshotRetentionDays") })
+          : msg("ui.off")
       ]
     ];
   }
@@ -188,17 +190,17 @@ export function createRuntimeDiagnosticsCollectors({
         .filter((model) => model.fastSupported)
         .map((model) => model.slug);
       return {
-        status: `found, ${catalog.length} models, ${formatting.bytes(stat.size)}`,
-        clientVersion: parsed?.client_version || "unknown",
-        fetchedAt: parsed?.fetched_at || "unknown",
-        fastModels: fastModels.length > 0 ? fastModels.join(", ") : "unknown"
+        status: msg("ui.cacheFound", { count: catalog.length, size: formatting.bytes(stat.size) }),
+        clientVersion: parsed?.client_version || msg("ui.unknown"),
+        fetchedAt: parsed?.fetched_at || msg("ui.unknown"),
+        fastModels: fastModels.length > 0 ? fastModels.join(", ") : msg("ui.unknown")
       };
     } catch (error) {
       return {
-        status: `missing or unreadable: ${error instanceof Error ? error.message : String(error)}`,
-        clientVersion: "unknown",
-        fetchedAt: "unknown",
-        fastModels: "unknown"
+        status: msg("ui.cacheUnreadable", { error: error instanceof Error ? error.message : String(error) }),
+        clientVersion: msg("ui.unknown"),
+        fetchedAt: msg("ui.unknown"),
+        fastModels: msg("ui.unknown")
       };
     }
   }
@@ -207,31 +209,31 @@ export function createRuntimeDiagnosticsCollectors({
     try {
       const body = await fs.readFile(settings.config.codexPath, "utf8");
       return body.includes("--dangerously-bypass-approvals-and-sandbox")
-        ? "enabled"
-        : "not detected";
+        ? msg("ui.enabled")
+        : msg("ui.not_detected");
     } catch {
-      return "not inspected";
+      return msg("ui.not_inspected");
     }
   }
 
   async function checkStateReadWrite() {
     try {
       await fs.readFile(settings.config.stateFile, "utf8");
-      await checkDirectoryWritable(path.dirname(settings.config.stateFile));
-      return "ok";
+      await checkDirectoryWritable(path.dirname(settings.config.stateFile), msg);
+      return msg("ui.Ok");
     } catch (error) {
-      return `failed: ${error instanceof Error ? error.message : String(error)}`;
+      return msg("ui.checkFailed", { error: error instanceof Error ? error.message : String(error) });
     }
   }
 
   async function getDiskSummary(targetPath) {
     const result = await readCommandOutput("df", ["-Pk", targetPath], 3000);
-    if (!result.ok) return `unknown: ${result.error}`;
+    if (!result.ok) return msg("ui.checkUnknown", { error: result.error });
     const line = result.output.split("\n").at(-1);
     const parts = line?.trim().split(/\s+/) ?? [];
-    if (parts.length < 6) return "unknown";
+    if (parts.length < 6) return msg("ui.unknown");
     const available = Number(parts[3]) * 1024;
-    return `${formatting.bytes(available)} free, ${parts[4]} used`;
+    return msg("ui.diskSpace", { available: formatting.bytes(available), used: parts[4] });
   }
 
   return {
@@ -259,27 +261,28 @@ export async function readPackageJson(appRoot, packageName) {
   ));
 }
 
-export async function readCommandOutput(command, args, timeoutMs) {
+export async function readCommandOutput(command, args, timeoutMs, text) {
+  const msg = createMessageFormatter(text);
   try {
     const { stdout, stderr } = await execFileAsync(command, args, {
       maxBuffer: 1024 * 1024,
       timeout: timeoutMs
     });
-    return { ok: true, output: (stdout || stderr).trim() || "no output" };
+    return { ok: true, output: (stdout || stderr).trim() || msg("ui.noOutput") };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
-async function checkDirectoryWritable(dir) {
+async function checkDirectoryWritable(dir, msg = createMessageFormatter()) {
   const testFile = path.join(dir, `.write-test-${process.pid}-${Date.now()}`);
   try {
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(testFile, "ok\n", "utf8");
     await fs.rm(testFile, { force: true });
-    return "ok";
+    return msg("ui.Ok");
   } catch (error) {
     await fs.rm(testFile, { force: true }).catch(() => {});
-    return `failed: ${error instanceof Error ? error.message : String(error)}`;
+    return msg("ui.checkFailed", { error: error instanceof Error ? error.message : String(error) });
   }
 }

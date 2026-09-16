@@ -1,3 +1,4 @@
+import { errorText, LocalizedError, createMessageFormatter } from "../i18n.js";
 import { b, code } from "../telegram/html.js";
 
 const RUNTIME_SETTING_KEYS = Object.freeze({
@@ -41,6 +42,7 @@ export function createSettingsCallbackController({
   formatting,
   commands
 }) {
+  const msg = createMessageFormatter(localization.text);
   async function handleQueueButton(ctx, action, value) {
     const chatKey = telegram.getChatKey(ctx);
     await queue.pruneExpired(chatKey, ctx);
@@ -67,7 +69,7 @@ export function createSettingsCallbackController({
       if (!settings.validQueueModes.has(value)) {
         await telegram.editOrReplyHtml(
           ctx,
-          `${b("Invalid queue mode")}\n${code(value || "empty")}`,
+          `${b(msg("ui.invalidQueueMode"))}\n${code(value || msg("ui.empty"))}`,
           keyboards.queue(chatKey)
         );
         return;
@@ -116,7 +118,7 @@ export function createSettingsCallbackController({
       }
       if (key === "runtime_cleanupmode_confirm") {
         if (!["delete", "both"].includes(value)) {
-          throw new Error(`Unsupported destructive cleanup mode: ${value}`);
+          throw new LocalizedError("errors.unsupportedDestructiveCleanupMode", { value1: value });
         }
         await settings.updateRuntimeSetting("cleanupExecutionMode", value);
         await telegram.editOrReplyHtml(
@@ -203,12 +205,12 @@ export function createSettingsCallbackController({
       } else if (key === "schema" && value === "off") {
         delete chats.get(chatKey).outputSchema;
       } else {
-        throw new Error(`Unknown setting action: ${key}:${value}`);
+        throw new LocalizedError("errors.unknownSettingAction", { value1: key, value2: value });
       }
     } catch (error) {
       await telegram.editOrReplyHtml(
         ctx,
-        `${b(localization.text("settingFailure"))}\n${code(error instanceof Error ? error.message : String(error))}`,
+        `${b(localization.text("settingFailure"))}\n${code(errorText(error, localization.text))}`,
         keyboards.settings()
       );
       return;
@@ -223,9 +225,9 @@ export function createSettingsCallbackController({
 
   async function handleAppServerStatusButton(ctx) {
     const rows = [
-      ["transport", settings.runtimeValue("codexTransport")],
-      ["direct args", diagnostics.appServerDirectArgs().join(" ")],
-      ["timeout", `${settings.runtimeValue("codexAppServerDirectTimeoutMs")}ms`]
+      [msg("ui.transport"), settings.runtimeValue("codexTransport")],
+      [msg("ui.DirectArgs"), diagnostics.appServerDirectArgs().join(" ")],
+      [msg("ui.Timeout"), `${settings.runtimeValue("codexAppServerDirectTimeoutMs")}ms`]
     ];
     try {
       const result = await diagnostics.readCommandOutput(
@@ -234,43 +236,43 @@ export function createSettingsCallbackController({
         settings.runtimeValue("codexAppServerDirectTimeoutMs")
       );
       const supportsStdio = result.ok && result.output.includes("--stdio");
-      rows.push(["status", result.ok ? (supportsStdio ? "available" : "unsupported") : "failed"]);
+      rows.push([msg("ui.Status"), result.ok ? (supportsStdio ? msg("ui.Available") : msg("ui.Unsupported")) : msg("ui.Failed")]);
       rows.push([
-        "help",
+        msg("ui.Help"),
         formatting.truncate(
-          supportsStdio ? result.output : result.output || result.error || "missing --stdio support",
+          supportsStdio ? result.output : result.output || result.error || msg("ui.MissingStdioSupport"),
           supportsStdio ? 120 : 180
         )
       ]);
     } catch (error) {
-      rows.push(["status", "failed"]);
-      rows.push(["error", formatting.truncate(error instanceof Error ? error.message : String(error), 240)]);
+      rows.push([msg("ui.Status"), msg("ui.Failed")]);
+      rows.push([msg("ui.Error"), formatting.truncate(errorText(error, localization.text), 240)]);
     }
     await telegram.editOrReplyHtml(
       ctx,
-      formatting.keyValue("Codex app-server direct:", rows),
+      formatting.keyValue(msg("ui.codexAppServerDirect"), rows),
       keyboards.runtimeCodex()
     );
   }
 
   async function handleWorkerStatusButton(ctx) {
     const rows = [
-      ["worker mode", settings.runtimeValue("codexWorkerMode")],
-      ["socket", settings.config.codexWorkerSocket],
-      ["poll", `${settings.runtimeValue("codexWorkerEventPollMs")}ms`]
+      [msg("ui.workerMode"), settings.runtimeValue("codexWorkerMode")],
+      [msg("ui.Socket"), settings.config.codexWorkerSocket],
+      [msg("ui.Poll"), `${settings.runtimeValue("codexWorkerEventPollMs")}ms`]
     ];
     try {
       const status = await worker.getClient().status();
-      rows.push(["status", status.status || "ok"]);
-      rows.push(["active jobs", status.activeJobs?.length ?? 0]);
-      rows.push(["running jobs", status.runningJobIds?.length ?? 0]);
+      rows.push([msg("ui.Status"), status.status || msg("ui.Ok")]);
+      rows.push([msg("ui.ActiveJobs"), status.activeJobs?.length ?? 0]);
+      rows.push([msg("ui.RunningJobs"), status.runningJobIds?.length ?? 0]);
     } catch (error) {
-      rows.push(["status", "failed"]);
-      rows.push(["error", formatting.truncate(error instanceof Error ? error.message : String(error), 240)]);
+      rows.push([msg("ui.Status"), msg("ui.Failed")]);
+      rows.push([msg("ui.Error"), formatting.truncate(errorText(error, localization.text), 240)]);
     }
     await telegram.editOrReplyHtml(
       ctx,
-      formatting.keyValue("Codex worker:", rows),
+      formatting.keyValue(msg("ui.codexWorker"), rows),
       keyboards.runtimeCodex()
     );
   }
@@ -292,7 +294,7 @@ export function mapSandboxValue(value) {
 
 export function runtimeSettingKey(actionKey) {
   const key = RUNTIME_SETTING_KEYS[actionKey];
-  if (!key) throw new Error(`Unknown runtime action: ${actionKey}`);
+  if (!key) throw new LocalizedError("errors.unknownRuntimeAction", { value1: actionKey });
   return key;
 }
 
@@ -306,6 +308,6 @@ export function runtimeSettingValue(actionKey, value) {
 
 function choiceValue(choices, id, label, parser) {
   const choice = choices.find(([choiceId]) => choiceId === id);
-  if (!choice) throw new Error(`Unknown ${label}: ${id}`);
+  if (!choice) throw new LocalizedError("errors.unknown", { value1: label, value2: id });
   return parser(choice[2]);
 }

@@ -1,3 +1,4 @@
+import { textFor } from "../src/i18n.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createModelPresenter } from "../src/ui/model_presenter.js";
@@ -23,7 +24,7 @@ function createFixture() {
     localization: {
       language: () => "en",
       locale: () => "en-US",
-      text: (key) => key,
+      text: (key) => textFor("en", key),
       timeZone: () => "UTC"
     },
     formatting: {

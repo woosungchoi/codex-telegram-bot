@@ -1,3 +1,4 @@
+import { LocalizedError } from "../i18n.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { connectAppServer } from "../codex/app_server.js";
@@ -61,7 +62,7 @@ export function createWorkspaceBackend(config, { connect = connectAppServer, now
                 tools: Object.keys(server.tools || {}).length, error: startupErrors.get(server.name) || "" });
             }
             cursor = page.nextCursor;
-            if (cursor && seen.has(cursor)) throw new Error("Repeated MCP pagination cursor.");
+            if (cursor && seen.has(cursor)) throw new LocalizedError("errors.repeatedMCPPaginationCursor");
             seen.add(cursor);
           } while (cursor);
         } finally {
@@ -74,7 +75,7 @@ export function createWorkspaceBackend(config, { connect = connectAppServer, now
   async function setMcpEnabled(accountId, cwd, name, enabled, expectedVersion) {
     return using(accountId, async (c) => {
       const before = await c.request("config/read", { cwd, includeLayers: true });
-      if (!Object.hasOwn(before.config?.mcp_servers || {}, name)) throw new Error("MCP server no longer exists. Refresh the menu.");
+      if (!Object.hasOwn(before.config?.mcp_servers || {}, name)) throw new LocalizedError("errors.mcpServerMissing");
       const result = await c.request("config/value/write", {
         keyPath: `mcp_servers.${JSON.stringify(name)}.enabled`, value: enabled, mergeStrategy: "replace",
         filePath: path.join(accountConfig(config, accountId).codexHome, "config.toml"), expectedVersion
@@ -82,7 +83,7 @@ export function createWorkspaceBackend(config, { connect = connectAppServer, now
       await c.request("config/mcpServer/reload", {});
       const after = await c.request("config/read", { cwd, includeLayers: false });
       if ((after.config?.mcp_servers?.[name]?.enabled !== false) !== enabled || result.status === "okOverridden") {
-        throw new Error("Saved, but a higher-priority configuration overrides this setting.");
+        throw new LocalizedError("errors.savedButAHigherPriorityConfigurationOverridesThisSetting");
       }
       return result;
     });
@@ -95,7 +96,7 @@ export async function readSessionTail(file, sessionsDir, { maxBytes = 256 * 1024
   if (!file) return { messages: [], activity: "unknown" };
   const [real, root] = await Promise.all([fs.realpath(file), fs.realpath(sessionsDir)]);
   const relative = path.relative(root, real);
-  if (relative.startsWith("..") || path.isAbsolute(relative) || !real.endsWith(".jsonl")) throw new Error("Session log is outside this account's session directory.");
+  if (relative.startsWith("..") || path.isAbsolute(relative) || !real.endsWith(".jsonl")) throw new LocalizedError("errors.sessionLogIsOutsideThisAccountSSessionDirectory");
   const handle = await fs.open(real, "r");
   try {
     const { size } = await handle.stat();

@@ -1,3 +1,4 @@
+import { LocalizedError } from "../i18n.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import { b, code, escapeHtml } from "../telegram/html.js";
 import { selectedAccountId } from "./context.js";
@@ -144,7 +145,7 @@ export function createResetCreditsController(r, { store, readUsage, consumeCredi
           idempotencyKey: flow.attempt.idempotencyKey,
           ...(flow.attempt.creditId == null ? {} : { creditId: flow.attempt.creditId })
         });
-        if (!OUTCOME_TEXT[result?.outcome]) throw new Error("Unknown reset outcome.");
+        if (!OUTCOME_TEXT[result?.outcome]) throw new LocalizedError("errors.unknownResetOutcome");
       } catch {
         return confirmation(ctx, account, flow.attempt, true);
       }

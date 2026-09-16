@@ -1,3 +1,4 @@
+import { createMessageFormatter } from "../i18n.js";
 import {
   findCodexModel,
   isReasoningEffortSupported,
@@ -17,6 +18,7 @@ export function createSettingsModelSelectionController({
   views,
   text
 }) {
+  const msg = createMessageFormatter(text);
   const t = text;
 
   async function handleSettingsModelSelection(ctx, model) {
@@ -24,7 +26,7 @@ export function createSettingsModelSelectionController({
     if (await chat.rejectIfActive(ctx, chatKey)) return;
 
     const catalog = await models.list(chatKey);
-    const modelKeyboard = views.settingsSelectionKeyboard(modelSelectionKeyboard(catalog), "settings");
+    const modelKeyboard = views.settingsSelectionKeyboard(modelSelectionKeyboard(catalog, { text }), "settings");
     if (model !== "default" && !catalog.some((candidate) => candidate.slug === model)) {
       await telegram.editOrReplyHtml(
         ctx,
@@ -45,7 +47,7 @@ export function createSettingsModelSelectionController({
     if (transition.action === "reject") {
       await telegram.editOrReplyHtml(
         ctx,
-        `${b(t("thinkingUnavailable"))}\n${code(transition.reasoning || "default")} is not supported by ${code(prospectiveModel || "default")}\n\n${t("modelSelectionDescription")}`,
+        msg("ui.isNotSupportedByLine", { value1: b(t("thinkingUnavailable")), value2: code(transition.reasoning || msg("ui.default")), value3: code(prospectiveModel || msg("ui.default")), value4: t("modelSelectionDescription") }),
         modelKeyboard
       );
       return;
@@ -63,13 +65,13 @@ export function createSettingsModelSelectionController({
 
     const reasoningOptions = reasoningOptionsForModel(catalog, prospectiveModel);
     const reconciliation = transition.action === "clear"
-      ? `Reasoning override cleared: ${code(explicitReasoning)}`
-      : `Reasoning override cleared: ${code("no")}`;
+      ? msg("ui.reasoningOverrideClearedLine", { value1: code(explicitReasoning) })
+      : msg("ui.reasoningOverrideClearedLine", { value1: code(msg("ui.no")) });
     await telegram.editOrReplyHtml(
       ctx,
-      `${b("Model updated.")}\n${reconciliation}\n\n${views.formatReasoningPromptHtml(chatKey, catalog)}`,
+      `${b(msg("ui.modelUpdated"))}\n${reconciliation}\n\n${views.formatReasoningPromptHtml(chatKey, catalog)}`,
       views.settingsSelectionKeyboard(
-        reasoningSelectionKeyboard(reasoningOptions, { callbackPrefix: "rm:" }),
+        reasoningSelectionKeyboard(reasoningOptions, { callbackPrefix: "rm:", text }),
         "settings_model"
       )
     );
@@ -92,7 +94,7 @@ export function createSettingsModelSelectionController({
       if (transition.action === "reject") {
         await telegram.editOrReplyHtml(
           ctx,
-          `${b(t("thinkingUnavailable"))}\n${code(transition.reasoning || "default")} is not supported by ${code(effectiveModel || "default")}\n\n${views.formatReasoningPromptHtml(chatKey, catalog)}`,
+          msg("ui.isNotSupportedByLine", { value1: b(t("thinkingUnavailable")), value2: code(transition.reasoning || msg("ui.default")), value3: code(effectiveModel || msg("ui.default")), value4: views.formatReasoningPromptHtml(chatKey, catalog) }),
           reasoningButtons
         );
         return;
@@ -115,7 +117,7 @@ export function createSettingsModelSelectionController({
     if (continueToFast && fastSupported) {
       await telegram.editOrReplyHtml(
         ctx,
-        `${b("Thinking updated.")}\n\n${await views.fastPanelHtml(chatKey)}`,
+        `${b(msg("ui.thinkingUpdated"))}\n\n${await views.fastPanelHtml(chatKey)}`,
         views.settingsSelectionKeyboard(views.fastKeyboard(), "settings_reasoning")
       );
       return;
@@ -123,7 +125,7 @@ export function createSettingsModelSelectionController({
 
     await telegram.editOrReplyHtml(
       ctx,
-      `${b("Thinking updated.")}\n\n${views.formatReasoningPromptHtml(chatKey, catalog)}`,
+      `${b(msg("ui.thinkingUpdated"))}\n\n${views.formatReasoningPromptHtml(chatKey, catalog)}`,
       reasoningButtons
     );
   }

@@ -1,3 +1,4 @@
+import { LocalizedError } from "../i18n.js";
 import {
   CODEX_TRANSPORT_APP_SERVER_DIRECT,
   CODEX_TRANSPORT_SDK
@@ -113,13 +114,13 @@ export function parseRequiredBoolean(value, label) {
   const normalized = value.trim().toLowerCase();
   if (["1", "true", "yes", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "off"].includes(normalized)) return false;
-  throw new Error(`${label} must be on or off.`);
+  throw new LocalizedError("errors.mustBeOnOrOff", { value1: label });
 }
 
 export function parseCodexAnswerFormat(value) {
   const normalized = value?.trim().toLowerCase() || "markdown";
   if (["off", "safe", "markdown"].includes(normalized)) return normalized;
-  throw new Error("TELEGRAM_FORMAT_CODEX_ANSWERS must be off, safe, or markdown.");
+  throw new LocalizedError("errors.invalidAnswerFormat");
 }
 
 export function setRuntimeValue(target, key, rawValue) {
@@ -141,17 +142,17 @@ export function setRuntimeValue(target, key, rawValue) {
     target[key] = parseCleanupExecutionMode(value, key);
   } else if (key === "codexTransport") {
     if (![CODEX_TRANSPORT_SDK, CODEX_TRANSPORT_APP_SERVER_DIRECT].includes(value)) {
-      throw new Error("codexTransport must be sdk or app-server-direct.");
+      throw new LocalizedError("errors.codexTransportMustBeSdkOrAppServerDirect");
     }
     target[key] = value;
   } else if (key === "codexWorkerMode") {
     if (!["sidecar", "inline"].includes(value)) {
-      throw new Error("codexWorkerMode must be sidecar or inline.");
+      throw new LocalizedError("errors.codexWorkerModeMustBeSidecarOrInline");
     }
     target[key] = value;
   } else if (key === "telegramLiveProgressMode") {
     if (!["brief", "korean-brief"].includes(value)) {
-      throw new Error("telegramLiveProgressMode must be brief or korean-brief.");
+      throw new LocalizedError("errors.telegramLiveProgressModeMustBeBriefOrKoreanBrief");
     }
     target[key] = value;
   } else if (key === "cleanupNotifyTime" || key === "snapshotNotifyTime") {
@@ -175,7 +176,7 @@ export function setRuntimeValue(target, key, rawValue) {
     const parsed = parseStrictNonnegativeInteger(value, key);
     target[key] = parsed >= 1000 ? parsed : parsed * 1000;
   } else {
-    throw new Error(`Unknown runtime setting: ${key}`);
+    throw new LocalizedError("errors.unknownRuntimeSetting", { value1: key });
   }
 }
 
@@ -194,7 +195,7 @@ function sanitizeRuntimeSettings(value) {
 function parseStrictNonnegativeInteger(value, label) {
   const parsed = Number(String(value ?? "").trim());
   if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new Error(`${label} must be a non-negative integer.`);
+    throw new LocalizedError("errors.mustBeANonNegativeInteger", { value1: label });
   }
   return parsed;
 }
@@ -202,7 +203,7 @@ function parseStrictNonnegativeInteger(value, label) {
 function parseTimeOfDay(value) {
   const normalized = String(value || "").trim().replaceAll("_", ":");
   if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(normalized)) {
-    throw new Error("Time must use HH:MM.");
+    throw new LocalizedError("errors.timeMustUseHHMM");
   }
   return normalized;
 }

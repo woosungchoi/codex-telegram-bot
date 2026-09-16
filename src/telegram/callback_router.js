@@ -1,3 +1,4 @@
+import { createMessageFormatter } from "../i18n.js";
 import { b, code } from "./html.js";
 
 export function registerCallbackRoutes({
@@ -24,6 +25,7 @@ export function registerCallbackRoutes({
   timing,
   now = Date.now
 }) {
+  const msg = createMessageFormatter(localization.text);
   bot.action(/^cleanup:(quarantine|delete|both|ignore):([a-zA-Z0-9_-]+)$/, async (ctx) => {
     const [, action, planId] = ctx.match;
     const plan = state.cleanup?.plans?.[planId];
@@ -78,7 +80,7 @@ export function registerCallbackRoutes({
       }
       await cleanup.editUploadMessage(
         ctx,
-        `${b("Upload cleanup plan unavailable")}\nRun ${code("/cleanup_uploads")} to generate a fresh preview.`
+        msg("ui.uploadCleanupPreview", { title: b(msg("ui.uploadCleanupPlanUnavailable")), command: code("/cleanup_uploads") })
       );
       return;
     }
@@ -87,7 +89,7 @@ export function registerCallbackRoutes({
       ctx,
       cleanup.formatUploadProcessing(record),
       keyboards.inline([[{
-        text: "Processing",
+        text: msg("ui.processing"),
         callback_data: `upload_cleanup_processing:${planId}`
       }]])
     );
@@ -129,7 +131,7 @@ export function registerCallbackRoutes({
     else if (action === "up") changed = await queue.move(chatKey, turnId, "up");
     else if (action === "next") changed = await queue.move(chatKey, turnId, "next");
     if (changed === 0) {
-      await telegram.editOrReplyHtml(ctx, "Queue item not found. Run /queue to refresh.", queue.keyboard(chatKey));
+      await telegram.editOrReplyHtml(ctx, msg("ui.queueItemNotFoundRunQueueToRefresh"), queue.keyboard(chatKey));
       return;
     }
     await telegram.editOrReplyHtml(ctx, queue.format(chatKey), queue.keyboard(chatKey));
@@ -161,13 +163,14 @@ export function registerCallbackRoutes({
     const [, view, page] = ctx.match;
     await ctx.answerCbQuery();
     if (!skills.isView(view)) {
-      await telegram.editOrReplyHtml(ctx, b("Invalid skills view"), keyboards.withToolsBack());
+      await telegram.editOrReplyHtml(ctx, b(msg("ui.invalidSkillsView")), keyboards.withToolsBack());
       return;
     }
     await skills.replyStatus(
       ctx,
       {
         config: settings.config,
+      text: localization.text,
         runtimeValue: settings.runtimeValue,
         replyHtml: telegram.replyHtml,
         editOrReplyHtml: telegram.editOrReplyHtml
@@ -236,7 +239,7 @@ export function registerCallbackRoutes({
       const cleared = await queue.clear(chatKey);
       await telegram.editOrReplyHtml(
         ctx,
-        `${b(localization.text("clearQueueDone"))}\nCleared queued turns: ${code(cleared)}`,
+        msg("ui.clearedQueuedTurnsLine3", { value1: b(localization.text("clearQueueDone")), value2: code(cleared) }),
         queue.keyboard(chatKey)
       );
       return;
@@ -277,7 +280,7 @@ export function registerCallbackRoutes({
       if (queue.sideTurnCount(chatKey) > 0) {
         await telegram.editOrReplyHtml(
           ctx,
-          `Codex side turn is already running. Use ${code("/stop")} first.`,
+          msg("ui.codexSideTurnIsAlreadyRunningUseFirstLine", { value1: code("/stop") }),
           status.keyboard(chatKey)
         );
         return;
@@ -304,7 +307,7 @@ export function registerCallbackRoutes({
     if (queue.sideTurnCount(chatKey) > 0) {
       await telegram.editOrReplyHtml(
         ctx,
-        `Codex side turn is already running. Use ${code("/stop")} first.`,
+        msg("ui.codexSideTurnIsAlreadyRunningUseFirstLine", { value1: code("/stop") }),
         status.keyboard(chatKey)
       );
       return;
@@ -321,7 +324,7 @@ export function registerCallbackRoutes({
       await timing.withTimeout(
         usage.refreshSample(chatKey, abortController.signal),
         60000,
-        "Usage refresh timed out."
+        msg("ui.usageRefreshTimeout")
       );
       await telegram.editOrReplyHtml(
         ctx,

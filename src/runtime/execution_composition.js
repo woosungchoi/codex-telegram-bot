@@ -118,7 +118,7 @@ export function createExecutionComposition(r) {
     },
     turn: {
       createQueueItemId: r.createQueueItemId,
-      notifyAccountRotation: (ctx, label) => r.replyHtml(ctx, r.formatKeyValueHtml("🔁 Codex account", [["Account", label]])),
+      notifyAccountRotation: (ctx, label) => r.replyHtml(ctx, r.formatKeyValueHtml(r.text("ui.accountRotated"), [[r.text("workspace.account"), label]])),
       maybeNotifyContextPressure: executor.maybeNotifyContextPressure,
       maybeSendLiveProgress: progress.maybeSendLiveProgress,
       recordActiveTurnFailed: journal.recordActiveTurnFailed,

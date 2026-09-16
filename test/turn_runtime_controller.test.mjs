@@ -1,3 +1,4 @@
+import { textFor } from "../src/i18n.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { setImmediate as waitForImmediate } from "node:timers/promises";
@@ -123,7 +124,7 @@ function createHarness({ queueMode = "safe", workerEnabled = false, runTurnError
       track: (...args) => calls.push(["side-track", ...args]),
       untrack: (...args) => calls.push(["side-untrack", ...args])
     },
-    text: (key) => key,
+    text: (key) => textFor("en", key),
     now: () => new Date("2026-07-21T05:06:07.000Z"),
     timers: {
       setInterval: (callback, delay) => {
@@ -209,7 +210,7 @@ test("interrupt mode prepends work and aborts the active turn", async () => {
   assert.equal(pending.get("chat:42")[0].text, "interrupt");
   assert.equal(active.interruptRequested, true);
   assert.equal(abortController.signal.aborted, true);
-  assert.match(replies.at(-1), /interruptRequestedTitle/);
+  assert.ok(replies.at(-1).includes(textFor("en", "interruptRequestedTitle")));
 });
 
 test("side mode runs an isolated thread without queueing the message", async () => {
@@ -222,7 +223,7 @@ test("side mode runs an isolated thread without queueing the message", async () 
   await waitForImmediate();
 
   assert.equal(pending.has("chat:42"), false);
-  assert.match(replies[0], /sideTurnStartedTitle/);
+  assert.ok(replies[0].includes(textFor("en", "sideTurnStartedTitle")));
   assert.match(replies[1], /Side reply/);
   assert.equal(calls.filter(([name]) => name === "side-track").length, 1);
   assert.equal(calls.filter(([name]) => name === "side-untrack").length, 1);
@@ -286,7 +287,7 @@ test("bad request failures include image-safe new-thread recovery guidance", asy
 
   assert.match(replies.at(-1), /<b>Codex failed<\/b>/);
   assert.match(replies.at(-1), /\{&quot;detail&quot;:&quot;Bad Request&quot;\}/);
-  assert.match(replies.at(-1), /codexBadRequestRecoveryDetail/);
+  assert.ok(replies.at(-1).includes(textFor("en", "codexBadRequestRecoveryDetail")));
   assert.equal(calls.filter(([name]) => name === "run-turn").length, 1);
   assert.deepEqual(calls.find(([name]) => name === "active-failed").slice(1), [
     "chat:42",

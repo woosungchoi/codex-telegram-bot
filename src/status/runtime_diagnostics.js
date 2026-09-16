@@ -1,3 +1,4 @@
+import { createMessageFormatter } from "../i18n.js";
 import { createRuntimeDiagnosticsCollectors } from "./runtime_diagnostics_collectors.js";
 import { createRuntimeDiagnosticsPresenter } from "./runtime_diagnostics_presenter.js";
 
@@ -24,6 +25,7 @@ export function createRuntimeDiagnostics({
   packages,
   now = Date.now
 }) {
+  const msg = createMessageFormatter(localization.text);
   const collectors = createRuntimeDiagnosticsCollectors({
     settings,
     state,
@@ -59,11 +61,11 @@ export function createRuntimeDiagnostics({
   }
 
   async function formatDoctorHtml(chatKey) {
-    return formatting.keyValue("Codex doctor:", await collectors.collectDoctorRows(chatKey));
+    return formatting.keyValue(msg("ui.codexDoctor"), await collectors.collectDoctorRows(chatKey));
   }
 
   async function formatHealthHtml() {
-    return formatting.keyValue("Bot health:", await collectors.collectHealthRows());
+    return formatting.keyValue(msg("ui.botHealth"), await collectors.collectHealthRows());
   }
 
   return {

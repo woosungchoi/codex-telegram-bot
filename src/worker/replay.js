@@ -1,3 +1,4 @@
+import { localizedErrorDetails, restoreLocalizedError } from "../i18n.js";
 import {
   applyCodexStreamEvent,
   codexStreamResult,
@@ -27,7 +28,7 @@ export async function reconstructCompletedWorkerJob(client, jobId) {
       if (Number.isFinite(lastSeq) && cursor < lastSeq) {
         throw new Error(`Worker job ${jobId} event log is incomplete (${cursor}/${lastSeq}).`);
       }
-      terminal = { type: `worker.job.${job.status}`, status: job.status, message: job.error || "" };
+      terminal = { ...localizedErrorDetails(job), type: `worker.job.${job.status}`, status: job.status, message: job.error || "" };
       break;
     }
 
@@ -47,8 +48,8 @@ export async function reconstructCompletedWorkerJob(client, jobId) {
     }
   }
 
-  if (terminal?.type === "worker.job.failed") throw new Error(terminal.message || "Codex worker job failed.");
-  if (terminal?.type === "worker.job.cancelled") throw new Error(terminal.message || "Codex worker job was cancelled.");
+  if (terminal?.type === "worker.job.failed") throw restoreLocalizedError(terminal, "errors.workerFailed");
+  if (terminal?.type === "worker.job.cancelled") throw restoreLocalizedError(terminal, "errors.workerCancelled");
   if (terminal?.status !== "completed" && terminal?.type !== "worker.job.completed") {
     throw new Error(`Worker job ${jobId} did not complete successfully.`);
   }

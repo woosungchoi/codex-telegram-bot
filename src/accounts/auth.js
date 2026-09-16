@@ -1,3 +1,4 @@
+import { LocalizedError } from "../i18n.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { connectAppServer } from "../codex/app_server.js";
@@ -28,23 +29,23 @@ export async function signInAccount({ config, store, label, signal, onCode, time
     client.exited?.then(() => settle({ success: false, disconnected: true }));
     const login = await client.request("account/login/start", { type: "chatgptDeviceCode" });
     loginId = login.loginId;
-    if (!loginId || login.type !== "chatgptDeviceCode") throw new Error("Device login is unavailable in this Codex CLI. Update Codex and retry.");
+    if (!loginId || login.type !== "chatgptDeviceCode") throw new LocalizedError("errors.deviceLoginIsUnavailableInThisCodexCLIUpdate");
     const url = new URL(login.verificationUrl);
     if (url.protocol !== "https:" || !["auth.openai.com", "chatgpt.com"].includes(url.hostname)
-      || !/^[A-Z0-9-]{4,64}$/i.test(login.userCode || "")) throw new Error("Invalid device login response.");
+      || !/^[A-Z0-9-]{4,64}$/i.test(login.userCode || "")) throw new LocalizedError("errors.invalidDeviceLoginResponse");
     signal?.throwIfAborted();
     await onCode({ verificationUrl: url.href, userCode: login.userCode, accountId: account.id });
     const alreadyDone = notices.find((notice) => notice.loginId === loginId);
     if (alreadyDone) settle(alreadyDone);
     const result = await completed;
     signal?.throwIfAborted();
-    if (!result.success) throw new Error(result.expired ? "Device login expired. Run /reauth again." : "Device login did not complete. Check ChatGPT device-code login permissions and retry.");
+    if (!result.success) throw new LocalizedError(result.expired ? "errors.deviceLoginExpiredRunReauthAgain" : "errors.deviceLoginDidNotCompleteCheckChatGPTDeviceCode");
     const authFile = path.join(scoped.codexHome, "auth.json");
     const stat = await fs.stat(authFile);
-    if (!stat.isFile() || stat.size === 0) throw new Error("Login completed without a credential cache.");
+    if (!stat.isFile() || stat.size === 0) throw new LocalizedError("errors.loginCompletedWithoutACredentialCache");
     await fs.chmod(authFile, 0o600);
     const { account: identity } = await client.request("account/read", { refreshToken: false });
-    if (identity?.type !== "chatgpt") throw new Error("ChatGPT sign-in was not verified.");
+    if (identity?.type !== "chatgpt") throw new LocalizedError("errors.chatGPTSignInWasNotVerified");
     const ready = await store.update(account.id, { status: "ready", planType: identity.planType || "unknown", cooldownUntil: 0 });
     succeeded = true;
     return ready;

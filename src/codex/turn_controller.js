@@ -1,3 +1,4 @@
+import { errorText, createMessageFormatter } from "../i18n.js";
 import { buildInput, mergeReplyContext } from "./input.js";
 import { isStreamIdleTimeout, STREAM_IDLE_TIMEOUT_MESSAGE } from "./watchdog.js";
 import { runTelegramFinalDelivery, summarizeTelegramError } from "../telegram/api.js";
@@ -32,6 +33,7 @@ export function createTurnRuntimeController({
   now = () => new Date(),
   timers = { setInterval, clearInterval }
 }) {
+  const msg = createMessageFormatter(t);
   function formatCodexFailure(title, message) {
     const lines = [b(title), code(message)];
     if (isCodexBadRequest(message)) {
@@ -97,7 +99,7 @@ export function createTurnRuntimeController({
     } catch (error) {
       await telegram.replyHtml(
         ctx,
-        `<b>Failed to prepare Codex input</b>\n${code(error instanceof Error ? error.message : String(error))}`
+        msg("ui.prepareInputFailed", { value1: code(errorText(error, t)) })
       );
       const nextTurn = await queue.dequeue(chatKey, ctx);
       if (nextTurn) startPreparedTurnQueueInBackground(chatKey, nextTurn, active);
@@ -112,7 +114,7 @@ export function createTurnRuntimeController({
     } catch (error) {
       await telegram.replyHtml(
         ctx,
-        `<b>Failed to prepare Codex input</b>\n${code(error instanceof Error ? error.message : String(error))}`
+        msg("ui.prepareInputFailed", { value1: code(errorText(error, t)) })
       );
       return;
     }
@@ -120,16 +122,16 @@ export function createTurnRuntimeController({
     if (!queued.ok) {
       await telegram.replyHtml(
         ctx,
-        `${b("Codex queue is full.")}\nMax queued turns: ${code(settings.maxPendingTurns())}\nUse ${code("/queue")} or ${code("/cancelqueue")}.`
+        msg("ui.maxQueuedTurnsUseOrLine", { value1: b(msg("ui.codexQueueIsFull")), value2: code(settings.maxPendingTurns()), value3: code("/queue"), value4: code("/cancelqueue") })
       );
       return;
     }
     const paused = queue.isPaused(chatKey)
-      ? "\nQueue is paused. Use /queue_resume to continue."
+      ? t("ui.queuePausedNotice")
       : "";
     await telegram.replyHtml(
       ctx,
-      `Queued Codex turn: ${code(`#${queued.position}`)}${paused}\nUse ${code("/queue")} to inspect or ${code("/cancelqueue")} to clear.`
+      msg("ui.queuedCodexTurnUseToInspectOrToLine", { value1: code(`#${queued.position}`), value2: paused, value3: code("/queue"), value4: code("/cancelqueue") })
     );
   }
 
@@ -140,7 +142,7 @@ export function createTurnRuntimeController({
     } catch (error) {
       await telegram.replyHtml(
         ctx,
-        `<b>Failed to prepare Codex input</b>\n${code(error instanceof Error ? error.message : String(error))}`
+        msg("ui.prepareInputFailed", { value1: code(errorText(error, t)) })
       );
       return;
     }
@@ -155,7 +157,7 @@ export function createTurnRuntimeController({
     if (!queued.ok) {
       await telegram.replyHtml(
         ctx,
-        `${b("Codex queue is full.")}\nMax queued turns: ${code(settings.maxPendingTurns())}\nUse ${code("/queue")} or ${code("/cancelqueue")}.`
+        msg("ui.maxQueuedTurnsUseOrLine", { value1: b(msg("ui.codexQueueIsFull")), value2: code(settings.maxPendingTurns()), value3: code("/queue"), value4: code("/cancelqueue") })
       );
       return;
     }
@@ -176,7 +178,7 @@ export function createTurnRuntimeController({
     } catch (error) {
       await telegram.replyHtml(
         ctx,
-        `<b>Failed to prepare side input</b>\n${code(error instanceof Error ? error.message : String(error))}`
+        msg("ui.prepareSideInputFailed", { value1: code(errorText(error, t)) })
       );
       return;
     }
@@ -184,7 +186,7 @@ export function createTurnRuntimeController({
     processSideTurn(chatKey, preparedTurn).catch(async (error) => {
       await telegram.replyHtml(
         ctx,
-        `<b>Side turn failed</b>\n${code(error instanceof Error ? error.message : String(error))}`
+        msg("ui.sideTurnFailed", { value1: code(errorText(error, t)) })
       ).catch(() => {});
     });
     await telegram.replyHtml(
@@ -205,7 +207,7 @@ export function createTurnRuntimeController({
       const ctx = context.ensureTurnContext(preparedTurn);
       await telegram.replyHtml(
         ctx,
-        `<b>Queued Codex turn failed</b>\n${code(error instanceof Error ? error.message : String(error))}`
+        msg("ui.queuedTurnFailedDetail", { value1: code(errorText(error, t)) })
       ).catch(() => {});
     });
   }
@@ -237,18 +239,18 @@ export function createTurnRuntimeController({
         { rememberThreadId: false }
       );
       const response = codex.formatTurn(turn);
-      await telegram.replyHtml(ctx, b("Side reply"));
+      await telegram.replyHtml(ctx, b(msg("ui.sideReply")));
       await telegram.replyCodexAnswer(
         ctx,
-        response || "Side Codex turn completed without a final message."
+        response || t("ui.sideCompletedWithoutMessage")
       );
       finalReaction = settings.completeReaction;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error, t);
       finalReaction = abortController.signal.aborted
         ? settings.stoppedReaction
         : settings.errorReaction;
-      await telegram.replyHtml(ctx, formatCodexFailure("Side Codex failed", message));
+      await telegram.replyHtml(ctx, formatCodexFailure(msg("ui.sideCodexFailed"), message));
     } finally {
       timers.clearInterval(typingInterval);
       sideTurns.untrack(chatKey, abortController);
@@ -357,13 +359,13 @@ export function createTurnRuntimeController({
           );
         } else {
           await recovery.recordActiveTurnFailed(chatKey, message);
-          await telegram.replyHtml(ctx, formatCodexFailure("Codex failed", message));
+          await telegram.replyHtml(ctx, formatCodexFailure(msg("ui.codexFailed"), errorText(error, t)));
         }
         return;
       }
 
       const response = codex.formatTurn(execution.turn);
-      const replyText = response || "Codex completed without a final message.";
+      const replyText = response || t("ui.completedWithoutMessage");
       const delivery = await runTelegramFinalDelivery({
         onReady: () => recovery.recordTelegramReplyReady(chatKey, execution, replyText),
         onStarted: () => recovery.recordTelegramReplyStarted(chatKey, execution, replyText),

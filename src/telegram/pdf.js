@@ -1,3 +1,4 @@
+import { textFor } from "../i18n.js";
 import path from "node:path";
 import { b, code, escapeHtml } from "./html.js";
 
@@ -16,7 +17,7 @@ export function planTelegramDocumentInput(document, caption = "", options = {}) 
     return { kind: text ? "pdf_caption" : "pdf_upload_only", text };
   }
   if (document?.mime_type?.startsWith("image/")) {
-    return { kind: "image", text: String(caption || "").trim() || options.imageFallbackText || "Analyze this image." };
+    return { kind: "image", text: String(caption || "").trim() || options.imageFallbackText || (options.text || ((key) => textFor("en", key)))("ui.analyzeImage") };
   }
   return { kind: "unsupported" };
 }
@@ -32,15 +33,16 @@ export function createUploadedPdfRecord(document, downloaded, options = {}) {
 }
 
 export function formatUploadedPdfHtml(record, options = {}) {
+  const t = options.text || ((key) => textFor("en", key));
   const labels = {
-    file: "File",
-    size: "Size",
-    path: "Path",
+    file: t("pdfUploadedFile"),
+    size: t("pdfUploadedSize"),
+    path: t("pdfUploadedPath"),
     ...(options.labels || {})
   };
   const formatBytes = options.formatBytes || String;
   const parts = [
-    b(options.title || "PDF uploaded"),
+    b(options.title || t("pdfUploadedTitle")),
     options.detail ? escapeHtml(options.detail) : "",
     `${escapeHtml(labels.file)}: ${code(record.fileName || "document.pdf")}`,
     `${escapeHtml(labels.size)}: ${code(formatBytes(record.bytes || 0))}`,

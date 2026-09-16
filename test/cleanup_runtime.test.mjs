@@ -1,3 +1,4 @@
+import { textFor } from "../src/i18n.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createCleanupRuntime } from "../src/maintenance/cleanup_runtime.js";
@@ -51,7 +52,7 @@ function createFixture() {
     },
     localization: {
       formatText: (key, values) => `${key}:${values.action ?? ""}`,
-      text: (key) => key
+      text: (key) => textFor("en", key)
     },
     formatting: {
       count: String,
@@ -122,7 +123,7 @@ test("cleanup callback rendering keeps the action and candidate totals", () => {
     quarantineCandidates: [{}, {}],
     deleteCandidates: [{}]
   });
-  assert.match(html, /cleanupActionBoth/);
+  assert.match(html, /Quarantine \+ delete/);
   assert.match(html, /manifest\.json/);
 });
 

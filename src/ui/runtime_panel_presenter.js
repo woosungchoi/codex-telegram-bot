@@ -1,3 +1,4 @@
+import { createMessageFormatter } from "../i18n.js";
 export function createRuntimePanelPresenter({
   settings,
   state,
@@ -10,6 +11,7 @@ export function createRuntimePanelPresenter({
   localization,
   formatting
 }) {
+  const msg = createMessageFormatter(localization.text);
   async function formatMainPanelHtml(chatKey) {
     return views.renderMain({
       details: await status.buildDetails(chatKey),
@@ -51,83 +53,83 @@ export function createRuntimePanelPresenter({
   }
 
   function runtimeSummaryHtml() {
-    return formatting.keyValue("Runtime overrides:", [
-      ["worker mode", settings.runtimeValue("codexWorkerMode")],
-      ["codex transport", settings.runtimeValue("codexTransport")],
-      ["reactions", settings.runtimeValue("telegramReactionsEnabled")],
-      ["answer format", settings.runtimeValue("telegramFormatCodexAnswers")],
-      ["completion notice", `${settings.runtimeValue("telegramCompletionNoticeSeconds")}s`],
-      ["queue max", settings.runtimeValue("telegramPendingTurnsMax")],
+    return formatting.keyValue(msg("ui.runtimeOverrides"), [
+      [msg("ui.workerMode"), settings.runtimeValue("codexWorkerMode")],
+      [msg("ui.codexTransport"), settings.runtimeValue("codexTransport")],
+      [msg("ui.reactions"), settings.runtimeValue("telegramReactionsEnabled")],
+      [msg("ui.answerFormat"), settings.runtimeValue("telegramFormatCodexAnswers")],
+      [msg("ui.completionNotice"), `${settings.runtimeValue("telegramCompletionNoticeSeconds")}s`],
+      [msg("ui.queueMax"), settings.runtimeValue("telegramPendingTurnsMax")],
       [
-        "queue expiry",
+        msg("ui.queueExpiry"),
         settings.runtimeValue("telegramPendingTurnMaxAgeSeconds") <= 0
-          ? "off"
+          ? msg("ui.off")
           : formatting.duration(settings.runtimeValue("telegramPendingTurnMaxAgeSeconds"))
       ],
       [
-        "cleanup",
+        msg("ui.cleanup"),
         settings.runtimeValue("cleanupEnabled")
           ? `${settings.runtimeValue("cleanupNotifyTime")} ${localization.timeZone()} · ${settings.runtimeValue("cleanupExecutionMode")}`
-          : "off"
+          : msg("ui.off")
       ],
       [
-        "snapshot",
+        msg("ui.snapshot"),
         settings.runtimeValue("snapshotEnabled")
           ? `${settings.runtimeValue("snapshotNotifyTime")} ${localization.timeZone()}`
-          : "off"
+          : msg("ui.off")
       ],
-      ["logs max lines", settings.runtimeValue("logsMaxLines")],
-      ["max message chars", settings.runtimeValue("maxTelegramChars")]
+      [msg("ui.logsMaxLines"), settings.runtimeValue("logsMaxLines")],
+      [msg("ui.maxMessageChars"), settings.runtimeValue("maxTelegramChars")]
     ]);
   }
 
   function runtimeOutputPanelHtml() {
-    return formatting.keyValue("Output runtime:", [
-      ["reactions", settings.runtimeValue("telegramReactionsEnabled")],
-      ["answer format", settings.runtimeValue("telegramFormatCodexAnswers")],
-      ["completion notice seconds", settings.runtimeValue("telegramCompletionNoticeSeconds")],
-      ["max Telegram chars", settings.runtimeValue("maxTelegramChars")],
-      ["logs max lines", settings.runtimeValue("logsMaxLines")],
-      ["progress edit interval", `${settings.runtimeSeconds("progressEditIntervalMs")}s`]
+    return formatting.keyValue(msg("ui.outputRuntime"), [
+      [msg("ui.reactions"), settings.runtimeValue("telegramReactionsEnabled")],
+      [msg("ui.answerFormat"), settings.runtimeValue("telegramFormatCodexAnswers")],
+      [msg("ui.completionNoticeSeconds"), settings.runtimeValue("telegramCompletionNoticeSeconds")],
+      [msg("ui.maxTelegramChars"), settings.runtimeValue("maxTelegramChars")],
+      [msg("ui.logsMaxLines"), settings.runtimeValue("logsMaxLines")],
+      [msg("ui.progressEditInterval"), `${settings.runtimeSeconds("progressEditIntervalMs")}s`]
     ]);
   }
 
   function runtimeQueuePanelHtml() {
     const maxAge = settings.runtimeValue("telegramPendingTurnMaxAgeSeconds");
-    return formatting.keyValue("Queue runtime:", [
-      ["pending turns max", settings.runtimeValue("telegramPendingTurnsMax")],
-      ["pending max age seconds", maxAge],
-      ["pending max age", maxAge <= 0 ? "off" : formatting.duration(maxAge)]
+    return formatting.keyValue(msg("ui.queueRuntime"), [
+      [msg("ui.pendingTurnsMax"), settings.runtimeValue("telegramPendingTurnsMax")],
+      [msg("ui.pendingMaxAgeSeconds"), maxAge],
+      [msg("ui.pendingMaxAge"), maxAge <= 0 ? msg("ui.off") : formatting.duration(maxAge)]
     ]);
   }
 
   function runtimeCodexPanelHtml() {
-    return formatting.keyValue("Codex runtime:", [
-      ["worker mode", settings.runtimeValue("codexWorkerMode")],
-      ["worker socket", settings.config.codexWorkerSocket],
-      ["worker poll", `${settings.runtimeValue("codexWorkerEventPollMs")}ms`],
-      ["transport", settings.runtimeValue("codexTransport")],
-      ["app-server direct timeout", `${settings.runtimeValue("codexAppServerDirectTimeoutMs")}ms`],
-      ["codex path", settings.config.codexPath]
+    return formatting.keyValue(msg("ui.codexRuntime"), [
+      [msg("ui.workerMode"), settings.runtimeValue("codexWorkerMode")],
+      [msg("ui.workerSocket"), settings.config.codexWorkerSocket],
+      [msg("ui.workerPoll"), `${settings.runtimeValue("codexWorkerEventPollMs")}ms`],
+      [msg("ui.transport"), settings.runtimeValue("codexTransport")],
+      [msg("ui.appServerDirectTimeout"), `${settings.runtimeValue("codexAppServerDirectTimeoutMs")}ms`],
+      [msg("ui.codexPath"), settings.config.codexPath]
     ]);
   }
 
   function runtimeCleanupPanelHtml() {
-    return formatting.keyValue("Cleanup runtime:", [
-      ["enabled", settings.runtimeValue("cleanupEnabled")],
-      ["execution mode", settings.runtimeValue("cleanupExecutionMode")],
-      ["notify time", `${settings.runtimeValue("cleanupNotifyTime")} ${localization.timeZone()}`],
-      ["retention days", settings.runtimeValue("cleanupRetentionDays")],
-      ["quarantine days", settings.runtimeValue("cleanupQuarantineDays")],
-      ["plan ttl hours", settings.runtimeValue("cleanupPlanTtlHours")]
+    return formatting.keyValue(msg("ui.cleanupRuntime"), [
+      [msg("ui.enabled"), settings.runtimeValue("cleanupEnabled")],
+      [msg("ui.executionMode"), settings.runtimeValue("cleanupExecutionMode")],
+      [msg("ui.notifyTime"), `${settings.runtimeValue("cleanupNotifyTime")} ${localization.timeZone()}`],
+      [msg("ui.retentionDays"), settings.runtimeValue("cleanupRetentionDays")],
+      [msg("ui.quarantineDays"), settings.runtimeValue("cleanupQuarantineDays")],
+      [msg("ui.planTtlHours"), settings.runtimeValue("cleanupPlanTtlHours")]
     ]);
   }
 
   function runtimeSnapshotPanelHtml() {
-    return formatting.keyValue("Snapshot runtime:", [
-      ["enabled", settings.runtimeValue("snapshotEnabled")],
-      ["notify time", `${settings.runtimeValue("snapshotNotifyTime")} ${localization.timeZone()}`],
-      ["retention days", settings.runtimeValue("snapshotRetentionDays")]
+    return formatting.keyValue(msg("ui.snapshotRuntime"), [
+      [msg("ui.enabled"), settings.runtimeValue("snapshotEnabled")],
+      [msg("ui.notifyTime"), `${settings.runtimeValue("snapshotNotifyTime")} ${localization.timeZone()}`],
+      [msg("ui.retentionDays"), settings.runtimeValue("snapshotRetentionDays")]
     ]);
   }
 

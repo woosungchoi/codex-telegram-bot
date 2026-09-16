@@ -1,3 +1,4 @@
+import { createMessageFormatter, LocalizedError } from "../i18n.js";
 import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -17,8 +18,10 @@ export function createCodexSessionRuntime({
   codexClients,
   chats,
   persistence,
-  telegram
+  telegram,
+  text
 }) {
+  const msg = createMessageFormatter(text);
   let workerClient = null;
 
   function codexTransport() {
@@ -92,7 +95,7 @@ export function createCodexSessionRuntime({
     if (!activeTurns.has(chatKey)) return false;
     await telegram.replyHtml(
       ctx,
-      `Codex turn is already running. Use ${code("/stop")} first. Plain messages can still be queued.`
+      msg("ui.turnAlreadyRunning", { command: code("/stop") })
     );
     return true;
   }
@@ -121,7 +124,7 @@ export function createCodexSessionRuntime({
 
   async function ensureDirectory(dir, label) {
     const stat = await fs.stat(dir);
-    if (!stat.isDirectory()) throw new Error(`${label} is not a directory: ${dir}`);
+    if (!stat.isDirectory()) throw new LocalizedError("errors.notDirectory", { label, path: dir });
   }
 
   async function listRecentCodexSessions(limit, chatKey) {

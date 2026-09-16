@@ -1,17 +1,19 @@
+import { errorText, createMessageFormatter, textFor } from "../i18n.js";
 import path from "node:path";
 import { b, code } from "./html.js";
 import { normalizeGeneralTopicUpdate } from "./context.js";
 import { isForumTopicServiceMessage, isTelegramServiceMessage } from "./service_messages.js";
-import { textFor } from "../i18n.js";
 
 export function registerTelegramMiddleware({ bot, config, authorize, telegram, logger = console }) {
+  const text = (key) => telegram.text?.(key) || textFor(config.telegramLanguage, key);
+  const msg = createMessageFormatter(text);
   bot.catch(async (error, ctx) => {
     const summary = telegram.summarizeError(error);
     console.error("Unhandled Telegram update error:", summary);
     if (ctx.chat) {
       await telegram.replyHtml(
         ctx,
-        `${b("Telegram bot error")}\n${code(summary.description)}`
+        `${b(msg("ui.telegramBotError"))}\n${code(error?.localeKey ? errorText(error, text) : summary.description)}`
       ).catch(() => {});
     }
   });
@@ -58,10 +60,11 @@ export function registerTelegramMessageRoutes({
   localization,
   commands
 }) {
+  const msg = createMessageFormatter(localization.text);
   bot.on("photo", async (ctx) => {
     await input.handleCodexMessage(
       ctx,
-      ctx.message.caption?.trim() || "Analyze this image.",
+      ctx.message.caption?.trim() || msg("ui.analyzeImage"),
       async () => {
         const photo = ctx.message.photo.at(-1);
         if (!photo) return [];
@@ -73,7 +76,7 @@ export function registerTelegramMessageRoutes({
   bot.on("document", async (ctx) => {
     const document = ctx.message.document;
     const plan = pdf.planInput(document, ctx.message.caption, {
-      imageFallbackText: "Analyze this image."
+      imageFallbackText: msg("ui.analyzeImage")
     });
     if (plan.kind === "pdf_upload_only" || plan.kind === "pdf_caption") {
       let record;
@@ -83,7 +86,7 @@ export function registerTelegramMessageRoutes({
       } catch (error) {
         await telegram.replyHtml(
           ctx,
-          `${b("Failed to prepare Codex input")}\n${code(error instanceof Error ? error.message : String(error))}`
+          `${b(msg("ui.failedToPrepareCodexInput"))}\n${code(errorText(error, localization.text))}`
         );
         return;
       }

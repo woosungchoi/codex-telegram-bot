@@ -1,3 +1,4 @@
+import { createMessageFormatter } from "../i18n.js";
 import path from "node:path";
 import { replyFormattedCodexAnswer } from "./codex_answer.js";
 import { b, code } from "./html.js";
@@ -11,6 +12,8 @@ import { splitText } from "./split.js";
 import { sameRef } from "./progress_store.js";
 
 export function createTelegramRuntimeResponder({ bot, settings, localization, progressStore, logger = console }) {
+  const msg = createMessageFormatter(localization?.text);
+
   async function replyLong(ctx, text) {
     const max = Math.max(500, settings.runtimeValue("maxTelegramChars"));
     for (const chunk of splitText(text, max)) await ctx.reply(chunk);
@@ -21,7 +24,8 @@ export function createTelegramRuntimeResponder({ bot, settings, localization, pr
       format: settings.runtimeValue("telegramFormatCodexAnswers"),
       maxTelegramChars: settings.runtimeValue("maxTelegramChars"),
       replyHtml,
-      replyLong
+      replyLong,
+      text: localization?.text
     });
   }
 
@@ -133,7 +137,7 @@ export function createTelegramRuntimeResponder({ bot, settings, localization, pr
     } catch (error) {
       await replyHtml(
         ctx,
-        `Document upload failed. File remains on disk:\n${code(filePath)}\n${code(summarizeTelegramError(error).description)}`
+        msg("ui.documentUploadFailed", { path: code(filePath), error: code(summarizeTelegramError(error).description) })
       );
     }
   }
@@ -144,7 +148,7 @@ export function createTelegramRuntimeResponder({ bot, settings, localization, pr
 
   function helpTextHtml() {
     return [
-      b("Codex Telegram Bot"),
+      b(msg("ui.codexTelegramBot")),
       "",
       b(localization.text("commandsCore")),
       code("/menu"),
@@ -171,7 +175,7 @@ export function createTelegramRuntimeResponder({ bot, settings, localization, pr
       code("/workdir /adddir /schema"),
       code("/logs /doctor /backup /export /cleanup"),
       "",
-      "Inputs: text, Telegram photo, or image document."
+      msg("ui.supportedInputs")
     ].join("\n");
   }
 

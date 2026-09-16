@@ -1,3 +1,4 @@
+import { errorText, LocalizedError, createMessageFormatter } from "../i18n.js";
 import {
   isReasoningEffortSupported,
   reasoningOptionsForModel
@@ -19,6 +20,7 @@ export function createChatOptionsController({
   text: t,
   now = () => new Date()
 }) {
+  const msg = createMessageFormatter(t);
   function defaultChatOptions() {
     const options = {
       workingDirectory: settings.workingDirectory,
@@ -96,7 +98,7 @@ export function createChatOptionsController({
     if (!value) {
       await telegram.replyHtml(
         ctx,
-        `Usage: ${code(`/${telegram.commandName(ctx)} <${usage}>`)}`
+        msg("ui.usageLine", { value1: code(`/${telegram.commandName(ctx)} <${usage}>`) })
       );
       return;
     }
@@ -111,14 +113,14 @@ export function createChatOptionsController({
     } catch (error) {
       await telegram.replyHtml(
         ctx,
-        code(error instanceof Error ? error.message : String(error))
+        code(errorText(error, t))
       );
       return;
     }
     await stateStore.save();
     await telegram.replyHtml(
       ctx,
-      `${b(`Updated ${key}.`)}\n\n${telegram.formatOptionsHtml(chatKey)}`
+      `${b(msg("ui.updatedLine", { value1: key }))}\n\n${telegram.formatOptionsHtml(chatKey)}`
     );
   }
 
@@ -141,9 +143,7 @@ export function createChatOptionsController({
         const supported = reasoningOptionsForModel(catalog, prospectiveModel)
           .map(({ effort }) => effort)
           .join(", ") || "none";
-        throw new Error(
-          `reasoning for ${prospectiveModel || "default"} must be one of: ${supported}`
-        );
+        throw new LocalizedError("errors.reasoningForMustBeOneOf", { value1: prospectiveModel || "default", value2: supported });
       }
     } else if (key === "modelReasoningEffort" && clearsOption) {
       const catalog = await models.list();
@@ -153,9 +153,7 @@ export function createChatOptionsController({
         const supported = reasoningOptionsForModel(catalog, model)
           .map(({ effort }) => effort)
           .join(", ") || "none";
-        throw new Error(
-          `reasoning for ${model || "default"} must be one of: ${supported}`
-        );
+        throw new LocalizedError("errors.reasoningForMustBeOneOf", { value1: model || "default", value2: supported });
       }
     }
 
@@ -174,9 +172,7 @@ export function createChatOptionsController({
         const supported = reasoningOptionsForModel(catalog, model)
           .map(({ effort }) => effort)
           .join(", ") || "none";
-        throw new Error(
-          `reasoning for ${model || "default"} must be one of: ${supported}`
-        );
+        throw new LocalizedError("errors.reasoningForMustBeOneOf", { value1: model || "default", value2: supported });
       }
     }
 
@@ -219,7 +215,7 @@ export function createChatOptionsController({
     ) {
       chat.options[key] = validation.parseRequiredBoolean(value, key);
     } else {
-      throw new Error(`Unknown option: ${key}`);
+      throw new LocalizedError("errors.unknownOption", { value1: key });
     }
     invalidateThreadCache(chatKey);
   }
@@ -236,13 +232,13 @@ export function createChatOptionsController({
       .map((model) => model.slug);
     return [
       b(t("modelSelectionTitle")),
-      `Current model: ${code(options.model || "default")}`,
-      `Current thinking: ${code(options.modelReasoningEffort)}`,
-      `Fast service tier: ${code(options.serviceTier || "default")}`,
+      msg("ui.currentModelLine", { value1: code(options.model || msg("ui.default")) }),
+      msg("ui.currentThinkingLine", { value1: code(options.modelReasoningEffort) }),
+      msg("ui.fastServiceTierLine", { value1: code(options.serviceTier || msg("ui.default")) }),
       "",
       t("modelSelectionDescription"),
       `${t("fastSupportedLabel")}: ${code(
-        fastModels.length > 0 ? fastModels.join(", ") : "unknown"
+        fastModels.length > 0 ? fastModels.join(", ") : msg("ui.unknown")
       )}`
     ].join("\n");
   }
@@ -264,6 +260,6 @@ export function createChatOptionsController({
 
 function assertEnum(value, validValues, label) {
   if (!validValues.has(value)) {
-    throw new Error(`${label} must be one of: ${[...validValues].join(", ")}`);
+    throw new LocalizedError("errors.mustBeOneOf", { value1: label, value2: [...validValues].join(", ") });
   }
 }

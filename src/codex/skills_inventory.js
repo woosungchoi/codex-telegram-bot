@@ -19,7 +19,7 @@ export async function collectCodexSkillInventory({ codexHome, pluginCacheDir, co
 }
 
 async function collectLocalSkills({ codexHome, rootDir, status, excludedDirs = new Set(), warnings, skills, seen }) {
-  const entries = await readDirOrWarn(rootDir, warnings, codexHome, "skill root unavailable"), baseSkill = { codexHome, status, sourceType: status, pluginKey: "", warnings, skills, seen };
+  const entries = await readDirOrWarn(rootDir, warnings, codexHome, "skills.warning.skillRootUnavailable"), baseSkill = { codexHome, status, sourceType: status, pluginKey: "", warnings, skills, seen };
   for (const entry of entries.filter((entry) => entry.isDirectory() && !excludedDirs.has(entry.name))) {
     await collectSkillFile({ ...baseSkill, skillDir: path.join(rootDir, entry.name), fallbackName: entry.name });
   }
@@ -34,23 +34,23 @@ async function collectPluginSkills({ codexHome, pluginCacheDir, pluginConfig, wa
 
     const manifestSkillsPath = typeof manifest.skills === "string" ? manifest.skills.trim() : "";
     if (!manifestSkillsPath) {
-      addWarning(warnings, "plugin manifest has no skills root", manifestPath, codexHome);
+      addWarning(warnings, "skills.warning.pluginNoSkillsRoot", manifestPath, codexHome);
       continue;
     }
     const skillsRoot = path.resolve(pluginRoot, manifestSkillsPath);
     if (!isInsidePath(pluginRoot, skillsRoot)) {
-      addWarning(warnings, "plugin skills root outside plugin cache entry", manifestPath, codexHome);
+      addWarning(warnings, "skills.warning.pluginSkillsOutsideCache", manifestPath, codexHome);
       continue;
     }
-    const realPluginRoot = await realPathOrWarn(pluginRoot, warnings, codexHome, "plugin cache unavailable"), realSkillsRoot = await realPathOrWarn(skillsRoot, warnings, codexHome, "plugin skills root unavailable");
+    const realPluginRoot = await realPathOrWarn(pluginRoot, warnings, codexHome, "skills.warning.pluginCacheUnavailable"), realSkillsRoot = await realPathOrWarn(skillsRoot, warnings, codexHome, "skills.warning.pluginSkillsUnavailable");
     if (!realPluginRoot || !realSkillsRoot)
       continue;
     if (!isInsidePath(realPluginRoot, realSkillsRoot)) {
-      addWarning(warnings, "plugin skills root outside plugin cache entry", manifestPath, codexHome);
+      addWarning(warnings, "skills.warning.pluginSkillsOutsideCache", manifestPath, codexHome);
       continue;
     }
 
-    const marketplace = path.relative(pluginCacheDir, pluginRoot).split(path.sep)[0] || "unknown", pluginName = sanitizeDisplayText(typeof manifest.name === "string" && manifest.name.trim() ? manifest.name.trim() : path.basename(pluginRoot)), pluginKey = `${pluginName}@${marketplace}`, status = pluginStatus(pluginConfig, pluginName, marketplace), childEntries = await readDirOrWarn(skillsRoot, warnings, codexHome, "plugin skills root unavailable"), baseSkill = { codexHome, status, sourceType: "plugin", pluginKey, warnings, skills, seen, confinementRoot: realSkillsRoot };
+    const marketplace = path.relative(pluginCacheDir, pluginRoot).split(path.sep)[0] || "unknown", pluginName = sanitizeDisplayText(typeof manifest.name === "string" && manifest.name.trim() ? manifest.name.trim() : path.basename(pluginRoot)), pluginKey = `${pluginName}@${marketplace}`, status = pluginStatus(pluginConfig, pluginName, marketplace), childEntries = await readDirOrWarn(skillsRoot, warnings, codexHome, "skills.warning.pluginSkillsUnavailable"), baseSkill = { codexHome, status, sourceType: "plugin", pluginKey, warnings, skills, seen, confinementRoot: realSkillsRoot };
     for (const entry of childEntries.filter((entry) => entry.isDirectory())) {
       await collectSkillFile({ ...baseSkill, skillDir: path.join(skillsRoot, entry.name), fallbackName: entry.name });
     }
@@ -60,23 +60,23 @@ async function collectPluginSkills({ codexHome, pluginCacheDir, pluginConfig, wa
 async function collectSkillFile({ codexHome, skillDir, status, sourceType, pluginKey, fallbackName, warnings, skills, seen, confinementRoot = "" }) {
   const skillPath = path.join(skillDir, "SKILL.md");
   if (confinementRoot) {
-    const realSkillPath = await realPathOrWarn(skillPath, warnings, codexHome, "skill file unavailable");
+    const realSkillPath = await realPathOrWarn(skillPath, warnings, codexHome, "skills.warning.skillFileUnavailable");
     if (!realSkillPath)
       return;
     if (!isInsidePath(confinementRoot, realSkillPath))
-      return addWarning(warnings, "skill file outside plugin skills root", skillPath, codexHome);
+      return addWarning(warnings, "skills.warning.skillOutsideRoot", skillPath, codexHome);
   }
   let contents = "";
   try {
     contents = await fs.readFile(skillPath, "utf8");
   } catch {
-    addWarning(warnings, "skill file unavailable", skillPath, codexHome);
+    addWarning(warnings, "skills.warning.skillFileUnavailable", skillPath, codexHome);
     return;
   }
 
   const metadata = parseSkillFrontmatter(contents), displayName = metadata.name || fallbackName, relativePath = relativeCodexPath(codexHome, skillPath), dedupeKey = [sourceType, pluginKey, displayName, relativePath].join("\0");
   if (metadata.malformed)
-    addWarning(warnings, "skill frontmatter ignored", skillPath, codexHome);
+    addWarning(warnings, "skills.warning.frontmatterIgnored", skillPath, codexHome);
   if (seen.has(dedupeKey))
     return;
   seen.add(dedupeKey);
@@ -85,11 +85,11 @@ async function collectSkillFile({ codexHome, skillDir, status, sourceType, plugi
 
 async function findPluginManifests(pluginCacheDir, warnings, codexHome) {
   const manifests = [];
-  const marketplaces = await readDirOrWarn(pluginCacheDir, warnings, codexHome, "plugin cache unavailable");
+  const marketplaces = await readDirOrWarn(pluginCacheDir, warnings, codexHome, "skills.warning.pluginCacheUnavailable");
   for (const marketplace of marketplaces.filter((entry) => entry.isDirectory())) {
-    const marketplaceDir = path.join(pluginCacheDir, marketplace.name), plugins = await readDirOrWarn(marketplaceDir, warnings, codexHome, "plugin cache unavailable");
+    const marketplaceDir = path.join(pluginCacheDir, marketplace.name), plugins = await readDirOrWarn(marketplaceDir, warnings, codexHome, "skills.warning.pluginCacheUnavailable");
     for (const plugin of plugins.filter((entry) => entry.isDirectory())) {
-      const pluginDir = path.join(marketplaceDir, plugin.name), versions = await readDirOrWarn(pluginDir, warnings, codexHome, "plugin cache unavailable");
+      const pluginDir = path.join(marketplaceDir, plugin.name), versions = await readDirOrWarn(pluginDir, warnings, codexHome, "skills.warning.pluginCacheUnavailable");
       for (const version of versions.filter((entry) => entry.isDirectory())) {
         manifests.push(path.join(pluginDir, version.name, ".codex-plugin", "plugin.json"));
       }
@@ -100,7 +100,7 @@ async function findPluginManifests(pluginCacheDir, warnings, codexHome) {
 
 async function readDirOrWarn(dir, warnings, codexHome, message) { return readOrWarn(() => fs.readdir(dir, { withFileTypes: true }), [], dir, warnings, codexHome, message); }
 
-async function readPluginManifest(manifestPath, warnings, codexHome) { return readOrWarn(async () => JSON.parse(await fs.readFile(manifestPath, "utf8")), null, manifestPath, warnings, codexHome, "plugin manifest ignored"); }
+async function readPluginManifest(manifestPath, warnings, codexHome) { return readOrWarn(async () => JSON.parse(await fs.readFile(manifestPath, "utf8")), null, manifestPath, warnings, codexHome, "skills.warning.manifestIgnored"); }
 
 async function realPathOrWarn(targetPath, warnings, codexHome, message) { return readOrWarn(() => fs.realpath(targetPath), "", targetPath, warnings, codexHome, message); }
 
@@ -114,7 +114,7 @@ async function readOrWarn(operation, fallback, targetPath, warnings, codexHome, 
 }
 
 async function readPluginConfig(configPath, warnings, codexHome) {
-  const contents = await readOrWarn(() => fs.readFile(configPath, "utf8"), "", configPath, warnings, codexHome, "Codex config unavailable");
+  const contents = await readOrWarn(() => fs.readFile(configPath, "utf8"), "", configPath, warnings, codexHome, "skills.warning.configUnavailable");
   if (!contents) {
     return new Map();
   }
@@ -128,7 +128,7 @@ async function readPluginConfig(configPath, warnings, codexHome) {
     }
     if (/^\s*\[/.test(line)) {
       if (/^\s*\[plugins\./.test(line))
-        addWarning(warnings, "Codex config plugin header ignored", configPath, codexHome);
+        addWarning(warnings, "skills.warning.configHeaderIgnored", configPath, codexHome);
       pluginKey = "";
       continue;
     }
@@ -137,7 +137,7 @@ async function readPluginConfig(configPath, warnings, codexHome) {
     const enabledMatch = line.match(/^\s*enabled\s*=\s*(true|false)\s*(?:#.*)?$/);
     if (!enabledMatch) {
       if (/^\s*enabled\s*=/.test(line))
-        addWarning(warnings, "Codex config plugin enabled value ignored", configPath, codexHome);
+        addWarning(warnings, "skills.warning.configEnabledIgnored", configPath, codexHome);
       continue;
     }
     statusByPlugin.set(pluginKey, enabledMatch[1] === "true" ? "plugin enabled" : "plugin disabled");

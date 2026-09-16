@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRuntimePanelController } from "../src/ui/runtime_panel_controller.js";
 import { createRuntimeKeyboardViews, modelSelectionKeyboard, reasoningSelectionKeyboard } from "../src/ui/keyboards.js";
-import { textFor } from "../src/i18n.js";
+import { textFor, SUPPORTED_LANGUAGES } from "../src/i18n.js";
 
 function createFixture(keyboardOverrides = {}) {
   const calls = [];
@@ -66,7 +66,7 @@ function createFixture(keyboardOverrides = {}) {
     localization: {
       language: () => "en",
       locale: () => "en-US",
-      text: (key) => key,
+      text: (key) => textFor("en", key),
       timeZone: () => "UTC"
     },
     formatting: {
@@ -115,7 +115,7 @@ test("rendered menus and every settings subpanel have emoji labels and exactly o
     "settings_live_progress", "settings_runtime", "settings_runtime_output", "settings_runtime_queue", "settings_runtime_codex",
     "settings_runtime_cleanup", "settings_runtime_snapshot", "settings_git", "settings_paths", "settings_schema",
     "settings_language", "settings_timezone", "settings_timezone_asia", "settings_locale"];
-  for (const language of ["en", "ko", "zh-tw"]) {
+  for (const language of SUPPORTED_LANGUAGES) {
     for (const active of [false, true]) {
       const v = createRuntimeKeyboardViews({ text: (key) => textFor(language, key), hasActiveTurn: () => active,
         sideTurnCount: () => 0, currentLanguage: () => language, currentTimeZone: () => "Asia/Seoul",
@@ -197,7 +197,7 @@ function createDispatchFixture() {
     localization: {
       language: () => "en",
       locale: () => "en-US",
-      text: (key) => key,
+      text: (key) => textFor("en", key),
       timeZone: () => "UTC"
     },
     formatting: {

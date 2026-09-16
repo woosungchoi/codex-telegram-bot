@@ -1,3 +1,4 @@
+import { errorText, LocalizedError, SUPPORTED_LANGUAGES } from "../i18n.js";
 import { randomBytes } from "node:crypto";
 import { createAccountStore, cleanLabel } from "./store.js";
 import { selectedAccountId } from "./context.js";
@@ -70,7 +71,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
       return action();
     }); } catch (error) {
       await answer();
-      return replyMenu(ctx, `${t("failed")}\n${code(r.redactText?.(error.message) || error.message)}`, menuKeyboard());
+      return replyMenu(ctx, `${t("failed")}\n${code(r.redactText?.(errorText(error, r.state.ui?.language || r.config.telegramLanguage)) || errorText(error, r.state.ui?.language || r.config.telegramLanguage))}`, menuKeyboard());
     }
   }
   async function clearFlow(ctx) {
@@ -116,7 +117,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
   function isNamePromptReply(ctx) {
     const reply = ctx.message?.reply_to_message;
     return reply?.from?.id === ctx.botInfo?.id && Boolean(reply?.from?.is_bot)
-      && ["en", "ko", "zh-tw"].some((language) => reply.text?.startsWith(accountText(language, "namePrompt")));
+      && SUPPORTED_LANGUAGES.some((language) => reply.text?.startsWith(accountText(language, "namePrompt")));
   }
   async function handleInput(ctx, next) {
     if (isTelegramServiceMessage(ctx.message)) return next();
@@ -212,7 +213,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
   }
   async function use(ctx, id) {
     const account = await store.get(id);
-    if (account.status !== "ready") throw new Error("This account needs sign-in. Use /reauth.");
+    if (account.status !== "ready") throw new LocalizedError("errors.thisAccountNeedsSignInUseReauth");
     const chatKey = r.getChatKey(ctx);
     usageReader.invalidate();
     r.getChatState(chatKey).accountId = id;
@@ -233,15 +234,15 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
           config: r.config, store, label, signal: abort.signal,
           onCode: async ({ verificationUrl, userCode }) => {
             session.codeMessage = await r.replyHtml(ctx,
-              `${b("🔐 ChatGPT")}\n${t("code")}\n\n${code(userCode)}`,
-              { ...keyboard([[{ text: "🔐 ChatGPT", url: verificationUrl }, button(t("cancel"), "acct:cancel")]]), protect_content: true, link_preview_options: { is_disabled: true } });
+              `${b(t("chatGptLogin"))}\n${t("code")}\n\n${code(userCode)}`,
+              { ...keyboard([[{ text: t("chatGptLogin"), url: verificationUrl }, button(t("cancel"), "acct:cancel")]]), protect_content: true, link_preview_options: { is_disabled: true } });
           }
         });
         usageReader.invalidate();
         await r.replyHtml(ctx, `${t("done")}\n${b(account.label)}`,
           keyboard([[button(`${t("use")} · ${account.label}`, `acct:use:${account.id}`)], [button(t("menu"), "acct:list")]]));
       } catch (error) {
-        await r.replyHtml(ctx, abort.signal.aborted ? t("cancelled") : `${t("failed")}\n${code(r.redactText?.(error.message) || error.message)}`, menuKeyboard()).catch(() => {});
+        await r.replyHtml(ctx, abort.signal.aborted ? t("cancelled") : `${t("failed")}\n${code(r.redactText?.(errorText(error, r.state.ui?.language || r.config.telegramLanguage)) || errorText(error, r.state.ui?.language || r.config.telegramLanguage))}`, menuKeyboard()).catch(() => {});
       } finally {
         if (session.codeMessage?.message_id) await r.bot.telegram.deleteMessage(ctx.chat.id, session.codeMessage.message_id).catch(() => {});
         pending.delete(key);
@@ -261,12 +262,12 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
       return show(ctx, `${t("nameSaved")} ${b(renamed.label)}`);
     }
     if (operation === "rotate") {
-      if (!["on", "off"].includes(id)) throw new Error("Use /accounts rotate on or off.");
+      if (!["on", "off"].includes(id)) throw new LocalizedError("errors.useAccountsRotateOnOrOff");
       await store.setAutoRotate(id === "on");
       return show(ctx);
     }
     if (operation === "check") {
-      if ((await store.get(id)).status === "pending") throw new Error("Sign-in is still pending. Complete it or use /reauth cancel.");
+      if ((await store.get(id)).status === "pending") throw new LocalizedError("errors.signInIsStillPendingCompleteItOrUse");
       const release = await store.acquire(id, { allowUnavailable: true });
       try { await store.update(id, await inspect(r.config, id)); } finally { await release(); }
       usageReader.invalidate();
@@ -278,7 +279,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
       if (!flow) return;
       const accountId = flow.accountId;
       const account = await store.get(accountId);
-      if (account.status === "pending" && pending.size) throw new Error("Sign-in is still pending. Use /reauth cancel first.");
+      if (account.status === "pending" && pending.size) throw new LocalizedError("errors.signInIsStillPendingUseReauthCancelFirst");
       await store.remove(accountId);
       usageReader.invalidate();
       for (const [key, chat] of Object.entries(r.state.chats || {})) {

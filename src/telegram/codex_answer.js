@@ -1,3 +1,4 @@
+import { createMessageFormatter } from "../i18n.js";
 import { extractTelegramPhotoArtifacts, formatRejectedPhotoArtifacts } from "./attachments.js";
 import { summarizeTelegramError } from "./api.js";
 import { formatCodexAnswerMarkdownHtml, formatCodexAnswerSafeHtml } from "./markdown.js";
@@ -17,16 +18,18 @@ export async function replyFormattedCodexAnswer(ctx, text, options = {}) {
     tryRichMarkdown = tryReplyRichMarkdown
   } = options;
 
+  const msg = createMessageFormatter(options.text);
+
   if (typeof replyHtml !== "function") throw new TypeError("replyHtml option is required.");
   if (typeof replyLong !== "function") throw new TypeError("replyLong option is required.");
 
   let answerText = String(text ?? "");
   const artifactResult = await extractPhotoArtifacts(answerText);
-  answerText = appendRejectedPhotoArtifacts(artifactResult.text, artifactResult.rejected);
+  answerText = appendRejectedPhotoArtifacts(artifactResult.text, artifactResult.rejected, options.text);
 
   if (format === "off") {
     if (answerText) await replyLong(ctx, answerText);
-    await replyPhotosWithFallback(ctx, artifactResult.photos, replyPhotos, replyHtml);
+    await replyPhotosWithFallback(ctx, artifactResult.photos, replyPhotos, replyHtml, msg);
     return;
   }
 
@@ -35,7 +38,7 @@ export async function replyFormattedCodexAnswer(ctx, text, options = {}) {
       ? await tryRichMarkdown(ctx, answerText, { logger: richLogger })
       : { sent: false };
     if (richResult.sent) {
-      await replyPhotosWithFallback(ctx, artifactResult.photos, replyPhotos, replyHtml);
+      await replyPhotosWithFallback(ctx, artifactResult.photos, replyPhotos, replyHtml, msg);
       return;
     }
   }
@@ -49,22 +52,22 @@ export async function replyFormattedCodexAnswer(ctx, text, options = {}) {
       await replyHtml(ctx, html);
     }
   }
-  await replyPhotosWithFallback(ctx, artifactResult.photos, replyPhotos, replyHtml);
+  await replyPhotosWithFallback(ctx, artifactResult.photos, replyPhotos, replyHtml, msg);
 }
 
-function appendRejectedPhotoArtifacts(text, rejected) {
-  const rejectionText = formatRejectedPhotoArtifacts(rejected);
+function appendRejectedPhotoArtifacts(text, rejected, translate) {
+  const rejectionText = formatRejectedPhotoArtifacts(rejected, translate);
   if (!rejectionText) return String(text ?? "");
   const body = String(text ?? "").trim();
   return body ? `${body}\n\n${rejectionText}` : rejectionText;
 }
 
-async function replyPhotosWithFallback(ctx, photos, replyPhotos, replyHtml) {
+async function replyPhotosWithFallback(ctx, photos, replyPhotos, replyHtml, msg) {
   await replyPhotos(ctx, photos, {
     onError: async (photo, error) => {
       const message = summarizeTelegramError(error).description;
       const text = [
-        "Photo upload failed. File remains on disk:",
+        msg("ui.photoUploadFailed"),
         `\`${photo.path}\``,
         `\`${message}\``
       ].join("\n");

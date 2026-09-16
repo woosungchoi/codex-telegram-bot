@@ -1,3 +1,4 @@
+import { LocalizedError, restoreLocalizedError } from "../i18n.js";
 import net from "node:net";
 import { createFrameReader, createRequestId, encodeFrame } from "./protocol.js";
 
@@ -16,7 +17,7 @@ export function createWorkerClient(config = {}) {
 }
 
 function request(socketPath, timeoutMs, method, params = {}) {
-  if (!socketPath) return Promise.reject(new Error("CODEX_WORKER_SOCKET is required."));
+  if (!socketPath) return Promise.reject(new LocalizedError("errors.workerSocketRequired"));
   const id = createRequestId("worker");
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath);
@@ -30,13 +31,13 @@ function request(socketPath, timeoutMs, method, params = {}) {
       fn(value);
     };
     timer = setTimeout(() => {
-      finish(reject, new Error(`worker request timed out: ${method}`));
+      finish(reject, new LocalizedError("errors.workerRequestTimeout", { method }));
     }, timeoutMs);
 
     createFrameReader(socket, (response) => {
       if (response?.id !== id) return;
       if (response.ok) finish(resolve, response.result);
-      else finish(reject, new Error(response?.error?.message || `worker request failed: ${method}`));
+      else finish(reject, restoreLocalizedError(response?.error, "errors.workerRequestFailed", { method }));
     }, {
       onError: (error) => finish(reject, error)
     });
@@ -46,7 +47,7 @@ function request(socketPath, timeoutMs, method, params = {}) {
     });
     socket.on("error", (error) => finish(reject, error));
     socket.on("end", () => {
-      if (!settled) finish(reject, new Error(`worker connection closed: ${method}`));
+      if (!settled) finish(reject, new LocalizedError("errors.workerConnectionClosed", { method }));
     });
   });
 }

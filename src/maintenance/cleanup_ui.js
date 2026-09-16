@@ -1,7 +1,9 @@
+import { createMessageFormatter } from "../i18n.js";
 import { b, code } from "../telegram/html.js";
 import { createNavigationKeyboardViews } from "../ui/keyboard_helpers.js";
 
 export function createCleanupUi({ telegram, localization, formatting }) {
+  const msg = createMessageFormatter(localization.text);
   const navigation = createNavigationKeyboardViews({ text: localization.text });
   const withBack = (keyboard) => navigation.withMenuCloseButton(navigation.withPreviousPanelButton(keyboard, "tools"));
   async function editCleanupMessage(ctx, html) {
@@ -51,12 +53,12 @@ export function createCleanupUi({ telegram, localization, formatting }) {
 
   async function answerUploadCleanupCallback(ctx, status) {
     const text = status === "confirm"
-      ? "Deleting selected upload cleanup candidates..."
+      ? msg("ui.uploadDeleting")
       : status === "expired_plan"
-        ? "Upload cleanup plan expired."
+        ? msg("ui.uploadExpired")
         : status === "processing"
-          ? "Upload cleanup is already processing."
-          : "Upload cleanup plan not found.";
+          ? msg("ui.uploadProcessing")
+          : msg("ui.uploadMissing");
     try {
       await ctx.answerCbQuery(text);
     } catch (error) {
@@ -99,8 +101,8 @@ export function createCleanupUi({ telegram, localization, formatting }) {
       `${localization.text("cleanupResultDeleted")}: ${code(result.deleted)}`,
       `${localization.text("cleanupResultSkipped")}: ${code(result.skipped)}`,
       `${localization.text("cleanupResultErrors")}: ${code(result.errors.length)}`,
-      `manifest: ${code(result.manifest || "none")}`,
-      `restore: ${code(result.restoreScript || "none")}`
+      msg("ui.manifestLine", { value1: code(result.manifest || msg("ui.none")) }),
+      msg("ui.restoreLine", { value1: code(result.restoreScript || msg("ui.none")) })
     ];
     if (plan) {
       lines.push(

@@ -1,3 +1,4 @@
+import { errorText } from "../i18n.js";
 import { b, code } from "../telegram/html.js";
 import { newId, scopeKey, topicId, workspaceState } from "./store.js";
 import { isRegisteredTelegramCommandText } from "../telegram_commands.js";
@@ -61,7 +62,7 @@ export function createWorkspaceUi(r, t, { now = Date.now } = {}) {
     });
     locks.set(key, promise);
     try { return await promise; } catch (error) {
-      const html = `${b(t("error"))}\n${code(String(r.redactText?.(error.message) || error.message).slice(0, 1600))}`;
+      const html = `${b(t("error"))}\n${code(String(r.redactText?.(errorText(error, r.state.ui?.language || r.config.telegramLanguage)) || errorText(error, r.state.ui?.language || r.config.telegramLanguage)).slice(0, 1600))}`;
       const flow = state.flows[key];
       const extra = ctx.callbackQuery && flow?.messageId === ctx.callbackQuery.message?.message_id && flow.expiresAt > now()
         ? { reply_markup: flow.markup }

@@ -1,3 +1,4 @@
+import { localizedErrorDetails } from "../i18n.js";
 import { buildInput } from "../codex/input.js";
 import { applyCodexStreamEvent, codexStreamResult, createCodexStreamState } from "../codex/stream.js";
 import { createCodexThread as createCodexThreadDefault } from "../codex/thread_factory.js";
@@ -98,6 +99,7 @@ export async function runWorkerJob({
       status,
       chatKey: job.chatKey,
       threadId: job.threadId || thread?.id || "",
+      ...localizedErrorDetails(error),
       message: error instanceof Error ? error.message : String(error)
     });
     await store.writeJobState({
@@ -105,6 +107,7 @@ export async function runWorkerJob({
       status,
       threadId: job.threadId || thread?.id || "",
       completedAt: now().toISOString(),
+      ...localizedErrorDetails(error),
       error: error instanceof Error ? error.message : String(error)
     });
     throw error;
