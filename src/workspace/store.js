@@ -1,3 +1,4 @@
+import { LocalizedError } from "../i18n.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -17,7 +18,7 @@ export function workspaceState(state) {
 
 export function cleanName(value) {
   const name = String(value || "").replace(/\p{Cc}/gu, "").trim();
-  if (!name || name.length > 48) throw new Error("Use a name containing 1–48 characters.");
+  if (!name || name.length > 48) throw new LocalizedError("errors.useANameContaining148Characters");
   return name;
 }
 
@@ -25,9 +26,9 @@ export async function directory(value) {
   let target = String(value || "").trim();
   if (target === "~") target = os.homedir();
   if (target.startsWith("~/")) target = path.join(os.homedir(), target.slice(2));
-  if (!path.isAbsolute(target)) throw new Error("Enter an absolute folder path.");
+  if (!path.isAbsolute(target)) throw new LocalizedError("errors.enterAnAbsoluteFolderPath");
   const real = await fs.realpath(target);
-  if (!(await fs.stat(real)).isDirectory()) throw new Error("The selected path is not a folder.");
+  if (!(await fs.stat(real)).isDirectory()) throw new LocalizedError("errors.theSelectedPathIsNotAFolder");
   return real;
 }
 

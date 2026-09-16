@@ -101,3 +101,24 @@ test("a terminal streamed failure never produces a completed worker job", async 
   assert.equal((await store.readJobState("failure")).status, "failed");
   assert.equal((await store.readJobEvents("failure")).some((e) => e.type === "worker.job.completed"), false);
 });
+
+test("worker failures retain locale metadata through persisted events and status replay", async (t) => {
+  const { LocalizedError, errorText } = await import("../src/i18n.js");
+  const { reconstructCompletedWorkerJob } = await import("../src/worker/replay.js");
+  const store = await tempStore();
+  t.after(() => fs.rm(store.paths.stateDir, { recursive: true, force: true }));
+  await assert.rejects(runWorkerJob({
+    job: { id: "localized-job", chatKey: "chat", text: "hello" }, config: {}, store,
+    createThread: () => { throw new LocalizedError("errors.telegramDownload", { status: 403 }); }
+  }), /Telegram file download failed: 403/);
+  const events = await store.readJobEvents("localized-job", { afterSeq: 0 });
+  const job = await store.readJobState("localized-job");
+  for (const replayEvents of [events, []]) {
+    const client = { readJobEvents: async () => ({ events: replayEvents }), getJobStatus: async () => ({ job: { ...job, lastSeq: 0 } }) };
+    await assert.rejects(reconstructCompletedWorkerJob(client, "localized-job"), (error) => {
+      assert.equal(error.message, "Telegram file download failed: 403");
+      assert.equal(errorText(error, "ru"), "Не удалось скачать файл Telegram: 403");
+      return true;
+    });
+  }
+});

@@ -1,3 +1,4 @@
+import { createMessageFormatter, errorText } from "../i18n.js";
 import {
   dequeueNextTurn,
   enqueueTurn,
@@ -23,11 +24,14 @@ export function createQueueRuntimeController({
   persistence,
   telegram,
   turns,
+  text,
   logger = console,
   now = () => new Date(),
   random = Math.random,
   timers = { setTimeout, clearTimeout }
 }) {
+  const msg = createMessageFormatter(text);
+
   function getPendingTurns(chatKey) {
     return pendingTurns.get(chatKey) ?? [];
   }
@@ -211,7 +215,7 @@ export function createQueueRuntimeController({
       activeTurns.delete(chatKey);
       await telegram.replyHtml(
         runCtx,
-        `<b>Queued Codex turn failed</b>\n${code(error instanceof Error ? error.message : String(error))}`
+        msg("ui.queuedTurnFailed", { error: code(errorText(error, text)) })
       ).catch(() => {});
     });
     return true;

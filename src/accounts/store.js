@@ -1,3 +1,4 @@
+import { LocalizedError } from "../i18n.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -10,7 +11,7 @@ const DEFAULT_ACCOUNT = { id: DEFAULT_ACCOUNT_ID, label: "Default", status: "rea
 
 export function accountHome(config, id = DEFAULT_ACCOUNT_ID) {
   if (id === DEFAULT_ACCOUNT_ID) return config.codexHome;
-  if (!ID_PATTERN.test(id)) throw new Error("Invalid account id.");
+  if (!ID_PATTERN.test(id)) throw new LocalizedError("errors.invalidAccountId");
   return path.join(config.codexAccountsDir, "profiles", id);
 }
 
@@ -35,7 +36,7 @@ export function createAccountStore(config, { now = Date.now } = {}) {
   async function read() {
     try {
       const data = JSON.parse(await fs.readFile(index, "utf8"));
-      if (data.version !== 1 || !Array.isArray(data.accounts)) throw new Error("Invalid account registry.");
+      if (data.version !== 1 || !Array.isArray(data.accounts)) throw new LocalizedError("errors.invalidAccountRegistry");
       return data;
     } catch (error) {
       if (error.code === "ENOENT") return { version: 1, autoRotate: false, accounts: [] };
@@ -53,7 +54,7 @@ export function createAccountStore(config, { now = Date.now } = {}) {
       } catch (error) {
         if (error.code !== "EEXIST") throw error;
         await reapStaleLock();
-        if (now() >= deadline) throw new Error("Account registry is busy. Try again shortly.");
+        if (now() >= deadline) throw new LocalizedError("errors.accountRegistryIsBusyTryAgainShortly");
         await delay(25);
       }
     }
@@ -74,13 +75,13 @@ export function createAccountStore(config, { now = Date.now } = {}) {
   async function list() { return listData(await read()); }
   async function get(id) {
     const account = (await list()).find((a) => a.id === id);
-    if (!account) throw new Error("Account not found. Open /accounts.");
+    if (!account) throw new LocalizedError("errors.accountNotFoundOpenAccounts");
     return account;
   }
   async function update(id, fields) {
     return locked((data) => {
       const current = listData(data).find((a) => a.id === id);
-      if (!current) throw new Error("Account not found.");
+      if (!current) throw new LocalizedError("errors.accountNotFound");
       const updated = { ...current, ...fields, id };
       data.accounts = [...data.accounts.filter((a) => a.id !== id), updated];
       return updated;
@@ -89,7 +90,7 @@ export function createAccountStore(config, { now = Date.now } = {}) {
   async function create(label) {
     const account = { id: randomUUID(), label: cleanLabel(label || "ChatGPT"), status: "pending", createdAt: new Date(now()).toISOString() };
     try { await locked(async (data) => {
-      if (data.accounts.length >= 20) throw new Error("At most 20 saved accounts are supported.");
+      if (data.accounts.length >= 20) throw new LocalizedError("errors.atMost20SavedAccountsAreSupported");
       const home = accountHome(config, account.id);
       await ensurePrivateDirectory(home);
       // Share installed tools and user instructions; auth, sessions, databases
@@ -114,7 +115,7 @@ export function createAccountStore(config, { now = Date.now } = {}) {
     let lease;
     try { await locked(async (data) => {
       const account = listData(data).find((a) => a.id === id);
-      if (!account || (account.status !== "ready" && !allowUnavailable)) throw new Error("Account needs sign-in. Open /reauth.");
+      if (!account || (account.status !== "ready" && !allowUnavailable)) throw new LocalizedError("errors.accountNeedsSignInOpenReauth");
       const dir = path.join(root, "leases", id);
       await ensurePrivateDirectory(dir);
       lease = path.join(dir, `${process.pid}-${randomUUID()}`);
@@ -126,7 +127,7 @@ export function createAccountStore(config, { now = Date.now } = {}) {
     return () => fs.rm(lease, { force: true });
   }
   async function remove(id) {
-    if (id === DEFAULT_ACCOUNT_ID) throw new Error("The host's default account cannot be deleted here.");
+    if (id === DEFAULT_ACCOUNT_ID) throw new LocalizedError("errors.theHostSDefaultAccountCannotBeDeletedHere");
     accountHome(config, id);
     await locked(async (data) => {
       const leaseDir = path.join(root, "leases", id);
@@ -135,7 +136,7 @@ export function createAccountStore(config, { now = Date.now } = {}) {
         throw error;
       });
       if (leases.some((name) => processAlive(Number(name.split("-")[0])))) {
-        throw new Error("This account has a running task. Wait for it to finish or use /stop.");
+        throw new LocalizedError("errors.thisAccountHasARunningTaskWaitForIt");
       }
       await fs.rm(accountHome(config, id), { recursive: true, force: true });
       await fs.rm(leaseDir, { recursive: true, force: true });
@@ -162,7 +163,7 @@ export function createAccountStore(config, { now = Date.now } = {}) {
 
 export function cleanLabel(label) {
   const value = String(label).replace(/\p{Cc}/gu, "").trim();
-  if (!value || value.length > 48) throw new Error("Account name must contain 1–48 characters.");
+  if (!value || value.length > 48) throw new LocalizedError("errors.accountNameMustContain148Characters");
   return value;
 }
 function processAlive(pid) {

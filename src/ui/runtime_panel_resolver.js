@@ -57,7 +57,7 @@ export function createRuntimePanelResolver({
     })],
     ["settings_sandbox", async ({ chatKey }) => ({
       html: presenter.settingPanelHtml(
-        "Sandbox",
+        localization.text("ui.sandbox2"),
         chats.getEffectiveOptions(chatKey).sandboxMode,
         localization.text("sandboxDescription")
       ),
@@ -65,7 +65,7 @@ export function createRuntimePanelResolver({
     })],
     ["settings_approval", async ({ chatKey }) => ({
       html: presenter.settingPanelHtml(
-        "Approval",
+        localization.text("ui.approval2"),
         chats.getEffectiveOptions(chatKey).approvalPolicy,
         localization.text("approvalDescription")
       ),
@@ -73,7 +73,7 @@ export function createRuntimePanelResolver({
     })],
     ["settings_web", async ({ chatKey }) => ({
       html: presenter.settingPanelHtml(
-        "Web Search",
+        localization.text("ui.webSearch"),
         chats.getEffectiveOptions(chatKey).webSearchMode,
         localization.text("webDescription")
       ),
@@ -81,7 +81,7 @@ export function createRuntimePanelResolver({
     })],
     ["settings_network", async ({ chatKey }) => ({
       html: presenter.settingPanelHtml(
-        "Network",
+        localization.text("ui.network2"),
         formatting.optional(chats.getEffectiveOptions(chatKey).networkAccessEnabled),
         localization.text("networkDescription")
       ),
@@ -89,7 +89,7 @@ export function createRuntimePanelResolver({
     })],
     ["settings_stream", async ({ chatKey }) => ({
       html: presenter.settingPanelHtml(
-        "Stream",
+        localization.text("ui.stream2"),
         String(chats.getEffectiveOptions(chatKey).streamEvents),
         localization.text("streamDescription")
       ),
@@ -125,7 +125,7 @@ export function createRuntimePanelResolver({
     })],
     ["settings_git", async ({ chatKey }) => ({
       html: presenter.settingPanelHtml(
-        "Git Check",
+        localization.text("ui.gitCheck"),
         String(chats.getEffectiveOptions(chatKey).skipGitRepoCheck),
         localization.text("gitDescription")
       ),

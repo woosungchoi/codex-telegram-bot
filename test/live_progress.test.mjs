@@ -1,3 +1,4 @@
+import { textFor } from "../src/i18n.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createLiveProgressController } from "../src/ui/live_progress.js";
@@ -26,7 +27,7 @@ function createFixture({ enabled = true, source = "both", policy = "always", pro
     recovery: { recordProgressFailed: async () => {} },
     localization: {
       language: () => "en",
-      forLanguage: (_language, key) => key,
+      forLanguage: textFor,
       formatForLanguage: (_language, key, values) => `${key}:${Object.values(values).join(",")}`
     },
     formatting: {

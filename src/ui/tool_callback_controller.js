@@ -1,3 +1,4 @@
+import { createMessageFormatter } from "../i18n.js";
 import { b } from "../telegram/html.js";
 
 export function createToolCallbackController({
@@ -14,6 +15,7 @@ export function createToolCallbackController({
   formatting,
   localization
 }) {
+  const msg = createMessageFormatter(localization.text);
   async function handleToolButton(ctx, action) {
     const chatKey = telegram.getChatKey(ctx);
     if (action === "health") {
@@ -41,6 +43,7 @@ export function createToolCallbackController({
         ctx,
         {
           config: settings.config,
+      text: localization.text,
           runtimeValue: settings.runtimeValue,
           replyHtml: telegram.replyHtml,
           editOrReplyHtml: telegram.editOrReplyHtml
@@ -53,19 +56,19 @@ export function createToolCallbackController({
       await diagnostics.handleWorkerStatus(ctx);
     } else if (action === "backup") {
       const result = await backup.createState("manual");
-      await telegram.replyHtml(ctx, formatting.keyValue("Backup created:", [
-        ["file", result.path],
-        ["size", formatting.bytes(result.bytes)],
-        ["chats", result.chatCount]
+      await telegram.replyHtml(ctx, formatting.keyValue(msg("ui.backupCreated"), [
+        [msg("ui.file"), result.path],
+        [msg("ui.size"), formatting.bytes(result.bytes)],
+        [msg("ui.chats"), result.chatCount]
       ]), keyboards.withToolsBack());
-      await telegram.replyDocument(ctx, result.path, "Codex Telegram Bot backup");
+      await telegram.replyDocument(ctx, result.path, msg("ui.codexTelegramBotBackup"));
     } else if (action === "export") {
       const file = await backup.createChatExport(chatKey);
-      await telegram.replyHtml(ctx, formatting.keyValue("Chat export created:", [
-        ["file", file.path],
-        ["size", formatting.bytes(file.bytes)]
+      await telegram.replyHtml(ctx, formatting.keyValue(msg("ui.chatExportCreated"), [
+        [msg("ui.file"), file.path],
+        [msg("ui.size"), formatting.bytes(file.bytes)]
       ]), keyboards.withToolsBack());
-      await telegram.replyDocument(ctx, file.path, "Current chat export");
+      await telegram.replyDocument(ctx, file.path, msg("ui.currentChatExport"));
     } else if (action === "cleanup") {
       await cleanup.handleCommand(ctx);
     } else if (action === "codex_maintenance") {

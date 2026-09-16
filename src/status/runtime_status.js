@@ -1,3 +1,4 @@
+import { createMessageFormatter } from "../i18n.js";
 import { open as openFile } from "node:fs/promises";
 import process from "node:process";
 import { resolveAutoCompactTokenLimit } from "../codex/compact.js";
@@ -85,6 +86,8 @@ export function createRuntimeStatusSupport({
   openSessionFile = openFile,
   now = () => new Date()
 }) {
+  const msg = createMessageFormatter(localization.text);
+
   async function buildAppSummary() {
     const botPackage = await packages.readJson(settings.packageFile);
     const sdkPackage = await packages.readPackage("@openai/codex-sdk");
@@ -209,10 +212,11 @@ export function createRuntimeStatusSupport({
   async function buildBestCodexUsageSummary(chatKey, threadId) {
     const chat = chats.get(chatKey);
     const latest = await selectLatestUsageSample([
-      { threadId, sourceLabel: "current thread" },
-      { threadId: (chat.usageProbeAccountId || "default") === (chat.threadAccountId || chat.accountId || "default") ? chat.usageProbeThreadId || "" : "", sourceLabel: "usage probe" }
+      { threadId, sourceLabel: msg("usage.currentThread") },
+      { threadId: (chat.usageProbeAccountId || "default") === (chat.threadAccountId || chat.accountId || "default") ? chat.usageProbeThreadId || "" : "", sourceLabel: msg("usage.probe") }
     ]);
     return formatCodexUsageSummary({
+      text: localization.text,
       tokenCount: latest?.tokenCount,
       sampledAt: latest?.sampledAt,
       sourceLabel: latest?.sourceLabel,

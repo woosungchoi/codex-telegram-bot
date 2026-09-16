@@ -51,3 +51,51 @@ export function findText(language, key) {
 export function textFor(language, key) {
   return findText(language, key) ?? key;
 }
+
+// Keep the lookup callable so changing the UI language also updates existing
+// controllers. Values may already contain escaped Telegram HTML; interpolate
+// them once, without translating or interpreting their contents.
+export function createMessageFormatter(text = (key) => textFor("en", key)) {
+  return (key, values = {}) => interpolateMessage(text(key), values);
+}
+
+export function interpolateMessage(template, values = {}) {
+  return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (match, name) => (
+    Object.hasOwn(values, name) ? String(values[name]) : match
+  ));
+}
+
+// Keep diagnostic Error.message stable for logs, classifiers and callers. Only
+// the Telegram presentation boundary selects the user's language.
+export class LocalizedError extends Error {
+  constructor(key, values = {}) {
+    super(interpolateMessage(textFor("en", key), values));
+    this.localeKey = key;
+    this.localeValues = values;
+  }
+}
+
+export function errorText(error, languageOrText = "en") {
+  if (Object.hasOwn(UI_TEXT.en, error?.localeKey)) {
+    const text = typeof languageOrText === "function"
+      ? languageOrText
+      : (key) => textFor(languageOrText, key);
+    return createMessageFormatter(text)(error.localeKey, error.localeValues);
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+// Worker events and request frames carry optional translation metadata while
+// retaining their original diagnostic message for older peers and stored jobs.
+export function localizedErrorDetails(error) {
+  return Object.hasOwn(UI_TEXT.en, error?.localeKey)
+    ? { localeKey: error.localeKey, localeValues: error.localeValues || {} }
+    : {};
+}
+
+export function restoreLocalizedError(details, fallbackKey, values = {}) {
+  if (Object.hasOwn(UI_TEXT.en, details?.localeKey)) {
+    return new LocalizedError(details.localeKey, details.localeValues);
+  }
+  return details?.message ? new Error(details.message) : new LocalizedError(fallbackKey, values);
+}

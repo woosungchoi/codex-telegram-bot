@@ -1,3 +1,4 @@
+import { LocalizedError } from "../i18n.js";
 import path from "node:path";
 import fetch from "node-fetch";
 import { buildStyleInstructionPrompt } from "../codex/prompts.js";
@@ -129,12 +130,10 @@ export function createTelegramRuntimeContext({
   async function downloadTelegramFileRecord(ctx, fileId, ext) {
     const link = await ctx.telegram.getFileLink(fileId);
     const response = await fetchImpl(link.href, { agent });
-    if (!response.ok) throw new Error(`Telegram file download failed: ${response.status}`);
+    if (!response.ok) throw new LocalizedError("errors.telegramDownload", { status: response.status });
     const bytes = Buffer.from(await response.arrayBuffer());
     if (settings.uploadMaxBytes > 0 && bytes.length > settings.uploadMaxBytes) {
-      throw new Error(
-        `Telegram file exceeds UPLOAD_MAX_BYTES (${formatting.bytes(bytes.length)} > ${formatting.bytes(settings.uploadMaxBytes)}).`
-      );
+      throw new LocalizedError("errors.telegramUploadLimit", { size: formatting.bytes(bytes.length), limit: formatting.bytes(settings.uploadMaxBytes) });
     }
     await ensurePrivateDirectory(settings.uploadDir);
     const filename = `${now()}-${fileId.replace(/[^a-zA-Z0-9_-]/g, "")}${ext}`;

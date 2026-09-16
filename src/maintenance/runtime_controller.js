@@ -1,3 +1,4 @@
+import { createMessageFormatter } from "../i18n.js";
 import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
@@ -25,6 +26,7 @@ export function createCodexMaintenanceController({
   runProcess = execFileAsync,
   now = () => new Date()
 }) {
+  const msg = createMessageFormatter(localization.text);
   function menuHtml() {
     return [
       b(localization.text("codexMaintenance")),
@@ -32,16 +34,16 @@ export function createCodexMaintenanceController({
       "",
       localization.text("maintenanceIntro"),
       localization.text("maintenanceScope"),
-      `${localization.text("autoSqliteRepair")}: ${code(autoSqliteRepairEnabled() ? "on" : "off")}`,
-      `${localization.text("autoHandoff")}: ${code(autoHandoffEnabled() ? "on" : "off")}`,
+      `${localization.text("autoSqliteRepair")}: ${code(autoSqliteRepairEnabled() ? msg("ui.on") : msg("ui.off"))}`,
+      `${localization.text("autoHandoff")}: ${code(autoHandoffEnabled() ? msg("ui.on") : msg("ui.off"))}`,
       "",
-      `- Report: ${localization.text("maintenanceReportDesc")}`,
-      `- Backup: ${localization.text("maintenanceBackupDesc")}`,
-      `- Config prune: ${localization.text("maintenanceConfigDesc")}`,
-      `- Worktrees: ${localization.text("maintenanceWorktreesDesc")}`,
-      `- Logs: ${localization.text("maintenanceLogsDesc")}`,
-      `- SQLite repair: ${localization.text("maintenanceRepairDesc")}`,
-      `- Handoff: ${localization.text("maintenanceHandoffDesc")}`
+      msg("ui.reportLine", { value1: localization.text("maintenanceReportDesc") }),
+      msg("ui.backupLine", { value1: localization.text("maintenanceBackupDesc") }),
+      msg("ui.configPruneLine", { value1: localization.text("maintenanceConfigDesc") }),
+      msg("ui.worktreesLine", { value1: localization.text("maintenanceWorktreesDesc") }),
+      msg("ui.logsLine", { value1: localization.text("maintenanceLogsDesc") }),
+      msg("ui.sqliteRepairLine", { value1: localization.text("maintenanceRepairDesc") }),
+      msg("ui.handoffLine", { value1: localization.text("maintenanceHandoffDesc") })
     ].join("\n");
   }
 
@@ -51,8 +53,8 @@ export function createCodexMaintenanceController({
       b(localization.text("sqliteConfirmTitle")),
       "",
       localization.text("sqliteConfirmBody"),
-      `title limit: ${code(config.codexMaintenanceThreadTitleLimit)}`,
-      `preview limit: ${code(config.codexMaintenanceThreadPreviewLimit)}`,
+      msg("ui.titleLimitLine", { value1: code(config.codexMaintenanceThreadTitleLimit) }),
+      msg("ui.previewLimitLine", { value1: code(config.codexMaintenanceThreadPreviewLimit) }),
       "",
       `- ${localization.text("sqliteNoTranscript")}`,
       `- ${localization.text("sqliteRestore")}`,
@@ -119,19 +121,19 @@ export function createCodexMaintenanceController({
     const lines = [
       b(localization.text("maintenanceReportTitle")),
       "",
-      `codexHome: ${code(report.codexHome || config.codexHome)}`,
-      `sessions: ${code(formatting.count(sessionSummary.files ?? 0))} / ${code(formatting.bytes(sessionSummary.bytes ?? 0))}`,
-      `archived sessions: ${code(formatting.count(archived.files ?? 0))} / ${code(formatting.bytes(archived.bytes ?? 0))}`,
-      `worktrees: ${code(formatting.count(worktrees.count ?? 0))} / ${code(formatting.bytes(worktrees.bytes ?? 0))}`,
-      `stale worktrees: ${code(formatting.count(stale.candidates ?? 0))} / ${code(formatting.bytes(stale.bytes ?? 0))}`,
-      `logs: ${code(formatting.bytes(logs.bytes ?? 0))} / rotate ${code(`${logs.rotateThresholdMb ?? config.codexMaintenanceLogRotateMb}MB`)}`,
+      msg("ui.codexHomeLine", { value1: code(report.codexHome || config.codexHome) }),
+      msg("ui.sessionsLine", { value1: code(formatting.count(sessionSummary.files ?? 0)), value2: code(formatting.bytes(sessionSummary.bytes ?? 0)) }),
+      msg("ui.archivedSessionsLine", { value1: code(formatting.count(archived.files ?? 0)), value2: code(formatting.bytes(archived.bytes ?? 0)) }),
+      msg("ui.worktreesLine2", { value1: code(formatting.count(worktrees.count ?? 0)), value2: code(formatting.bytes(worktrees.bytes ?? 0)) }),
+      msg("ui.staleWorktreesLine", { value1: code(formatting.count(stale.candidates ?? 0)), value2: code(formatting.bytes(stale.bytes ?? 0)) }),
+      msg("ui.logsRotateLine", { value1: code(formatting.bytes(logs.bytes ?? 0)), value2: code(`${logs.rotateThresholdMb ?? config.codexMaintenanceLogRotateMb}MB`) }),
       `${localization.text("cleanupMaintenanceConfigPruneCandidates")}: ${code(formatting.count(configPrune.candidates ?? 0))}`,
-      `metadata bloat: title ${code(metadata.titlesOverLimit ?? 0)} / preview ${code(metadata.previewsOverLimit ?? 0)} / 10k+ ${code(metadata.previewsOver10k ?? 0)}`
+      msg("ui.metadataBloatTitlePreview10kLine", { value1: code(metadata.titlesOverLimit ?? 0), value2: code(metadata.previewsOverLimit ?? 0), value3: code(metadata.previewsOver10k ?? 0) })
     ];
     if (nodeRows.length > 0) {
       lines.push("", b(localization.text("nodeTop")));
       for (const item of nodeRows.slice(0, 3)) {
-        lines.push(`- pid ${code(item.pid)} / ${code(`${item.mb}MB`)}`);
+        lines.push(msg("ui.pidLine", { value1: code(item.pid), value2: code(`${item.mb}MB`) }));
       }
     }
     return lines.join("\n");
@@ -140,38 +142,38 @@ export function createCodexMaintenanceController({
   function formatResult(result) {
     const config = settings.config;
     const lines = [
-      b(`${localization.text("maintenanceDone")}: ${result.action || "unknown"}`),
+      b(`${localization.text("maintenanceDone")}: ${result.action || msg("ui.unknown")}`),
       "",
-      `backupRoot: ${code(result.backupRoot || "none")}`,
-      `backedUp: ${code(formatting.count(Array.isArray(result.backedUp) ? result.backedUp.length : 0))}`
+      msg("ui.backupRootLine", { value1: code(result.backupRoot || msg("ui.none")) }),
+      msg("ui.backedUpLine", { value1: code(formatting.count(Array.isArray(result.backedUp) ? result.backedUp.length : 0)) })
     ];
     if (result.configPrune) {
       lines.push(
-        `config prune: ${localization.text("maintenanceCandidates")}: ${code(result.configPrune.candidates)} / applied ${code(result.configPrune.applied)}`
+        msg("ui.configPruneAppliedLine", { value1: localization.text("maintenanceCandidates"), value2: code(result.configPrune.candidates), value3: code(result.configPrune.applied) })
       );
     }
     if (result.worktreeArchive) {
       lines.push(
-        `worktrees: ${localization.text("maintenanceCandidates")}: ${code(result.worktreeArchive.candidates)} / moved ${code(result.worktreeArchive.moved)} / ${code(formatting.bytes(result.worktreeArchive.bytes || 0))}`,
-        `manifest: ${code(result.worktreeArchive.manifest || "none")}`
+        msg("ui.worktreesMovedLine", { value1: localization.text("maintenanceCandidates"), value2: code(result.worktreeArchive.candidates), value3: code(result.worktreeArchive.moved), value4: code(formatting.bytes(result.worktreeArchive.bytes || 0)) }),
+        msg("ui.manifestLine", { value1: code(result.worktreeArchive.manifest || msg("ui.none")) })
       );
     }
     if (result.logRotate) {
       lines.push(
-        `logs: files ${code(result.logRotate.files)} / rotated ${code(result.logRotate.rotated)} / ${code(formatting.bytes(result.logRotate.bytes || 0))}`
+        msg("ui.logsFilesRotatedLine", { value1: code(result.logRotate.files), value2: code(result.logRotate.rotated), value3: code(formatting.bytes(result.logRotate.bytes || 0)) })
       );
-      if (result.logRotate.skipped) lines.push(`skipped: ${code(result.logRotate.skipped)}`);
-      if (result.logRotate.manifest) lines.push(`manifest: ${code(result.logRotate.manifest)}`);
+      if (result.logRotate.skipped) lines.push(msg("ui.skippedLine", { value1: code(result.logRotate.skipped) }));
+      if (result.logRotate.manifest) lines.push(msg("ui.manifestLine", { value1: code(result.logRotate.manifest) }));
     }
     if (result.sqliteMetadataRepair) {
       const repair = result.sqliteMetadataRepair;
       lines.push(
-        `sqlite repair: ${localization.text("maintenanceCandidates")}: ${code(repair.candidates ?? 0)} / repaired ${code(repair.repaired ?? 0)}`,
-        `limits: title ${code(repair.titleLimit ?? config.codexMaintenanceThreadTitleLimit)} / preview ${code(repair.previewLimit ?? config.codexMaintenanceThreadPreviewLimit)}`
+        msg("ui.sqliteRepairRepairedLine", { value1: localization.text("maintenanceCandidates"), value2: code(repair.candidates ?? 0), value3: code(repair.repaired ?? 0) }),
+        msg("ui.limitsTitlePreviewLine", { value1: code(repair.titleLimit ?? config.codexMaintenanceThreadTitleLimit), value2: code(repair.previewLimit ?? config.codexMaintenanceThreadPreviewLimit) })
       );
-      if (repair.manifest) lines.push(`manifest: ${code(repair.manifest)}`);
-      if (repair.restoreScript) lines.push(`restore: ${code(repair.restoreScript)}`);
-      if (repair.reason) lines.push(`reason: ${code(repair.reason)}`);
+      if (repair.manifest) lines.push(msg("ui.manifestLine", { value1: code(repair.manifest) }));
+      if (repair.restoreScript) lines.push(msg("ui.restoreLine", { value1: code(repair.restoreScript) }));
+      if (repair.reason) lines.push(msg("ui.reasonLine", { value1: code(repair.reason) }));
     }
     return lines.join("\n");
   }
@@ -256,10 +258,10 @@ export function createCodexMaintenanceController({
 
   function formatHandoff(result) {
     return formatting.keyValue(localization.text("handoffResultTitle"), [
-      ["thread", result.threadId],
-      ["file", result.file],
-      ["cwd", result.cwd || "unknown"],
-      ["highlights", formatting.count(result.highlights)]
+      [msg("ui.thread"), result.threadId],
+      [msg("ui.file"), result.file],
+      [msg("ui.cwd"), result.cwd || msg("ui.unknown")],
+      [msg("ui.highlights"), formatting.count(result.highlights)]
     ]);
   }
 

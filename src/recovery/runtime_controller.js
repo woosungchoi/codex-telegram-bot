@@ -1,3 +1,4 @@
+import { errorText, LocalizedError } from "../i18n.js";
 import { createCodexStreamState, codexStreamResult } from "../codex/stream.js";
 import { handleRestartCommandCore } from "../restart_command.js";
 import { runTelegramFinalDelivery, summarizeTelegramError } from "../telegram/api.js";
@@ -197,7 +198,7 @@ export function createRuntimeRecoveryController({
           await notifyRecoveryStarted(recoveryCtx, recoveryTurn);
           await queue.enqueueFrontForced(recoveryTurn.chatKey, recoveryTurn);
           const firstTurn = await queue.dequeue(recoveryTurn.chatKey, recoveryCtx);
-          if (!firstTurn) throw new Error("Recovery turn could not be dequeued.");
+          if (!firstTurn) throw new LocalizedError("errors.recoveryDequeue");
           await queue.startPrepared(recoveryTurn.chatKey, firstTurn);
           started += 1;
         } catch (error) {
@@ -209,7 +210,7 @@ export function createRuntimeRecoveryController({
             message: truncate(message, 500)
           });
           await markRecoveryAttempt(settings.recoveryDir, candidate, { status: "failed" });
-          await notifyRecoveryStartFailed(recoveryCtx, recoveryTurn, message);
+          await notifyRecoveryStartFailed(recoveryCtx, recoveryTurn, errorText(error, t));
         }
       }
       if (notifyCtx && started === 0) {
@@ -220,7 +221,7 @@ export function createRuntimeRecoveryController({
       if (notifyCtx) {
         await telegram.replyHtml(
           notifyCtx,
-          `${b(t("recoveryFailed"))}\n${code(error instanceof Error ? error.message : String(error))}`
+          `${b(t("recoveryFailed"))}\n${code(errorText(error, t))}`
         );
       }
     } finally {

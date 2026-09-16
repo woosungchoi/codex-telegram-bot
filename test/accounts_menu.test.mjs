@@ -328,7 +328,7 @@ test("legacy delete buttons require a fresh confirmation and active accounts rem
   await f.click(`acct:delete:${account.id}`);
   assert.ok(await f.store.get(account.id));
   await f.click(f.buttonData("acct:confirm:"));
-  assert.match(f.messages.at(-1).text, /running task/);
+  assert.match(f.messages.at(-1).text, /작업이 실행 중/);
   assert.ok(await f.store.get(account.id));
   await f.click("acct:remove:default");
   assert.match(f.messages.at(-1).text, /기본 계정/);
@@ -995,4 +995,16 @@ test("deleted or failing usage accounts keep other account buttons usable", asyn
   await f.click(f.buttonData("ui:close:menu", panel), panel);
   assert.equal(panel.text, "menuClosed");
   assert.deepEqual(f.buttons(panel), []);
+});
+
+test("Russian replies to cleared account name prompts expire instead of becoming Codex input", async (t) => {
+  const f = await fixture(t);
+  f.r.state.ui.language = "ru";
+  await f.send("/accounts");
+  await f.click("acct:rename:default");
+  const prompt = JSON.parse(JSON.stringify(f.messages.at(-1)));
+  await f.click(f.buttonData("acct:cancelui:"));
+  await f.send("Устаревшее имя", { replyTo: prompt });
+  assert.equal(f.forwarded.length, 0);
+  assert.match(f.messages.at(-1).text, /устарел/i);
 });

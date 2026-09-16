@@ -1,3 +1,4 @@
+import { LocalizedError } from "../i18n.js";
 // @ts-check
 import { b, code, escapeHtml } from "../telegram/html.js";
 import { taskChatKey } from "./scheduler.js";
@@ -49,7 +50,11 @@ export function createTasksController({
       code(item.options.workingDirectory),
       `${t("account")}: ${b(account.label)}`,
       `${t("model")}: ${code(item.options.model || "default")}`,
-      code(scheduleLabel(item.schedule)),
+      code(
+        scheduleLabel(item.schedule, (key) =>
+          t(key.slice("workspace.".length)),
+        ),
+      ),
       `${t("nextRun")}: ${code(date(item.nextAt))}`,
       "",
       escapeHtml(clip(item.prompt, 1000)),
@@ -179,7 +184,9 @@ export function createTasksController({
         Object.values(state.tasks).filter((v) => v.owner === scopeKey(ctx))
           .length >= 20
       )
-        throw new Error("At most 20 scheduled tasks per user/chat/topic.");
+        throw new LocalizedError(
+          "errors.atMost20ScheduledTasksPerUserChatTopic",
+        );
       await readyAccount(a.draft.accountId);
       await validateDirectory(a.draft.options.workingDirectory);
       if (existing && scheduler.busy(existing)) throw new Error(t("busy"));
@@ -189,7 +196,7 @@ export function createTasksController({
           ? existing.nextAt
           : nextOccurrence(a.draft.schedule, now());
       if (!nextAt && (!existing || existing.enabled))
-        throw new Error("Choose a future schedule.");
+        throw new LocalizedError("errors.chooseAFutureSchedule");
       const saved = {
         ...existing,
         ...a.draft,
@@ -210,7 +217,8 @@ export function createTasksController({
       if (a.type === "task-toggle") {
         if (!item.enabled) {
           item.nextAt = nextOccurrence(item.schedule, now());
-          if (!item.nextAt) throw new Error("Choose a future schedule.");
+          if (!item.nextAt)
+            throw new LocalizedError("errors.chooseAFutureSchedule");
         }
         item.enabled = !item.enabled;
         delete item.error;

@@ -1,3 +1,4 @@
+import { LocalizedError } from "../i18n.js";
 // @ts-check
 import { clip } from "./presentation.js";
 import { createWorkspaceCapabilities } from "./capabilities.js";
@@ -134,7 +135,9 @@ export function registerWorkspaceMenus(
   async function readyAccount(id) {
     const a = await accounts.get(id);
     if (a.status !== "ready")
-      throw new Error("The selected account needs sign-in. Open /accounts.");
+      throw new LocalizedError(
+        "errors.theSelectedAccountNeedsSignInOpenAccounts",
+      );
     return a;
   }
   function resetThread(chat, id) {

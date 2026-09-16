@@ -1,3 +1,4 @@
+import { localizedErrorDetails } from "../i18n.js";
 import { randomUUID } from "node:crypto";
 
 export function createRequestId(prefix = "req") {
@@ -17,6 +18,7 @@ export function errorResponse(id, error) {
     id,
     ok: false,
     error: {
+      ...localizedErrorDetails(error),
       message: error instanceof Error ? error.message : String(error || "Worker request failed.")
     }
   };

@@ -1,3 +1,4 @@
+import { textFor } from "../src/i18n.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -7,7 +8,7 @@ import {
 } from "../src/ui/panels.js";
 
 const views = createRuntimePanelViews({
-  text: (key) => key,
+  text: (key) => textFor("en", key),
   formatText: (key, values) => `${key}:${values.title}`
 });
 
@@ -49,14 +50,14 @@ test("runtime panel views render supplied view models without runtime state", ()
   assert.match(html, /Thread: <code>thread&lt;&amp;<\/code>/);
   assert.match(html, /Queue: <code>2 pending, mode=safe, paused=no<\/code>/);
   assert.match(html, /Model: <code>model&lt;&amp;<\/code>/);
-  assert.match(html, /mainInstruction$/);
+  assert.match(html, /Open the panel you need/);
 });
 
 test("runtime panel views keep localized preference and tool rendering", () => {
   const timeZone = views.renderTimeZoneGroupPanelHtml("asia", "Asia/Seoul");
-  assert.match(timeZone, /settingPanelTitle:timeZoneTitle · 🌏 Asia/);
+  assert.match(timeZone, /settingPanelTitle:Time Zone Settings · 🌏 Asia/);
   assert.match(timeZone, /Current: <code>Asia\/Seoul<\/code>/);
-  assert.match(timeZone, /timeZoneRegionDescription/);
+  assert.match(timeZone, /Choose a city/);
 
   const tools = views.renderToolsPanelHtml({
     threadId: "",

@@ -1,3 +1,4 @@
+import { createMessageFormatter } from "../i18n.js";
 import { b, code } from "./html.js";
 import { commandReplyKeyboard } from "../ui/keyboard_helpers.js";
 
@@ -21,6 +22,7 @@ export function registerAdminCommands({
   formatting,
   persistence
 }) {
+  const msg = createMessageFormatter(localization.text);
   const replyHtml = telegram.replyHtml;
   telegram = { ...telegram, replyHtml: (ctx, html, extra) => replyHtml(ctx, html, commandReplyKeyboard(ctx, localization.text, extra)) };
   bot.command("config", (ctx) => telegram.replyHtml(ctx, diagnostics.formatConfig()));
@@ -34,6 +36,7 @@ export function registerAdminCommands({
     ctx,
     {
       config: settings.config,
+      text: localization.text,
       runtimeValue: settings.runtimeValue,
       replyHtml: telegram.replyHtml,
       editOrReplyHtml: telegram.editOrReplyHtml
@@ -43,22 +46,22 @@ export function registerAdminCommands({
 
   bot.command("backup", async (ctx) => {
     const result = await backup.createState("manual");
-    await telegram.replyHtml(ctx, formatting.keyValue("Backup created:", [
-      ["file", result.path],
-      ["size", formatting.bytes(result.bytes)],
-      ["chats", result.chatCount]
+    await telegram.replyHtml(ctx, formatting.keyValue(msg("ui.backupCreated"), [
+      [msg("ui.file"), result.path],
+      [msg("ui.size"), formatting.bytes(result.bytes)],
+      [msg("ui.chats"), result.chatCount]
     ]));
-    await telegram.replyDocument(ctx, result.path, "Codex Telegram Bot backup");
+    await telegram.replyDocument(ctx, result.path, msg("ui.codexTelegramBotBackup"));
   });
 
   bot.command("export", async (ctx) => {
     const chatKey = telegram.getChatKey(ctx);
     const file = await backup.createChatExport(chatKey);
-    await telegram.replyHtml(ctx, formatting.keyValue("Chat export created:", [
-      ["file", file.path],
-      ["size", formatting.bytes(file.bytes)]
+    await telegram.replyHtml(ctx, formatting.keyValue(msg("ui.chatExportCreated"), [
+      [msg("ui.file"), file.path],
+      [msg("ui.size"), formatting.bytes(file.bytes)]
     ]));
-    await telegram.replyDocument(ctx, file.path, "Current chat export");
+    await telegram.replyDocument(ctx, file.path, msg("ui.currentChatExport"));
   });
 
   bot.command("prefs", (ctx) => handlePrefsCommand(ctx));
@@ -76,12 +79,12 @@ export function registerAdminCommands({
       await persistence.save();
       await telegram.replyHtml(
         ctx,
-        `${b("Preferences reset.")}\n\n${formatting.formatPrefs(chatKey)}`
+        `${b(msg("prefsResetDone"))}\n\n${formatting.formatPrefs(chatKey)}`
       );
       return;
     }
     if (arg) {
-      await telegram.replyHtml(ctx, `Usage: ${code("/prefs")} or ${code("/prefs_reset")}`);
+      await telegram.replyHtml(ctx, msg("ui.usageOrLine", { value1: code("/prefs"), value2: code("/prefs_reset") }));
       return;
     }
     await telegram.replyHtml(ctx, formatting.formatPrefs(chatKey));
@@ -100,7 +103,7 @@ export function registerAdminCommands({
     const active = activeTurns.get(chatKey);
     const stoppedSideTurns = queue.stopSideTurns(chatKey);
     if (!active && stoppedSideTurns === 0) {
-      await telegram.replyHtml(ctx, "No active Codex turn.");
+      await telegram.replyHtml(ctx, msg("ui.noActiveCodexTurn"));
       return;
     }
     if (active) {
@@ -112,7 +115,7 @@ export function registerAdminCommands({
     const cleared = await queue.clearPending(chatKey);
     await telegram.replyHtml(
       ctx,
-      `Stop requested.${cleared > 0 ? ` Cleared queued turns: ${code(cleared)}` : ""}${stoppedSideTurns > 0 ? ` Stopped side turns: ${code(stoppedSideTurns)}` : ""}`
+      msg("ui.stopRequestedLine", { value1: cleared > 0 ? msg("ui.clearedQueuedTurnsLine", { value1: code(cleared) }) : "", value2: stoppedSideTurns > 0 ? msg("ui.stoppedSideTurnsLine", { value1: code(stoppedSideTurns) }) : "" })
     );
   }
 
@@ -157,7 +160,7 @@ export function registerAdminCommands({
       if (!settings.validQueueModes.has(value)) {
         await telegram.replyHtml(
           ctx,
-          `Usage: ${code("/queue_mode")} or ${code("/queue_mode_safe|interrupt|side")}`
+          msg("ui.usageOrLine", { value1: code("/queue_mode"), value2: code("/queue_mode_safe|interrupt|side") })
         );
         return;
       }
@@ -190,7 +193,7 @@ export function registerAdminCommands({
     if (arg && arg !== "status") {
       await telegram.replyHtml(
         ctx,
-        `Usage: ${code("/queue")}, ${code("/queue_pause")}, ${code("/queue_resume")}, or ${code("/queue_mode")}`
+        msg("ui.usageOrLine2", { value1: code("/queue"), value2: code("/queue_pause"), value3: code("/queue_resume"), value4: code("/queue_mode") })
       );
       return;
     }
@@ -206,7 +209,7 @@ export function registerAdminCommands({
       : await queue.clearPending(chatKey);
     await telegram.replyHtml(
       ctx,
-      cleared > 0 ? `Cleared queued turns: ${code(cleared)}` : "No queued Codex turns."
+      cleared > 0 ? msg("ui.clearedQueuedTurnsLine2", { value1: code(cleared) }) : msg("queueNoTurns")
     );
   });
 
@@ -218,7 +221,7 @@ export function registerAdminCommands({
     delete state.queues[chatKey];
     pendingTurns.delete(chatKey);
     await persistence.save();
-    await telegram.replyHtml(ctx, "Forgot the Codex thread and chat-specific options.");
+    await telegram.replyHtml(ctx, msg("forgetDone"));
   });
 
   bot.command("cleanup", (ctx) => handleCleanupCommand(ctx));
@@ -240,7 +243,7 @@ export function registerAdminCommands({
   });
   bot.command("cleanup_uploads_confirm", (ctx) => telegram.replyHtml(
     ctx,
-    `${b("Upload cleanup confirmation changed")}\nRun ${code("/cleanup_uploads")} and press the ${code("Confirm upload cleanup")} button. This command no longer deletes files.`
+    msg("ui.runAndPressTheButtonThisCommandNoLine", { value1: b(msg("ui.uploadCleanupConfirmationChanged")), value2: code("/cleanup_uploads"), value3: code(msg("ui.confirmUploadCleanup")) })
   ));
 
   async function handleCleanupCommand(ctx, overrideArg = null) {
@@ -253,7 +256,7 @@ export function registerAdminCommands({
     }
     await telegram.replyHtml(
       ctx,
-      `Usage: ${code("/cleanup")} or ${code("/cleanup_status")}`
+      msg("ui.usageOrLine", { value1: code("/cleanup"), value2: code("/cleanup_status") })
     );
   }
 

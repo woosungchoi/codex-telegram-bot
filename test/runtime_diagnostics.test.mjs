@@ -1,3 +1,4 @@
+import { textFor } from "../src/i18n.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRuntimeDiagnostics } from "../src/status/runtime_diagnostics.js";
@@ -36,7 +37,7 @@ function createFixture() {
     localization: {
       formatText: (key, values) => `${key}:${values.count}`,
       locale: () => "en-US",
-      text: (key) => key,
+      text: (key) => textFor("en", key),
       timeZone: () => "UTC"
     },
     formatting: {
@@ -88,9 +89,9 @@ test("pending delivery lines distinguish safe and uncertain recovery", () => {
     status: "uncertain",
     recovery: "manual_review_required"
   }), [
-    "deliveryCodexExecutionCompleted",
+    textFor("en", "deliveryCodexExecutionCompleted"),
     "telegramDeliveryUncertain:1",
-    "telegramDeliveryManualReview"
+    textFor("en", "telegramDeliveryManualReview")
   ]);
 });
 

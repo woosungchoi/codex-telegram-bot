@@ -1,4 +1,4 @@
-import { LANGUAGE_CHOICES } from "../i18n.js";
+import { createMessageFormatter, LANGUAGE_CHOICES } from "../i18n.js";
 import {
   LOCALE_CHOICES,
   TIME_ZONE_GROUPS,
@@ -15,38 +15,39 @@ export function createSettingsKeyboardViews({
   currentLocale,
   withMenuCloseButton
 }) {
+  const msg = createMessageFormatter(text);
   const t = text;
 
   function settingsKeyboard() {
     return withMenuCloseButton(inlineKeyboard([
       [
         { text: t("model"), callback_data: "p:settings_model" },
-        { text: "Thinking", callback_data: "p:settings_reasoning" }
+        { text: msg("ui.thinking2"), callback_data: "p:settings_reasoning" }
       ],
       [
-        { text: "Fast", callback_data: "p:settings_fast" },
-        { text: "Sandbox", callback_data: "p:settings_sandbox" }
+        { text: msg("ui.fast2"), callback_data: "p:settings_fast" },
+        { text: msg("ui.sandbox2"), callback_data: "p:settings_sandbox" }
       ],
       [
-        { text: "Approval", callback_data: "p:settings_approval" },
-        { text: "Web Search", callback_data: "p:settings_web" }
+        { text: msg("ui.approval2"), callback_data: "p:settings_approval" },
+        { text: msg("ui.webSearch"), callback_data: "p:settings_web" }
       ],
       [
-        { text: "Network", callback_data: "p:settings_network" },
-        { text: "Stream", callback_data: "p:settings_stream" }
+        { text: msg("ui.network2"), callback_data: "p:settings_network" },
+        { text: msg("ui.stream2"), callback_data: "p:settings_stream" }
       ],
       [
-        { text: "Live Progress", callback_data: "p:settings_live_progress" }
+        { text: msg("ui.liveProgress"), callback_data: "p:settings_live_progress" }
       ],
       [
         { text: t("runtime"), callback_data: "p:settings_runtime" }
       ],
       [
-        { text: "Git Check", callback_data: "p:settings_git" },
-        { text: "Paths", callback_data: "p:settings_paths" }
+        { text: msg("ui.gitCheck"), callback_data: "p:settings_git" },
+        { text: msg("ui.paths"), callback_data: "p:settings_paths" }
       ],
       [
-        { text: "Schema", callback_data: "p:settings_schema" },
+        { text: msg("ui.schema2"), callback_data: "p:settings_schema" },
         { text: t("prefsReset"), callback_data: "confirm:prefs_reset" }
       ],
       [
@@ -64,12 +65,12 @@ export function createSettingsKeyboardViews({
   function sandboxKeyboard() {
     return inlineKeyboard([
       [
-        { text: "default", callback_data: "set:sandbox:default" },
-        { text: "read-only", callback_data: "set:sandbox:ro" }
+        { text: msg("ui.default"), callback_data: "set:sandbox:default" },
+        { text: msg("ui.readOnly"), callback_data: "set:sandbox:ro" }
       ],
       [
-        { text: "workspace-write", callback_data: "set:sandbox:ww" },
-        { text: "danger-full-access", callback_data: "set:sandbox:danger" }
+        { text: msg("ui.workspaceWrite"), callback_data: "set:sandbox:ww" },
+        { text: msg("ui.dangerFullAccess"), callback_data: "set:sandbox:danger" }
       ],
       [{ text: t("settings"), callback_data: "p:settings" }]
     ]);
@@ -78,15 +79,15 @@ export function createSettingsKeyboardViews({
   function approvalKeyboard() {
     return inlineKeyboard([
       [
-        { text: "default", callback_data: "set:approval:default" },
-        { text: "never", callback_data: "set:approval:never" }
+        { text: msg("ui.default"), callback_data: "set:approval:default" },
+        { text: msg("ui.never"), callback_data: "set:approval:never" }
       ],
       [
-        { text: "on-request", callback_data: "set:approval:on_request" },
-        { text: "on-failure", callback_data: "set:approval:on_failure" }
+        { text: msg("ui.onRequest"), callback_data: "set:approval:on_request" },
+        { text: msg("ui.onFailure"), callback_data: "set:approval:on_failure" }
       ],
       [
-        { text: "untrusted", callback_data: "set:approval:untrusted" },
+        { text: msg("ui.untrusted"), callback_data: "set:approval:untrusted" },
         { text: t("settings"), callback_data: "p:settings" }
       ]
     ]);
@@ -95,19 +96,19 @@ export function createSettingsKeyboardViews({
   function webSearchKeyboard() {
     return inlineKeyboard([
       [
-        { text: "default", callback_data: "set:web:default" },
-        { text: "disabled", callback_data: "set:web:disabled" }
+        { text: msg("ui.default"), callback_data: "set:web:default" },
+        { text: msg("ui.disabled"), callback_data: "set:web:disabled" }
       ],
       [
-        { text: "cached", callback_data: "set:web:cached" },
-        { text: "live", callback_data: "set:web:live" }
+        { text: msg("ui.cached"), callback_data: "set:web:cached" },
+        { text: msg("ui.live"), callback_data: "set:web:live" }
       ],
       [{ text: t("settings"), callback_data: "p:settings" }]
     ]);
   }
 
   function booleanOptionKeyboard(key) {
-    return inlineKeyboard(booleanOptionKeyboardRows(key, t("settings")));
+    return inlineKeyboard(booleanOptionKeyboardRows(key, t("settings"), text));
   }
 
   function liveProgressKeyboard() {
@@ -132,14 +133,14 @@ export function createSettingsKeyboardViews({
         { text: t("liveProgressDeleteDefault"), callback_data: "set:liveprogressdelete:default" }
       ],
       [
-        { text: "brief", callback_data: "set:runtime_liveprogressmode:brief" },
-        { text: "legacy ko", callback_data: "set:runtime_liveprogressmode:korean_brief" },
+        { text: msg("ui.brief"), callback_data: "set:runtime_liveprogressmode:brief" },
+        { text: msg("ui.legacyKo"), callback_data: "set:runtime_liveprogressmode:korean_brief" },
         { text: t("default"), callback_data: "set:runtime_liveprogressmode:default" }
       ],
       [
-        { text: "10s", callback_data: "set:runtime_liveprogressinterval:10" },
-        { text: "30s", callback_data: "set:runtime_liveprogressinterval:30" },
-        { text: "60s", callback_data: "set:runtime_liveprogressinterval:60" },
+        { text: msg("units.seconds", { count: 10 }), callback_data: "set:runtime_liveprogressinterval:10" },
+        { text: msg("units.seconds", { count: 30 }), callback_data: "set:runtime_liveprogressinterval:30" },
+        { text: msg("units.seconds", { count: 60 }), callback_data: "set:runtime_liveprogressinterval:60" },
         { text: t("default"), callback_data: "set:runtime_liveprogressinterval:default" }
       ],
       [{ text: t("settings"), callback_data: "p:settings" }, { text: t("main"), callback_data: "p:main" }]
@@ -149,7 +150,7 @@ export function createSettingsKeyboardViews({
   function pathsKeyboard() {
     return inlineKeyboard([
       [
-        { text: "workdir default", callback_data: "set:workdir:default" },
+        { text: msg("ui.workdirDefault"), callback_data: "set:workdir:default" },
         { text: t("clearDirs"), callback_data: "set:dirs:clear" }
       ],
       [{ text: t("settings"), callback_data: "p:settings" }]
@@ -178,7 +179,7 @@ export function createSettingsKeyboardViews({
   function timeZoneKeyboard() {
     return inlineKeyboard([
       ...chunkButtons(TIME_ZONE_GROUPS.map(([id, emoji, label]) => ({
-        text: `${emoji} ${label}`,
+        text: `${emoji} ${t(label)}`,
         callback_data: `p:settings_timezone_${id}`
       })), 2),
       [{ text: t("default"), callback_data: "set:timezone:default" }],
@@ -192,8 +193,8 @@ export function createSettingsKeyboardViews({
     return inlineKeyboard([
       ...chunkButtons(choices.map(([id, label, timeZone]) => ({
         text: currentTimeZone() === timeZone
-          ? `✅ ${formatTimeZoneChoiceLabel(label, timeZone)}`
-          : formatTimeZoneChoiceLabel(label, timeZone),
+          ? `✅ ${formatTimeZoneChoiceLabel(label, timeZone, text)}`
+          : formatTimeZoneChoiceLabel(label, timeZone, text),
         callback_data: `set:timezone:${id}`
       })), columns),
       [{ text: t("settings"), callback_data: "p:settings" }, { text: t("main"), callback_data: "p:main" }],

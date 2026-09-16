@@ -256,6 +256,7 @@ const {
   trackSideTurn,
   untrackSideTurn
 } = createQueueRuntimeController({
+  text: t,
   state,
   activeTurns,
   pendingTurns,
@@ -435,6 +436,7 @@ const {
   listCodexModels
 } = modelPresenter;
 codexSessionRuntime = createCodexSessionRuntime({
+  text: t,
   settings: {
     config,
     runtimeValue
@@ -498,6 +500,7 @@ const {
     findFile: (...args) => findCodexSessionFile(...args)
   },
   localization: {
+    text: t,
     locale: uiLocale,
     timeZone: uiTimeZone
   },
@@ -515,6 +518,7 @@ const {
   formatUploadCleanupResultHtml,
   formatWhoamiHtml
 } = createOperationsPresenter({
+  text: t,
   settings: {
     config,
     runtimeValue
@@ -598,7 +602,7 @@ const {
     bytes: formatBytes,
     count: cleanupCount,
     dateTime: formatDateTime,
-    duration: formatDurationSeconds,
+    duration: (seconds) => formatDurationSeconds(seconds, t),
     keyValue: formatKeyValueHtml,
     truncate
   },
@@ -723,11 +727,11 @@ const {
     liveProgress: liveProgressKeyboard,
     locale: localeKeyboard,
     mainPanel: mainPanelKeyboard,
-    modelSelection: modelSelectionKeyboard,
+    modelSelection: (models) => modelSelectionKeyboard(models, { text: t }),
     paths: pathsKeyboard,
     previousPanelFor,
     queue: queueKeyboard,
-    reasoningSelection: reasoningSelectionKeyboard,
+    reasoningSelection: (options) => reasoningSelectionKeyboard(options, { text: t }),
     runtime: runtimeKeyboard,
     runtimeCleanup: runtimeCleanupKeyboard,
     runtimeCodex: runtimeCodexKeyboard,
@@ -770,7 +774,7 @@ const {
     timeZone: uiTimeZone
   },
   formatting: {
-    duration: formatDurationSeconds,
+    duration: (seconds) => formatDurationSeconds(seconds, t),
     keyValue: formatKeyValueHtml,
     optional: formatOptional
   },
@@ -1290,6 +1294,6 @@ await bootstrapBot({
 
 async function rejectCallbackIfActive(ctx, chatKey) {
   if (!activeTurns.has(chatKey)) return false;
-  await editOrReplyHtml(ctx, `Codex turn is already running. Use ${code("/stop")} first. Plain messages can still be queued.`, statusKeyboard(chatKey));
+  await editOrReplyHtml(ctx, tf("ui.turnAlreadyRunning", { command: code("/stop") }), statusKeyboard(chatKey));
   return true;
 }

@@ -1,3 +1,4 @@
+import { LocalizedError } from "../i18n.js";
 import fs from "node:fs/promises";
 import { constants } from "node:fs";
 import path from "node:path";
@@ -72,7 +73,7 @@ export async function readSessionRequest(file, sessionsDir) {
   const [real, root] = await Promise.all([fs.realpath(file), fs.realpath(sessionsDir)]);
   const relative = path.relative(root, real);
   if (relative.startsWith("..") || path.isAbsolute(relative) || !real.endsWith(".jsonl")) {
-    throw new Error("Session log is outside this account's session directory.");
+    throw new LocalizedError("errors.sessionLogIsOutsideThisAccountSSessionDirectory");
   }
   const handle = await fs.open(real, constants.O_RDONLY | constants.O_NONBLOCK);
   try {

@@ -89,7 +89,7 @@ test("projects save presets, rename, favorite, switch and delete without deletin
 test("folder browser validates paths and closing input does not register a project", async (t) => {
   const f = await workspaceFixture(t);
   await f.send("/projects"); await f.press("경로 입력"); await f.send("relative/path");
-  assert.match(f.messages.at(-1).text, /absolute/);
+  assert.match(f.messages.at(-1).text, /절대 경로/);
   await f.send("/cancel"); await f.send("ordinary chat"); assert.deepEqual(f.forwarded, ["ordinary chat"]);
   await f.send("/projects"); await f.press("폴더 찾아보기"); await f.press("이 폴더 선택");
   await f.press("닫기"); assert.equal(Object.values(f.state.workspace.projects)[0].length, 0);
@@ -158,7 +158,7 @@ test("scheduled tick skips duplicates and pauses tasks when owner loses authoriz
   assert.equal(f.starts.length, 1);
   await f.controller.scheduler.stopRun(item);
   f.r.config.allowedUserIds.clear(); f.clock.now += 300_000;
-  await f.controller.scheduler.tick(); assert.equal(item.enabled, false); assert.match(item.error, /authorized/);
+  await f.controller.scheduler.tick(); assert.equal(item.enabled, false); assert.match(item.error, /권한이 더 이상 유효하지/);
 });
 test("scheduler never executes for a different originating bot", async (t) => {
   const f = await workspaceFixture(t); const item = await registerTask(f);

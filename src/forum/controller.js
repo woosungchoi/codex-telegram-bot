@@ -1,3 +1,4 @@
+import { LocalizedError } from "../i18n.js";
 import { b, code, escapeHtml } from "../telegram/html.js";
 import { forumText } from "./messages.js";
 import { createForumService } from "./service.js";
@@ -170,7 +171,7 @@ export function createForumMenus(r, { ui, accounts, text, now = Date.now }) {
       const target = value.slice(0, separator).trim(), prompt = value.slice(separator + 1).trim();
       const group = service.group(ctx);
       const matches = allowedTopics(ctx, group).filter((p) => p.name.toLocaleLowerCase() === target.toLocaleLowerCase() || `#${p.id}` === target);
-      if (matches.length !== 1) throw new Error("Use an exact topic name or #topicId, followed by | and your request.");
+      if (matches.length !== 1) throw new LocalizedError("errors.useAnExactTopicNameOrTopicIdFollowedBy");
       return jobCard(ctx, await jobs.dispatch(ctx, matches[0].id, prompt), t("sent"));
     }));
     r.bot.action("w:forum", (ctx) => ui.guard(ctx, () => list(ctx)));

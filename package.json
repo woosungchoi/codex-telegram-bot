@@ -50,14 +50,15 @@
     "lint": "eslint \"src/**/*.js\" \"scripts/**/*.mjs\" \"test/**/*.mjs\" eslint.config.js --max-warnings=0",
     "format:check": "prettier --check package.json package-lock.json .github/workflows/*.yml",
     "validate:locales": "node scripts/validate-locales.mjs",
-    "verify": "npm run check && npm run lint && npm run format:check && npm run format:source && npm run typecheck && npm run check:architecture && npm test",
+    "verify": "npm run check && npm run lint && npm run format:check && npm run format:source && npm run typecheck && npm run check:architecture && npm run check:ui-localization && npm test",
     "test": "node --test",
     "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
     "check:architecture": "node scripts/check-architecture.mjs",
     "test:coverage": "node scripts/collect-coverage.mjs",
     "format:source": "prettier --check src/workspace/*_controller.js src/workspace/controller.js src/workspace/capabilities.js src/workspace/contracts.d.ts src/workspace/presentation.js src/state/schema.js src/ui/menu_definition.js src/i18n/validation.js scripts/check-architecture.mjs scripts/collect-coverage.mjs scripts/coverage-summary.mjs scripts/repository-sync.mjs test/state_migration.test.mjs test/architecture.test.mjs test/coverage_summary.test.mjs test/repository_sync.test.mjs tsconfig.json src/worker/event_log.js src/worker/log_retention.js src/utils/query_cache.js src/accounts/query_identity.js scripts/worker-log-maintenance.mjs scripts/benchmark-runtime.mjs test/bootstrap_polling.test.mjs test/query_cache.test.mjs test/worker_event_log.test.mjs test/worker_log_retention.test.mjs",
     "worker:logs": "node scripts/worker-log-maintenance.mjs",
-    "benchmark:runtime": "node scripts/benchmark-runtime.mjs"
+    "benchmark:runtime": "node scripts/benchmark-runtime.mjs",
+    "check:ui-localization": "node scripts/check-ui-localization.mjs"
   },
   "dependencies": {
     "@openai/codex-sdk": "0.154.0",

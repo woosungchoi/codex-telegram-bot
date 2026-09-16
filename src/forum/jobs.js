@@ -1,3 +1,4 @@
+import { LocalizedError } from "../i18n.js";
 import { b, code, escapeHtml } from "../telegram/html.js";
 import { directory, newId } from "../workspace/store.js";
 import { applyTopicBinding, forumChatType, forumDestination, forumRootTopicId, forumState, forumTopicId, forumTopicKey, forumTopicUrl } from "./store.js";
@@ -16,27 +17,27 @@ export function createForumJobs(r, { service, accounts, text: t, now = Date.now 
   }
   function validate(job) {
     const group = state.groups[String(job.groupId)];
-    if (!group) throw new Error("The project group is no longer registered.");
+    if (!group) throw new LocalizedError("errors.theProjectGroupIsNoLongerRegistered");
     service.authorize(job.userId, group, job.targetTopicId);
     service.authorize(job.userId, group, job.origin.messageThreadId ?? forumRootTopicId(group));
     if (job.origin.botId !== r.bot.botInfo?.id || job.origin.chatId !== group.chatId
-      || (job.origin.chatType || "supergroup") !== forumChatType(group)) throw new Error("The originating bot or chat does not match.");
+      || (job.origin.chatType || "supergroup") !== forumChatType(group)) throw new LocalizedError("errors.theOriginatingBotOrChatDoesNotMatch");
     return group;
   }
   async function dispatch(ctx, id, prompt) {
     const group = service.group(ctx);
-    if (!prompt?.trim() || prompt.length > 8000) throw new Error("Use a text request of 1–8000 characters.");
+    if (!prompt?.trim() || prompt.length > 8000) throw new LocalizedError("errors.useATextRequestOf18000Characters");
     return service.exclusive(group, async () => {
       service.authorize(ctx.from.id, group, id);
       const topic = service.topic(group, id);
       if (topic.role !== "project" || !topic.cwd || topic.closed) throw new Error(t("unbound"));
-      if (id === forumTopicId(ctx)) throw new Error("Send this request directly in the current project topic.");
-      if (Object.values(state.jobs).filter((job) => LIVE_FORUM_JOBS.has(job.status)).length >= 20) throw new Error("Twenty dispatched jobs are already unfinished. Wait for one to finish.");
+      if (id === forumTopicId(ctx)) throw new LocalizedError("errors.sendThisRequestDirectlyInTheCurrentProjectTopic");
+      if (Object.values(state.jobs).filter((job) => LIVE_FORUM_JOBS.has(job.status)).length >= 20) throw new LocalizedError("errors.twentyDispatchedJobsAreAlreadyUnfinishedWaitForOne");
       await directory(topic.cwd);
       applyTopicBinding(r, group, topic);
       const key = forumTopicKey(group, id), chat = r.getChatState(key);
       const accountId = chat.accountId || "default";
-      if ((await accounts.get(accountId)).status !== "ready") throw new Error("The project account needs sign-in.");
+      if ((await accounts.get(accountId)).status !== "ready") throw new LocalizedError("errors.theProjectAccountNeedsSignIn");
       const at = now(), jobId = `forum-${newId()}`;
       const job = { id: jobId, groupId: group.chatId, targetTopicId: id, targetKey: key, topicName: topic.name,
         bindingId: topic.bindingId, accountId, userId: ctx.from.id, prompt: prompt.trim(), createdAt: at, status: "queued",
@@ -48,7 +49,7 @@ export function createForumJobs(r, { service, accounts, text: t, now = Date.now 
       // The queue and job receipt share one atomic state write. No execution is
       // repeated to recover a notification or a Telegram connection failure.
       const queued = await r.enqueuePendingTurn(key, prepared);
-      if (!queued.ok) { delete state.jobs[job.id]; await r.saveState(); throw new Error("The project topic queue is full."); }
+      if (!queued.ok) { delete state.jobs[job.id]; await r.saveState(); throw new LocalizedError("errors.theProjectTopicQueueIsFull"); }
       await r.startQueueDrainIfIdle(key, r.createSyntheticCtx(prepared));
       return job;
     });
@@ -56,17 +57,17 @@ export function createForumJobs(r, { service, accounts, text: t, now = Date.now 
   async function beforeTurn(key, prepared) {
     const job = find(prepared);
     if (!job) {
-      if (prepared.kind === "forum") throw new Error("The dispatched job receipt is missing.");
+      if (prepared.kind === "forum") throw new LocalizedError("errors.theDispatchedJobReceiptIsMissing");
       return;
     }
     validateDelivery(key, prepared);
     if (job.status === "completed" || job.status === "cancelled") {
-      const error = new Error("This dispatched job has already finished."); error.suppressTelegramReply = true; throw error;
+      const error = new LocalizedError("errors.thisDispatchedJobHasAlreadyFinished"); error.suppressTelegramReply = true; throw error;
     }
     const group = state.groups[String(job.groupId)], topic = service.topic(group, job.targetTopicId);
-    if (job.targetKey !== key || topic.bindingId !== job.bindingId || !topic.cwd || topic.closed) throw new Error("The project topic binding changed while this job was queued.");
+    if (job.targetKey !== key || topic.bindingId !== job.bindingId || !topic.cwd || topic.closed) throw new LocalizedError("errors.theProjectTopicBindingChangedWhileThisJobWas");
     await directory(topic.cwd);
-    if ((await accounts.get(job.accountId)).status !== "ready") throw new Error("The project account needs sign-in.");
+    if ((await accounts.get(job.accountId)).status !== "ready") throw new LocalizedError("errors.theProjectAccountNeedsSignIn");
     job.status = "running";
     await r.saveState();
   }

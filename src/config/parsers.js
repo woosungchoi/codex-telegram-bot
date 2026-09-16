@@ -1,4 +1,4 @@
-import { VALID_LANGUAGES } from "../i18n.js";
+import { LocalizedError, VALID_LANGUAGES } from "../i18n.js";
 
 export const CONFIG_VALID = {
   approval: new Set(["never", "on-request", "on-failure", "untrusted"]),
@@ -16,7 +16,7 @@ export function parseRequiredBoolean(value, label) {
   const normalized = value.trim().toLowerCase();
   if (["1", "true", "yes", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "off"].includes(normalized)) return false;
-  throw new Error(`${label} must be on or off.`);
+  throw new LocalizedError("errors.mustBeOnOrOff", { value1: label });
 }
 
 export function parseLanguage(value) {
@@ -46,13 +46,13 @@ export function parseLocale(value) {
 export function parseCodexAnswerFormat(value) {
   const normalized = value?.trim().toLowerCase() || "markdown";
   if (["off", "safe", "markdown"].includes(normalized)) return normalized;
-  throw new Error("TELEGRAM_FORMAT_CODEX_ANSWERS must be off, safe, or markdown.");
+  throw new LocalizedError("errors.invalidAnswerFormat");
 }
 
 export function parseCompactStrength(value) {
   const normalized = value?.trim().toLowerCase() || "default";
   if (CONFIG_VALID.compactStrength.has(normalized)) return normalized;
-  throw new Error("CODEX_COMPACT_STRENGTH must be default, light, balanced, or aggressive.");
+  throw new LocalizedError("errors.invalidCompactStrength");
 }
 
 export function parseOptionalJson(env, envName) {
@@ -61,7 +61,7 @@ export function parseOptionalJson(env, envName) {
   try {
     return JSON.parse(value);
   } catch (error) {
-    throw new Error(`${envName} must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+    throw new LocalizedError("errors.mustBeValidJSON", { value1: envName, value2: error instanceof Error ? error.message : String(error) });
   }
 }
 
@@ -77,7 +77,7 @@ export function parseTelegramIdCsv(value, label, { allowNegative = false } = {})
   const entries = parseCsv(value);
   const pattern = allowNegative ? /^-?\d+$/ : /^\d+$/;
   for (const entry of entries) {
-    if (!pattern.test(entry)) throw new Error(`${label} must contain numeric Telegram ids.`);
+    if (!pattern.test(entry)) throw new LocalizedError("errors.mustContainNumericTelegramIds", { value1: label });
   }
   return entries;
 }
@@ -91,28 +91,28 @@ export function parseNonnegativeInteger(value, fallback, label) {
   const raw = String(value ?? "").trim();
   if (!raw) return fallback;
   const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${label} must be a non-negative integer.`);
+  if (!Number.isInteger(parsed) || parsed < 0) throw new LocalizedError("errors.mustBeANonNegativeInteger", { value1: label });
   return parsed;
 }
 
 export function parsePercentInteger(value, fallback, label) {
   const parsed = parseNonnegativeInteger(value, fallback, label);
-  if (parsed > 100) throw new Error(`${label} must be between 0 and 100.`);
+  if (parsed > 100) throw new LocalizedError("errors.mustBeBetween0And100", { value1: label });
   return parsed;
 }
 
 export function parseLiveProgressSource(value) {
   const normalized = value?.trim().toLowerCase() || "agent";
   if (CONFIG_VALID.liveProgressSource.has(normalized)) return normalized;
-  throw new Error("TELEGRAM_LIVE_PROGRESS_SOURCE must be agent, activity, or both.");
+  throw new LocalizedError("errors.invalidLiveProgressSource");
 }
 
 export function parseLiveProgressDeletePolicy(value) {
   const normalized = value?.trim().toLowerCase().replaceAll("-", "_") || "on_success";
   if (CONFIG_VALID.liveProgressDeletePolicy.has(normalized)) return normalized;
-  throw new Error("TELEGRAM_LIVE_PROGRESS_DELETE_POLICY must be always, on_success, or never.");
+  throw new LocalizedError("errors.invalidLiveProgressDeletePolicy");
 }
 
 export function assertEnum(value, validValues, label) {
-  if (!validValues.has(value)) throw new Error(`${label} must be one of: ${[...validValues].join(", ")}`);
+  if (!validValues.has(value)) throw new LocalizedError("errors.mustBeOneOf", { value1: label, value2: [...validValues].join(", ") });
 }

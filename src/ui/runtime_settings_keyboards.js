@@ -1,7 +1,9 @@
+import { createMessageFormatter } from "../i18n.js";
 import { TIME_PRESET_CHOICES } from "./preferences.js";
 import { inlineKeyboard } from "./keyboard_helpers.js";
 
 export function createRuntimeSettingsKeyboardViews({ text, withMenuCloseButton }) {
+  const msg = createMessageFormatter(text);
   const t = text;
 
   function runtimeKeyboard() {
@@ -14,7 +16,7 @@ export function createRuntimeSettingsKeyboardViews({ text, withMenuCloseButton }
         { text: t("cleanup"), callback_data: "p:settings_runtime_cleanup" },
         { text: t("snapshots"), callback_data: "p:settings_runtime_snapshot" }
       ],
-      [{ text: "Codex", callback_data: "p:settings_runtime_codex" }],
+      [{ text: msg("ui.codex"), callback_data: "p:settings_runtime_codex" }],
       [{ text: t("settings"), callback_data: "p:settings" }, { text: t("main"), callback_data: "p:main" }],
       [{ role: "back", text: `← ${t("back")}`, callback_data: "p:settings" }]
     ]));
@@ -23,38 +25,38 @@ export function createRuntimeSettingsKeyboardViews({ text, withMenuCloseButton }
   function runtimeOutputKeyboard() {
     return inlineKeyboard([
       [
-        { text: "Reactions on", callback_data: "set:runtime_reactions:on" },
-        { text: "off", callback_data: "set:runtime_reactions:off" },
+        { text: msg("ui.reactionsOn"), callback_data: "set:runtime_reactions:on" },
+        { text: msg("ui.off"), callback_data: "set:runtime_reactions:off" },
         { text: t("default"), callback_data: "set:runtime_reactions:default" }
       ],
       [
-        { text: "Markdown", callback_data: "set:runtime_answerformat:markdown" },
-        { text: "Safe", callback_data: "set:runtime_answerformat:safe" },
-        { text: "Plain", callback_data: "set:runtime_answerformat:off" },
+        { text: msg("ui.markdown"), callback_data: "set:runtime_answerformat:markdown" },
+        { text: msg("ui.safe2"), callback_data: "set:runtime_answerformat:safe" },
+        { text: msg("ui.plain"), callback_data: "set:runtime_answerformat:off" },
         { text: t("default"), callback_data: "set:runtime_answerformat:default" }
       ],
       [
-        { text: "Notice off", callback_data: "set:runtime_completionnotice:0" },
-        { text: "90s", callback_data: "set:runtime_completionnotice:90" },
-        { text: "180s", callback_data: "set:runtime_completionnotice:180" },
+        { text: msg("ui.noticeOff"), callback_data: "set:runtime_completionnotice:0" },
+        { text: msg("units.seconds", { count: 90 }), callback_data: "set:runtime_completionnotice:90" },
+        { text: msg("units.seconds", { count: 180 }), callback_data: "set:runtime_completionnotice:180" },
         { text: t("default"), callback_data: "set:runtime_completionnotice:default" }
       ],
       [
-        { text: "Chars 2000", callback_data: "set:runtime_maxchars:2000" },
+        { text: msg("ui.chars2000"), callback_data: "set:runtime_maxchars:2000" },
         { text: "3500", callback_data: "set:runtime_maxchars:3500" },
         { text: "4000", callback_data: "set:runtime_maxchars:4000" },
         { text: t("default"), callback_data: "set:runtime_maxchars:default" }
       ],
       [
-        { text: "Logs 40", callback_data: "set:runtime_logsmax:40" },
+        { text: msg("ui.logs40"), callback_data: "set:runtime_logsmax:40" },
         { text: "80", callback_data: "set:runtime_logsmax:80" },
         { text: "160", callback_data: "set:runtime_logsmax:160" },
         { text: t("default"), callback_data: "set:runtime_logsmax:default" }
       ],
       [
-        { text: "Edit 4s", callback_data: "set:runtime_progressedit:4" },
-        { text: "8s", callback_data: "set:runtime_progressedit:8" },
-        { text: "15s", callback_data: "set:runtime_progressedit:15" },
+        { text: msg("ui.edit4s"), callback_data: "set:runtime_progressedit:4" },
+        { text: msg("units.seconds", { count: 8 }), callback_data: "set:runtime_progressedit:8" },
+        { text: msg("units.seconds", { count: 15 }), callback_data: "set:runtime_progressedit:15" },
         { text: t("default"), callback_data: "set:runtime_progressedit:default" }
       ],
       [{ text: t("runtime"), callback_data: "p:settings_runtime" }, { text: t("settings"), callback_data: "p:settings" }]
@@ -64,16 +66,16 @@ export function createRuntimeSettingsKeyboardViews({ text, withMenuCloseButton }
   function runtimeQueueKeyboard() {
     return inlineKeyboard([
       [
-        { text: "Max 5", callback_data: "set:runtime_pendingmax:5" },
+        { text: msg("ui.max5"), callback_data: "set:runtime_pendingmax:5" },
         { text: "10", callback_data: "set:runtime_pendingmax:10" },
         { text: "25", callback_data: "set:runtime_pendingmax:25" },
         { text: t("default"), callback_data: "set:runtime_pendingmax:default" }
       ],
       [
-        { text: "Expiry off", callback_data: "set:runtime_pendingage:0" },
-        { text: "1h", callback_data: "set:runtime_pendingage:3600" },
-        { text: "2h", callback_data: "set:runtime_pendingage:7200" },
-        { text: "24h", callback_data: "set:runtime_pendingage:86400" },
+        { text: msg("ui.expiryOff"), callback_data: "set:runtime_pendingage:0" },
+        { text: msg("units.hours", { count: 1 }), callback_data: "set:runtime_pendingage:3600" },
+        { text: msg("units.hours", { count: 2 }), callback_data: "set:runtime_pendingage:7200" },
+        { text: msg("units.hours", { count: 24 }), callback_data: "set:runtime_pendingage:86400" },
         { text: t("default"), callback_data: "set:runtime_pendingage:default" }
       ],
       [{ text: t("runtime"), callback_data: "p:settings_runtime" }, { text: t("settings"), callback_data: "p:settings" }]
@@ -83,31 +85,31 @@ export function createRuntimeSettingsKeyboardViews({ text, withMenuCloseButton }
   function runtimeCodexKeyboard() {
     return withMenuCloseButton(inlineKeyboard([
       [
-        { text: "Sidecar", callback_data: "set:runtime_workermode:sidecar" },
-        { text: "Inline", callback_data: "set:runtime_workermode:inline" },
+        { text: msg("ui.sidecar"), callback_data: "set:runtime_workermode:sidecar" },
+        { text: msg("ui.inline"), callback_data: "set:runtime_workermode:inline" },
         { text: t("default"), callback_data: "set:runtime_workermode:default" }
       ],
       [
-        { text: "SDK", callback_data: "set:runtime_codextransport:sdk" },
-        { text: "app-server direct", callback_data: "set:runtime_codextransport:app-server-direct" },
+        { text: msg("ui.sdk"), callback_data: "set:runtime_codextransport:sdk" },
+        { text: msg("ui.appServerDirect"), callback_data: "set:runtime_codextransport:app-server-direct" },
         { text: t("default"), callback_data: "set:runtime_codextransport:default" }
       ],
       [
-        { text: "Worker poll 1s", callback_data: "set:runtime_workerpoll:1000" },
-        { text: "3s", callback_data: "set:runtime_workerpoll:3000" },
+        { text: msg("ui.workerPoll1s"), callback_data: "set:runtime_workerpoll:1000" },
+        { text: msg("units.seconds", { count: 3 }), callback_data: "set:runtime_workerpoll:3000" },
         { text: t("default"), callback_data: "set:runtime_workerpoll:default" }
       ],
       [
-        { text: "Timeout 3s", callback_data: "set:runtime_appservertimeout:3000" },
-        { text: "5s", callback_data: "set:runtime_appservertimeout:5000" },
-        { text: "10s", callback_data: "set:runtime_appservertimeout:10000" },
+        { text: msg("ui.timeout3s"), callback_data: "set:runtime_appservertimeout:3000" },
+        { text: msg("units.seconds", { count: 5 }), callback_data: "set:runtime_appservertimeout:5000" },
+        { text: msg("units.seconds", { count: 10 }), callback_data: "set:runtime_appservertimeout:10000" },
         { text: t("default"), callback_data: "set:runtime_appservertimeout:default" }
       ],
       [
-        { text: "Test worker", callback_data: "tool:worker_status" },
-        { text: "Test app-server direct", callback_data: "tool:appserver_status" }
+        { text: msg("ui.testWorker"), callback_data: "tool:worker_status" },
+        { text: msg("ui.testAppServerDirect"), callback_data: "tool:appserver_status" }
       ],
-      [{ text: "Save & restart", callback_data: "act:restart" }],
+      [{ text: msg("ui.saveRestart"), callback_data: "act:restart" }],
       [{ text: t("runtime"), callback_data: "p:settings_runtime" }, { text: t("settings"), callback_data: "p:settings" }]
     ]));
   }
@@ -138,21 +140,21 @@ export function createRuntimeSettingsKeyboardViews({ text, withMenuCloseButton }
       [{ text: t("cleanupModeDefault"), callback_data: "set:runtime_cleanupmode:default" }],
       timePresetButtons("runtime_cleanuptime"),
       [
-        { text: "Keep 7d", callback_data: "set:runtime_cleanupretention:7" },
-        { text: "14d", callback_data: "set:runtime_cleanupretention:14" },
-        { text: "30d", callback_data: "set:runtime_cleanupretention:30" },
+        { text: msg("ui.keep7d"), callback_data: "set:runtime_cleanupretention:7" },
+        { text: msg("units.days", { count: 14 }), callback_data: "set:runtime_cleanupretention:14" },
+        { text: msg("units.days", { count: 30 }), callback_data: "set:runtime_cleanupretention:30" },
         { text: t("default"), callback_data: "set:runtime_cleanupretention:default" }
       ],
       [
-        { text: "Q 7d", callback_data: "set:runtime_cleanupquarantine:7" },
-        { text: "14d", callback_data: "set:runtime_cleanupquarantine:14" },
-        { text: "30d", callback_data: "set:runtime_cleanupquarantine:30" },
+        { text: msg("ui.quarantineDays", { count: 7 }), callback_data: "set:runtime_cleanupquarantine:7" },
+        { text: msg("units.days", { count: 14 }), callback_data: "set:runtime_cleanupquarantine:14" },
+        { text: msg("units.days", { count: 30 }), callback_data: "set:runtime_cleanupquarantine:30" },
         { text: t("default"), callback_data: "set:runtime_cleanupquarantine:default" }
       ],
       [
-        { text: "TTL 12h", callback_data: "set:runtime_cleanupttl:12" },
-        { text: "24h", callback_data: "set:runtime_cleanupttl:24" },
-        { text: "48h", callback_data: "set:runtime_cleanupttl:48" },
+        { text: msg("ui.ttl12h"), callback_data: "set:runtime_cleanupttl:12" },
+        { text: msg("units.hours", { count: 24 }), callback_data: "set:runtime_cleanupttl:24" },
+        { text: msg("units.hours", { count: 48 }), callback_data: "set:runtime_cleanupttl:48" },
         { text: t("default"), callback_data: "set:runtime_cleanupttl:default" }
       ],
       [{ text: t("runtime"), callback_data: "p:settings_runtime" }, { text: t("settings"), callback_data: "p:settings" }]
@@ -168,9 +170,9 @@ export function createRuntimeSettingsKeyboardViews({ text, withMenuCloseButton }
       ],
       timePresetButtons("runtime_snapshottime"),
       [
-        { text: "Keep 7d", callback_data: "set:runtime_snapshotretention:7" },
-        { text: "14d", callback_data: "set:runtime_snapshotretention:14" },
-        { text: "30d", callback_data: "set:runtime_snapshotretention:30" },
+        { text: msg("ui.keep7d"), callback_data: "set:runtime_snapshotretention:7" },
+        { text: msg("units.days", { count: 14 }), callback_data: "set:runtime_snapshotretention:14" },
+        { text: msg("units.days", { count: 30 }), callback_data: "set:runtime_snapshotretention:30" },
         { text: t("default"), callback_data: "set:runtime_snapshotretention:default" }
       ],
       [{ text: t("runtime"), callback_data: "p:settings_runtime" }, { text: t("settings"), callback_data: "p:settings" }]

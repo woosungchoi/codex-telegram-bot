@@ -1,3 +1,4 @@
+import { LocalizedError } from "../i18n.js";
 import { telegramChatKey, telegramContextMeta, telegramTopicId } from "../telegram/context.js";
 import { projectOptions, workspaceState } from "../workspace/store.js";
 import { normalizeForumState } from "../state/schema.js";
@@ -53,7 +54,7 @@ export function applyTopicBinding(r, group, topic) {
 
 export function assertTopicDirectory(chat, cwd) {
   if (chat.forumBinding?.cwd && chat.forumBinding.cwd !== cwd) {
-    throw new Error("This topic is bound to another folder. Change its binding in /topics first.");
+    throw new LocalizedError("errors.thisTopicIsBoundToAnotherFolderChangeIts");
   }
 }
 

@@ -1,3 +1,4 @@
+import { textFor } from "../src/i18n.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createToolCallbackController } from "../src/ui/tool_callback_controller.js";
@@ -59,7 +60,7 @@ function createFixture({ active = false } = {}) {
       bytes: (value) => `${value} B`,
       keyValue: (title) => title
     },
-    localization: { text: (key) => key }
+    localization: { text: (key) => textFor("en", key) }
   });
   return { calls, controller };
 }

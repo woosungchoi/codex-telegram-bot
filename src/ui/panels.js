@@ -1,10 +1,12 @@
+import { createMessageFormatter } from "../i18n.js";
 import { b, code, escapeHtml } from "../telegram/html.js";
 import { TIME_ZONE_GROUPS } from "./preferences.js";
 
-export function formatSettingPanelHtml({ titleText, current, description }) {
+export function formatSettingPanelHtml({ titleText, current, description, text }) {
+  const msg = createMessageFormatter(text);
   return [
     b(titleText),
-    `Current: ${code(current)}`,
+    msg("ui.currentLine", { value1: code(current) }),
     "",
     description
   ].join("\n");
@@ -18,19 +20,20 @@ export function formatKeyValueHtml(title, rows) {
 }
 
 export function createRuntimePanelViews({ text, formatText }) {
+  const msg = createMessageFormatter(text);
   const t = text;
 
   function renderMainPanelHtml({ details, options, transport }) {
     return [
-      b("Codex Control"),
+      b(msg("ui.codexControl")),
       "",
-      `Thread: ${code(details.threadId || "not started")}`,
-      `Transport: ${code(transport)}`,
-      `Active turn: ${code(details.active ? "yes" : "no")}`,
-      `Queue: ${code(`${details.queued} pending, mode=${details.queueMode}, paused=${details.queuePaused ? "yes" : "no"}`)}`,
-      `Model: ${code(options.model || "default")}`,
-      `Thinking: ${code(options.modelReasoningEffort)}`,
-      `Workdir: ${code(options.workingDirectory)}`,
+      msg("ui.threadLine", { value1: code(details.threadId || msg("ui.notStarted")) }),
+      msg("ui.transportLine", { value1: code(transport) }),
+      msg("ui.activeTurnLine", { value1: code(details.active ? msg("ui.yes") : msg("ui.no")) }),
+      msg("ui.queueLine", { value1: code(msg("ui.pendingModePausedLine", { value1: details.queued, value2: details.queueMode, value3: details.queuePaused ? msg("ui.yes") : msg("ui.no") })) }),
+      msg("ui.modelLine", { value1: code(options.model || msg("ui.default")) }),
+      msg("ui.thinkingLine", { value1: code(options.modelReasoningEffort) }),
+      msg("ui.workdirLine", { value1: code(options.workingDirectory) }),
       "",
       t("mainInstruction")
     ].join("\n");
@@ -38,7 +41,7 @@ export function createRuntimePanelViews({ text, formatText }) {
 
   function renderSettingsPanelHtml(optionsHtml) {
     return [
-      b("Codex Settings"),
+      b(msg("ui.codexSettings")),
       "",
       optionsHtml,
       "",
@@ -54,6 +57,7 @@ export function createRuntimePanelViews({ text, formatText }) {
     return formatSettingPanelHtml({
       titleText: formatText("settingPanelTitle", { title }),
       current,
+      text,
       description
     });
   }
@@ -61,8 +65,8 @@ export function createRuntimePanelViews({ text, formatText }) {
   function renderPathsPanelHtml(options) {
     return [
       b(t("pathsTitle")),
-      `Workdir: ${code(options.workingDirectory)}`,
-      `Additional dirs: ${code((options.additionalDirectories ?? []).join(", ") || "none")}`,
+      msg("ui.workdirLine", { value1: code(options.workingDirectory) }),
+      msg("ui.additionalDirsLine", { value1: code((options.additionalDirectories ?? []).join(", ") || msg("ui.none")) }),
       "",
       t("pathsDirect"),
       t("pathsButtons")
@@ -71,8 +75,8 @@ export function createRuntimePanelViews({ text, formatText }) {
 
   function renderSchemaPanelHtml(enabled) {
     return [
-      b("Structured Output Schema"),
-      `Current: ${code(enabled ? "enabled" : "disabled")}`,
+      b(msg("ui.structuredOutputSchema")),
+      msg("ui.currentLine", { value1: code(enabled ? msg("ui.enabled") : msg("ui.disabled")) }),
       "",
       t("schemaDirect"),
       t("schemaButtons")
@@ -81,17 +85,17 @@ export function createRuntimePanelViews({ text, formatText }) {
 
   function renderLiveProgressPanelHtml({ options, mode, intervalSeconds }) {
     return [
-      b("Live Progress"),
-      `Enabled: ${code(options.liveProgressEnabled)}`,
-      `Source: ${code(options.liveProgressSource)}`,
-      `Delete policy: ${code(options.liveProgressDeletePolicy)}`,
-      `Mode: ${code(mode)}`,
-      `Interval: ${code(`${intervalSeconds}s`)}`,
+      b(msg("ui.liveProgress")),
+      msg("ui.enabledLine", { value1: code(options.liveProgressEnabled) }),
+      msg("ui.sourceLine", { value1: code(options.liveProgressSource) }),
+      msg("ui.deletePolicyLine", { value1: code(options.liveProgressDeletePolicy) }),
+      msg("ui.modeLine", { value1: code(mode) }),
+      msg("ui.intervalLine", { value1: code(`${intervalSeconds}s`) }),
       "",
-      `${code("agent")}: ${t("liveAgent")}`,
-      `${code("activity")}: ${t("liveActivity")}`,
-      `${code("both")}: ${t("liveBoth")}`,
-      `${code("never")}: ${t("liveNever")}`
+      `${code(msg("ui.agent"))}: ${t("liveAgent")}`,
+      `${code(msg("ui.activity"))}: ${t("liveActivity")}`,
+      `${code(msg("ui.both"))}: ${t("liveBoth")}`,
+      `${code(msg("ui.never"))}: ${t("liveNever")}`
     ].join("\n");
   }
 
@@ -107,11 +111,11 @@ export function createRuntimePanelViews({ text, formatText }) {
 
   function renderToolsPanelHtml({ threadId, savedChats, pendingTurns }) {
     return [
-      b("Codex Tools"),
+      b(msg("ui.codexTools")),
       "",
-      `Thread: ${code(threadId || "not started")}`,
-      `Saved chats: ${code(savedChats)}`,
-      `Pending turns: ${code(pendingTurns)}`,
+      msg("ui.threadLine", { value1: code(threadId || msg("ui.notStarted")) }),
+      msg("ui.savedChatsLine", { value1: code(savedChats) }),
+      msg("ui.pendingTurnsLine", { value1: code(pendingTurns) }),
       "",
       t("toolsInstruction")
     ].join("\n");
@@ -125,7 +129,7 @@ export function createRuntimePanelViews({ text, formatText }) {
     const [, emoji, label] = group;
     const description = groupId === "utc" ? t("timeZoneUtcDescription") : t("timeZoneRegionDescription");
     return renderSettingPanelHtml(
-      `${t("timeZoneTitle")} · ${emoji} ${label}`,
+      `${t("timeZoneTitle")} · ${emoji} ${t(label)}`,
       currentTimeZone,
       description
     );

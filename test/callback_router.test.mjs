@@ -1,3 +1,4 @@
+import { textFor } from "../src/i18n.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { registerCallbackRoutes } from "../src/telegram/callback_router.js";
@@ -85,7 +86,7 @@ function createFixture({ queueChanged = 1 } = {}) {
       withClose: (keyboard) => keyboard,
       withToolsBack: () => ({})
     },
-    localization: { text: (key) => key },
+    localization: { text: (key) => textFor("en", key) },
     persistence: { save: async () => calls.push(["save"]) },
     timing: { withTimeout: (promise) => promise },
     now: () => Date.parse("2026-07-21T00:00:00Z")

@@ -1,3 +1,4 @@
+import { LocalizedError, localizedErrorDetails, restoreLocalizedError } from "../i18n.js";
 import { progressTurnId } from "../telegram/progress_store.js";
 import {
   applyCodexStreamEvent,
@@ -99,7 +100,7 @@ export function createWorkerRuntimeController({
       const job = restartAttempt === 0 ? initialJob : createWorkerJobPayload(chatKey, currentTurn);
       if (job.accountId !== "default") {
         const status = await client.status?.();
-        if (!status?.capabilities?.includes("accounts-v1")) throw new Error("The worker must be updated before using saved accounts.");
+        if (!status?.capabilities?.includes("accounts-v1")) throw new LocalizedError("errors.workerUpdateRequired");
       }
       active.workerCancelRequested = false;
       const started = await client.startJob(job);
@@ -263,6 +264,7 @@ export function createWorkerRuntimeController({
             terminal = {
               type: `worker.job.${job.status}`,
               status: job.status,
+              ...localizedErrorDetails(job),
               reason: job.failureReason || "",
               message: job.error || ""
             };
@@ -365,13 +367,13 @@ export function createWorkerRuntimeController({
 
       if (terminal?.type === "worker.job.failed") {
         streamOutcome = "error";
-        const error = new Error(terminal.message || "Codex worker job failed.");
+        const error = restoreLocalizedError(terminal, "errors.workerFailed");
         if (terminal.reason) error.code = terminal.reason;
         throw error;
       }
       if (terminal?.type === "worker.job.cancelled") {
         streamOutcome = "cancelled";
-        throw new Error(terminal.message || "Codex worker job was cancelled.");
+        throw restoreLocalizedError(terminal, "errors.workerCancelled");
       }
       return { turn: codexStreamResult(streamState), threadId, workerLastSeq: cursor };
     } catch (error) {

@@ -1,30 +1,31 @@
+import { textFor } from "../i18n.js";
 import { chunkButtons, inlineKeyboard } from "./keyboard_helpers.js";
 
-export function booleanOptionKeyboardRows(key, settingsLabel) {
+export function booleanOptionKeyboardRows(key, settingsLabel, text = (key) => textFor("en", key)) {
   return [
     [
-      { text: "default", callback_data: `set:${key}:default` },
-      { text: "on", callback_data: `set:${key}:on` },
-      { text: "off", callback_data: `set:${key}:off` }
+      { text: text("default"), callback_data: `set:${key}:default` },
+      { text: text("on"), callback_data: `set:${key}:on` },
+      { text: text("off"), callback_data: `set:${key}:off` }
     ],
     [{ text: settingsLabel, callback_data: "p:settings" }]
   ];
 }
 
-export function modelSelectionKeyboard(models, { callbackPrefix = "model:set:" } = {}) {
+export function modelSelectionKeyboard(models, { callbackPrefix = "model:set:", text = (key) => textFor("en", key) } = {}) {
   const buttons = models.map((model) => ({
     text: `${model.displayName}${model.fastSupported ? " ⚡" : ""}`,
     callback_data: `${callbackPrefix}${model.slug}`
   }));
   return inlineKeyboard([
     ...chunkButtons(buttons, 2),
-    [{ text: "Default", callback_data: `${callbackPrefix}default` }]
+    [{ text: text("default"), callback_data: `${callbackPrefix}default` }]
   ]);
 }
 
-export function reasoningSelectionKeyboard(reasoningOptions, { callbackPrefix = "reasoning:set:" } = {}) {
+export function reasoningSelectionKeyboard(reasoningOptions, { callbackPrefix = "reasoning:set:", text = (key) => textFor("en", key) } = {}) {
   const buttons = [
-    { text: "Default", callback_data: `${callbackPrefix}default` },
+    { text: text("default"), callback_data: `${callbackPrefix}default` },
     ...reasoningOptions.map(({ effort }) => ({
       text: effort,
       callback_data: `${callbackPrefix}${effort}`
@@ -55,14 +56,14 @@ export function createSelectionKeyboardViews({
 
   function standaloneModelSelectionKeyboard(models, session) {
     return withSelectionCancel(
-      modelSelectionKeyboard(models, { callbackPrefix: `m:${session.token}:` }),
+      modelSelectionKeyboard(models, { callbackPrefix: `m:${session.token}:`, text }),
       session
     );
   }
 
   function standaloneReasoningSelectionKeyboard(reasoningOptions, session) {
     return withSelectionCancel(
-      reasoningSelectionKeyboard(reasoningOptions, { callbackPrefix: `r:${session.token}:` }),
+      reasoningSelectionKeyboard(reasoningOptions, { callbackPrefix: `r:${session.token}:`, text }),
       session
     );
   }

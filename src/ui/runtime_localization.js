@@ -1,4 +1,4 @@
-import { VALID_LANGUAGES, textFor } from "../i18n.js";
+import { VALID_LANGUAGES, textFor, interpolateMessage } from "../i18n.js";
 
 export function createRuntimeLocalization({ state, config }) {
   function language() {
@@ -18,7 +18,7 @@ export function createRuntimeLocalization({ state, config }) {
   }
 
   function formatText(key, values = {}) {
-    return interpolate(text(key), values);
+    return interpolateMessage(text(key), values);
   }
 
   function textForLanguage(value, key) {
@@ -26,7 +26,7 @@ export function createRuntimeLocalization({ state, config }) {
   }
 
   function formatTextForLanguage(value, key, values = {}) {
-    return interpolate(textForLanguage(value, key), values);
+    return interpolateMessage(textForLanguage(value, key), values);
   }
 
   function cleanupCount(value) {
@@ -67,10 +67,4 @@ export function parseLocale(value) {
   } catch {
     return "en-US";
   }
-}
-
-function interpolate(template, values) {
-  return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (match, name) => (
-    Object.hasOwn(values, name) ? String(values[name]) : match
-  ));
 }

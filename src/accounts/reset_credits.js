@@ -1,19 +1,20 @@
+import { LocalizedError } from "../i18n.js";
 import { connectAppServer } from "../codex/app_server.js";
 import { accountConfig } from "./context.js";
 
 const OUTCOMES = new Set(["reset", "alreadyRedeemed", "nothingToReset", "noCredit"]);
 
 export async function consumeAccountResetCredit(config, id, { idempotencyKey, creditId }, { connect = connectAppServer } = {}) {
-  if (typeof idempotencyKey !== "string" || !idempotencyKey.trim()) throw new Error("A reset attempt ID is required.");
-  if (creditId != null && (typeof creditId !== "string" || !creditId.trim())) throw new Error("Invalid reset credit.");
+  if (typeof idempotencyKey !== "string" || !idempotencyKey.trim()) throw new LocalizedError("errors.aResetAttemptIDIsRequired");
+  if (creditId != null && (typeof creditId !== "string" || !creditId.trim())) throw new LocalizedError("errors.invalidResetCredit");
   const client = await connect(accountConfig(config, id));
   try {
     const { account } = await client.request("account/read", { refreshToken: false });
-    if (account?.type !== "chatgpt") throw new Error("Reset credits require a ChatGPT sign-in.");
+    if (account?.type !== "chatgpt") throw new LocalizedError("errors.resetCreditsRequireAChatGPTSignIn");
     const result = await client.request("account/rateLimitResetCredit/consume", {
       idempotencyKey, ...(creditId == null ? {} : { creditId })
     });
-    if (!OUTCOMES.has(result?.outcome)) throw new Error("Unknown reset result. Recheck the same attempt.");
+    if (!OUTCOMES.has(result?.outcome)) throw new LocalizedError("errors.unknownResetResultRecheckTheSameAttempt");
     return { outcome: result.outcome };
   } finally { await client.close(); }
 }

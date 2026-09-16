@@ -1,3 +1,4 @@
+import { errorText, createMessageFormatter } from "../i18n.js";
 import { b, code } from "./html.js";
 import { commandReplyKeyboard } from "../ui/keyboard_helpers.js";
 
@@ -21,6 +22,7 @@ export function registerChatCommands({
   filesystem,
   persistence
 }) {
+  const msg = createMessageFormatter(localization.text);
   const replyHtml = telegram.replyHtml;
   telegram = { ...telegram, replyHtml: (ctx, html, extra) => replyHtml(ctx, html, commandReplyKeyboard(ctx, localization.text, extra)) };
   bot.start(async (ctx) => {
@@ -64,20 +66,20 @@ export function registerChatCommands({
         abortController.signal
       );
       await threads.remember(chatKey, thread);
-      await telegram.replyHtml(ctx, formatting.keyValue("New Codex thread started.", [
-        ["Previous thread", previousThreadId || "none"],
-        ["New thread", thread.id || "unknown"],
-        ["Workdir", chats.getEffectiveOptions(chatKey).workingDirectory]
+      await telegram.replyHtml(ctx, formatting.keyValue(msg("ui.newCodexThreadStarted"), [
+        [msg("ui.previousThread"), previousThreadId || msg("ui.none")],
+        [msg("newThread"), thread.id || msg("ui.unknown")],
+        [msg("ui.workdir2"), chats.getEffectiveOptions(chatKey).workingDirectory]
       ]));
       finalReaction = settings.config.telegramCompleteReaction;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error, localization.text);
       finalReaction = abortController.signal.aborted
         ? settings.config.telegramStoppedReaction
         : settings.config.telegramErrorReaction;
       await telegram.replyHtml(
         ctx,
-        `<b>Failed to start new Codex thread</b>\n${code(message)}`
+        msg("ui.startThreadFailed", { value1: code(message) })
       );
     } finally {
       await telegram.reactQuietly(
@@ -96,7 +98,7 @@ export function registerChatCommands({
     const chatKey = telegram.getChatKey(ctx);
     if (await chats.rejectIfActive(ctx, chatKey)) return;
     if (chats.get(chatKey).forumBinding?.cwd) {
-      await telegram.replyHtml(ctx, "Use /sessions to select a session from this topic's project folder.");
+      await telegram.replyHtml(ctx, msg("ui.useSessionsToSelectASessionFromThis"));
       return;
     }
 
@@ -108,7 +110,7 @@ export function registerChatCommands({
       threadId = session?.id ?? "";
     }
     if (!threadId) {
-      await telegram.replyHtml(ctx, `No Codex session found. Use ${code("/new")} to start one.`);
+      await telegram.replyHtml(ctx, msg("ui.noCodexSessionFoundUseToStartOneLine", { value1: code("/new") }));
       return;
     }
 
@@ -120,27 +122,27 @@ export function registerChatCommands({
     chat.accountThreads = { ...chat.accountThreads, [chat.threadAccountId]: threadId };
     chat.updatedAt = new Date().toISOString();
     await persistence.save();
-    await telegram.replyHtml(ctx, formatting.keyValue("Resumed Codex thread.", [
-      ["Thread", threadId],
-      ...(session ? [["Source", session.cwd], ["Time", session.timestamp]] : [])
+    await telegram.replyHtml(ctx, formatting.keyValue(msg("ui.resumedCodexThread"), [
+      [msg("ui.thread2"), threadId],
+      ...(session ? [[msg("ui.source"), session.cwd], [msg("ui.time"), session.timestamp]] : [])
     ]));
   }
 
   bot.command("threads", async (ctx) => {
     const recent = await sessions.listRecent(8, telegram.getChatKey(ctx));
     if (recent.length === 0) {
-      await telegram.replyHtml(ctx, "No Codex sessions found.");
+      await telegram.replyHtml(ctx, msg("ui.noCodexSessionsFound"));
       return;
     }
-    const lines = [b("Recent Codex sessions:")];
+    const lines = [b(msg("ui.recentCodexSessions"))];
     for (const session of recent) {
       lines.push(
         "",
         code(session.id),
-        `- time: ${code(session.timestamp)}`,
-        `- cwd: ${code(session.cwd)}`,
-        `- source: ${code(`${session.source}/${session.originator}`)}`,
-        `- resume: ${code(`/resume ${session.id}`)}`
+        msg("ui.sessionTime", { value1: code(session.timestamp) }),
+        msg("ui.sessionDirectory", { value1: code(session.cwd) }),
+        msg("ui.sessionSource", { value1: code(`${session.source}/${session.originator}`) }),
+        msg("ui.sessionResume", { value1: code(`/resume ${session.id}`) })
       );
     }
     await telegram.replyHtml(ctx, lines.join("\n"));
@@ -164,7 +166,7 @@ export function registerChatCommands({
   bot.command("model", async (ctx) => {
     const chatKey = telegram.getChatKey(ctx);
     if (telegram.getCommandArgs(ctx).trim()) {
-      await options.updateCommand(ctx, "model", "model name or off");
+      await options.updateCommand(ctx, "model", msg("ui.modelArgument"));
       return;
     }
     if (await chats.rejectIfActive(ctx, chatKey)) return;
@@ -174,7 +176,7 @@ export function registerChatCommands({
   bot.command("workdir", (ctx) => options.updateCommand(
     ctx,
     "workingDirectory",
-    "absolute directory"
+    msg("ui.directoryArgument")
   ));
   bot.command("workdir_default", (ctx) => options.updateValue(
     ctx,
@@ -251,7 +253,7 @@ export function registerChatCommands({
     } else {
       await telegram.replyHtml(
         ctx,
-        `Usage: ${code("/fast")}, ${code("/fast_on")}, ${code("/fast_off")}, or ${code("/fast_status")}`
+        msg("ui.usageOrLine2", { value1: code("/fast"), value2: code("/fast_on"), value3: code("/fast_off"), value4: code("/fast_status") })
       );
       return;
     }
@@ -259,7 +261,7 @@ export function registerChatCommands({
     await persistence.save();
     await telegram.replyHtml(
       ctx,
-      `${b("Fast service tier updated.")}\n\n${models.formatFastStatus(chatKey, catalog)}`
+      `${b(msg("ui.fastServiceTierUpdated"))}\n\n${models.formatFastStatus(chatKey, catalog)}`
     );
   }
 
@@ -279,7 +281,7 @@ export function registerChatCommands({
     if (await chats.rejectIfActive(ctx, chatKey)) return;
     const dir = telegram.getCommandArgs(ctx).trim();
     if (!dir) {
-      await telegram.replyHtml(ctx, `Usage: ${code("/adddir <absolute-directory>")}`);
+      await telegram.replyHtml(ctx, msg("ui.usageLine", { value1: code("/adddir <absolute-directory>") }));
       return;
     }
     await filesystem.ensureDirectory(dir, "additional directory");
@@ -290,7 +292,7 @@ export function registerChatCommands({
     ]);
     chats.invalidateThreadCache(chatKey);
     await persistence.save();
-    await telegram.replyHtml(ctx, `Added directory: ${code(dir)}`);
+    await telegram.replyHtml(ctx, msg("ui.addedDirectoryLine", { value1: code(dir) }));
   });
 
   bot.command("cleardirs", async (ctx) => {
@@ -299,7 +301,7 @@ export function registerChatCommands({
     delete chats.get(chatKey).options.additionalDirectories;
     chats.invalidateThreadCache(chatKey);
     await persistence.save();
-    await telegram.replyHtml(ctx, "Cleared additional directories.");
+    await telegram.replyHtml(ctx, msg("ui.clearedAdditionalDirectories"));
   });
 
   bot.command("stream", (ctx) => options.updateCommand(ctx, "streamEvents", "on|off"));
@@ -312,7 +314,7 @@ export function registerChatCommands({
     if (!value) {
       await telegram.replyHtml(
         ctx,
-        `Usage: ${code("/schema <json-schema>")} or ${code("/schema off")}`
+        msg("ui.usageOrLine", { value1: code("/schema <json-schema>"), value2: code("/schema off") })
       );
       return;
     }
@@ -320,7 +322,7 @@ export function registerChatCommands({
     if (value.toLowerCase() === "off") {
       delete chat.outputSchema;
       await persistence.save();
-      await telegram.replyHtml(ctx, "Structured output schema disabled.");
+      await telegram.replyHtml(ctx, msg("ui.structuredOutputSchemaDisabled"));
       return;
     }
     try {
@@ -328,12 +330,12 @@ export function registerChatCommands({
     } catch (error) {
       await telegram.replyHtml(
         ctx,
-        `<b>Invalid JSON schema</b>\n${code(error instanceof Error ? error.message : String(error))}`
+        msg("ui.invalidJsonSchema", { value1: code(errorText(error, localization.text)) })
       );
       return;
     }
     await persistence.save();
-    await telegram.replyHtml(ctx, "Structured output schema enabled for this chat.");
+    await telegram.replyHtml(ctx, msg("ui.structuredOutputSchemaEnabledForThisChat"));
   });
 
   bot.command("schema_off", async (ctx) => {
@@ -341,7 +343,7 @@ export function registerChatCommands({
     if (await chats.rejectIfActive(ctx, chatKey)) return;
     delete chats.get(chatKey).outputSchema;
     await persistence.save();
-    await telegram.replyHtml(ctx, "Structured output schema disabled.");
+    await telegram.replyHtml(ctx, msg("ui.structuredOutputSchemaDisabled"));
   });
 
   function registerSimpleValues(prefix, option, values) {

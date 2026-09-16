@@ -1,3 +1,4 @@
+import { textFor } from "../src/i18n.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createChatOptionsController } from "../src/codex/chat_options_controller.js";
@@ -69,7 +70,7 @@ function createHarness(configuredReasoning, initialOptions, configuredModel = "g
       validServiceTiers: new Set(["fast", "flex"]),
       validWebSearchModes: new Set(["disabled", "cached", "live"])
     },
-    text: () => "selection help"
+    text: (key) => textFor("en", key)
   });
   const replaceOptions = createAtomicChatOptionsReplacer({
     getChat: options.getChatState,
@@ -112,7 +113,7 @@ function createHarness(configuredReasoning, initialOptions, configuredModel = "g
       fastPanelHtml: async () => "fast",
       fastKeyboard: () => ({})
     },
-    text: () => "selection help"
+    text: (key) => textFor("en", key)
   });
   const modelAction = async (ctx) => {
     await controller.handleSettingsModelSelection(ctx, ctx.match[1]);

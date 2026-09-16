@@ -1,3 +1,4 @@
+import { LocalizedError } from "../i18n.js";
 // @ts-check
 import { b, code } from "../telegram/html.js";
 import { cleanName, newId, scopeKey, sortedProjects } from "./store.js";
@@ -179,7 +180,9 @@ export function createProjectsController({
       const name = cleanName(value);
       const list = projects(ctx);
       if (list.length >= 60)
-        throw new Error("At most 60 saved projects per user/chat/topic.");
+        throw new LocalizedError(
+          "errors.atMost60SavedProjectsPerUserChatTopic",
+        );
       const cwd = await validateDirectory(data.preset.cwd);
       const p = {
         ...data.preset,

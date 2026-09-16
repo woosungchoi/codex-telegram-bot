@@ -1,3 +1,4 @@
+import { createMessageFormatter } from "../i18n.js";
 import path from "node:path";
 import { resolveAutoCompactTokenLimit } from "../codex/compact.js";
 import { b, code, pre } from "../telegram/html.js";
@@ -9,60 +10,62 @@ export function createOperationsPresenter({
   queue,
   telegram,
   formatting,
-  commands
+  commands,
+  text
 }) {
+  const msg = createMessageFormatter(text);
   function formatConfigHtml() {
     const config = settings.config;
-    return formatting.keyValue("Codex runtime config:", [
-      ["worker mode", settings.runtimeValue("codexWorkerMode")],
-      ["worker socket", config.codexWorkerSocket],
-      ["worker event poll", `${settings.runtimeValue("codexWorkerEventPollMs")}ms`],
-      ["transport", settings.runtimeValue("codexTransport")],
-      ["codexPathOverride", config.codexPath],
-      ["app-server direct timeout", `${settings.runtimeValue("codexAppServerDirectTimeoutMs")}ms`],
-      ["baseUrl", config.codexBaseUrl || "default"],
-      ["apiKey", config.codexApiKey ? "set" : "default auth"],
-      ["config", config.codexConfig ? "set" : "none"],
-      ["auto compact token limit", resolveAutoCompactTokenLimit(config) || "default"],
-      ["compact strength", config.codexCompactStrength],
+    return formatting.keyValue(msg("ui.codexRuntimeConfig"), [
+      [msg("ui.workerMode"), settings.runtimeValue("codexWorkerMode")],
+      [msg("ui.workerSocket"), config.codexWorkerSocket],
+      [msg("ui.workerEventPoll"), `${settings.runtimeValue("codexWorkerEventPollMs")}ms`],
+      [msg("ui.transport"), settings.runtimeValue("codexTransport")],
+      [msg("ui.codexPathOverride"), config.codexPath],
+      [msg("ui.appServerDirectTimeout"), `${settings.runtimeValue("codexAppServerDirectTimeoutMs")}ms`],
+      [msg("ui.baseUrl"), config.codexBaseUrl || msg("ui.default")],
+      [msg("ui.apiKey"), config.codexApiKey ? msg("ui.set") : msg("ui.defaultAuth")],
+      [msg("ui.config"), config.codexConfig ? msg("ui.set") : msg("ui.none")],
+      [msg("ui.autoCompactTokenLimit"), resolveAutoCompactTokenLimit(config) || msg("ui.default")],
+      [msg("ui.compactStrength"), config.codexCompactStrength],
       [
-        "context guard",
+        msg("ui.contextGuard"),
         config.codexContextGuardEnabled
-          ? `${config.codexContextCompactThresholdPercent}% / min ${config.codexContextMinRemainingTokens} tokens`
-          : "off"
+          ? msg("ui.minTokensLine", { value1: config.codexContextCompactThresholdPercent, value2: config.codexContextMinRemainingTokens })
+          : msg("ui.off")
       ],
       [
-        "restart recovery",
+        msg("ui.restartRecovery"),
         config.botRestartRecoveryEnabled
-          ? `on, delay ${config.botRestartDelaySeconds}s, drain ${config.botRestartDrainTimeoutSeconds}s`
-          : "off"
+          ? msg("ui.onDelaySDrainSLine", { value1: config.botRestartDelaySeconds, value2: config.botRestartDrainTimeoutSeconds })
+          : msg("ui.off")
       ],
       [
-        "recovery backfill poll",
-        config.botRecoveryBackfillPollMs > 0 ? `${config.botRecoveryBackfillPollMs}ms` : "off"
+        msg("ui.recoveryBackfillPoll"),
+        config.botRecoveryBackfillPollMs > 0 ? `${config.botRecoveryBackfillPollMs}ms` : msg("ui.off")
       ],
-      ["recovery dir", config.botRecoveryDir],
-      ["env", config.codexEnv ? "set" : "inherit process.env"],
-      ["modelsCacheFile", config.codexModelsCacheFile]
+      [msg("ui.recoveryDir"), config.botRecoveryDir],
+      [msg("ui.env"), config.codexEnv ? msg("ui.set") : msg("ui.inheritProcessEnv")],
+      [msg("ui.modelsCacheFile"), config.codexModelsCacheFile]
     ]);
   }
 
   function formatUploadCleanupPlanHtml(plan, record = null) {
     const lines = [
-      b("Upload cleanup plan"),
-      `mode: ${code(plan.dryRun ? "dry-run" : "confirm")}`,
-      `upload dir: ${code(settings.config.uploadDir)}`,
-      `retention: ${code(`${plan.retentionDays}d`)}`,
-      `max bytes: ${code(plan.maxBytes > 0 ? formatting.bytes(plan.maxBytes) : "off")}`,
-      `total uploads: ${code(`${formatting.count(plan.candidates.length + plan.preserved.length)} / ${formatting.bytes(plan.totalBytes)}`)}`,
-      `cleanup candidates: ${code(`${formatting.count(plan.candidates.length)} / ${formatting.bytes(plan.candidateBytes)}`)}`
+      b(msg("ui.uploadCleanupPlan")),
+      msg("ui.modeLine2", { value1: code(plan.dryRun ? msg("ui.dryRun") : msg("ui.confirm")) }),
+      msg("ui.uploadDirLine", { value1: code(settings.config.uploadDir) }),
+      msg("ui.retentionLine", { value1: code(`${plan.retentionDays}d`) }),
+      msg("ui.maxBytesLine", { value1: code(plan.maxBytes > 0 ? formatting.bytes(plan.maxBytes) : msg("ui.off")) }),
+      msg("ui.totalUploadsLine", { value1: code(`${formatting.count(plan.candidates.length + plan.preserved.length)} / ${formatting.bytes(plan.totalBytes)}`) }),
+      msg("ui.cleanupCandidatesLine", { value1: code(`${formatting.count(plan.candidates.length)} / ${formatting.bytes(plan.candidateBytes)}`) })
     ];
     if (record) {
-      lines.push(`plan id: ${code(record.id)}`);
-      lines.push(`expires: ${code(formatting.dateTime(record.expiresAt))}`);
+      lines.push(msg("ui.planIdLine", { value1: code(record.id) }));
+      lines.push(msg("ui.expiresLine", { value1: code(formatting.dateTime(record.expiresAt)) }));
     }
     lines.push(
-      `No files are deleted until the ${code("Confirm upload cleanup")} button is pressed.`
+      msg("ui.noFilesAreDeletedUntilTheButtonIsLine", { value1: code(msg("ui.confirmUploadCleanup")) })
     );
     for (const candidate of plan.candidates.slice(0, 8)) {
       lines.push(
@@ -74,62 +77,62 @@ export function createOperationsPresenter({
 
   function formatUploadCleanupProcessingHtml(record) {
     return [
-      b("Upload cleanup processing"),
-      `plan id: ${code(record.id)}`,
-      `candidates: ${code(record.plan.candidates.length)}`
+      b(msg("ui.uploadCleanupProcessing")),
+      msg("ui.planIdLine", { value1: code(record.id) }),
+      msg("ui.candidatesLine", { value1: code(record.plan.candidates.length) })
     ].join("\n");
   }
 
   function formatUploadCleanupResultHtml(plan, result) {
-    return formatting.keyValue("Upload cleanup complete", [
-      ["candidates", plan.candidates.length],
-      ["candidate bytes", formatting.bytes(plan.candidateBytes)],
-      ["deleted", result.deleted],
-      ["skipped", result.skipped],
-      ["errors", result.errors.length]
+    return formatting.keyValue(msg("ui.uploadCleanupComplete"), [
+      [msg("maintenanceCandidates"), plan.candidates.length],
+      [msg("ui.candidateBytes"), formatting.bytes(plan.candidateBytes)],
+      [msg("ui.deleted"), result.deleted],
+      [msg("ui.skipped"), result.skipped],
+      [msg("ui.errors"), result.errors.length]
     ]);
   }
 
   function formatPrefsHtml(chatKey) {
     const chat = chats.get(chatKey);
     const options = chats.getEffectiveOptions(chatKey);
-    return formatting.keyValue("Chat preferences:", [
-      ["thread", chat.threadId || threadCache.get(chatKey)?.id || "not started"],
-      ["model", options.model || "default"],
-      ["thinking", options.modelReasoningEffort],
-      ["fast", options.serviceTier === "fast" ? "on" : "off"],
-      ["queue mode", queue.mode(chatKey)],
-      ["workdir", options.workingDirectory],
-      ["sandbox", options.sandboxMode],
-      ["approval", options.approvalPolicy],
-      ["websearch", options.webSearchMode],
-      ["network", formatting.optional(options.networkAccessEnabled)],
-      ["stream", options.streamEvents],
+    return formatting.keyValue(msg("ui.chatPreferences"), [
+      [msg("ui.thread"), chat.threadId || threadCache.get(chatKey)?.id || msg("ui.notStarted")],
+      [msg("ui.model"), options.model || msg("ui.default")],
+      [msg("ui.thinking"), options.modelReasoningEffort],
+      [msg("ui.fast"), options.serviceTier === "fast" ? msg("ui.on") : msg("ui.off")],
+      [msg("ui.queueMode"), queue.mode(chatKey)],
+      [msg("ui.workdir"), options.workingDirectory],
+      [msg("ui.sandbox"), options.sandboxMode],
+      [msg("ui.approval"), options.approvalPolicy],
+      [msg("ui.websearch"), options.webSearchMode],
+      [msg("ui.network"), formatting.optional(options.networkAccessEnabled)],
+      [msg("ui.stream"), options.streamEvents],
       [
-        "live progress",
+        msg("ui.liveProgress2"),
         options.liveProgressEnabled
           ? `${options.liveProgressSource}, ${options.liveProgressDeletePolicy}`
-          : "off"
+          : msg("ui.off")
       ],
-      ["schema", chat.outputSchema ? "enabled" : "disabled"],
-      ["additional dirs", (options.additionalDirectories ?? []).join(", ") || "none"],
-      ["reset", "/prefs_reset"]
+      [msg("ui.schema"), chat.outputSchema ? msg("ui.enabled") : msg("ui.disabled")],
+      [msg("ui.additionalDirs"), (options.additionalDirectories ?? []).join(", ") || msg("ui.none")],
+      [msg("ui.reset"), "/prefs_reset"]
     ]);
   }
 
   function formatWhoamiHtml(ctx) {
     const userId = String(ctx.from?.id ?? "");
-    return formatting.keyValue("Telegram identity:", [
-      ["allowed", settings.config.allowedUserIds.has(userId) ? "yes" : "no"],
-      ["user id", userId || "unknown"],
-      ["chat id", String(ctx.chat?.id ?? "unknown")],
-      ["chat type", ctx.chat?.type || "unknown"],
-      ["username", ctx.from?.username ? `@${ctx.from.username}` : "none"],
+    return formatting.keyValue(msg("ui.telegramIdentity"), [
+      [msg("ui.allowed"), settings.config.allowedUserIds.has(userId) ? msg("ui.yes") : msg("ui.no")],
+      [msg("ui.userId"), userId || msg("ui.unknown")],
+      [msg("ui.chatId"), String(ctx.chat?.id ?? msg("ui.unknown"))],
+      [msg("ui.chatType"), ctx.chat?.type || msg("ui.unknown")],
+      [msg("ui.username"), ctx.from?.username ? `@${ctx.from.username}` : msg("ui.none")],
       [
-        "name",
-        [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(" ") || "unknown"
+        msg("ui.name"),
+        [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(" ") || msg("ui.unknown")
       ],
-      ["language", ctx.from?.language_code || "unknown"]
+      [msg("ui.language"), ctx.from?.language_code || msg("ui.unknown")]
     ]);
   }
 
@@ -142,7 +145,7 @@ export function createOperationsPresenter({
     } else if (arg) {
       const parsed = Number(arg);
       if (!Number.isInteger(parsed) || parsed < 1) {
-        return `Usage: ${code("/logs [lines]")} or ${code("/logs_error")}`;
+        return msg("ui.usageOrLine", { value1: code("/logs [lines]"), value2: code("/logs_error") });
       }
       lines = Math.min(parsed, settings.runtimeValue("logsMaxLines"));
     }
@@ -151,16 +154,16 @@ export function createOperationsPresenter({
       ["--user", "-u", "codex-telegram-bot.service", ...priorityArgs, "-n", String(lines), "--no-pager"],
       5000
     );
-    if (!result.ok) return `${b("Logs unavailable")}\n${code(result.error)}`;
+    if (!result.ok) return `${b(msg("ui.logsUnavailable"))}\n${code(result.error)}`;
     let body = formatting.redactText(result.output)
       .split("\n")
       .slice(-settings.runtimeValue("logsMaxLines"))
       .join("\n");
     const maxBodyLength = Math.max(500, settings.runtimeValue("maxTelegramChars") - 300);
     if (body.length > maxBodyLength) {
-      body = `... truncated ...\n${body.slice(-maxBodyLength)}`;
+      body = msg("ui.truncatedLine", { value1: body.slice(-maxBodyLength) });
     }
-    return `${b("Recent bot logs:")}\n${pre(body || "no logs")}`;
+    return `${b(msg("ui.recentBotLogs"))}\n${pre(body || msg("ui.noLogs"))}`;
   }
 
   return {

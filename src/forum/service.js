@@ -1,3 +1,4 @@
+import { LocalizedError } from "../i18n.js";
 import path from "node:path";
 import { authorizeTelegramUpdate } from "../security.js";
 import { directory, newId, projectOptions } from "../workspace/store.js";
@@ -14,12 +15,12 @@ export function createForumService(r, { accounts, now = Date.now, text: t }) {
   function authorize(userId, value, id) {
     const chatType = forumChatType(value);
     if (chatType === "private" && (String(userId) !== String(value.chatId) || String(userId) !== String(value.ownerId))) {
-      throw new Error("This private chat belongs to another user.");
+      throw new LocalizedError("errors.thisPrivateChatBelongsToAnotherUser");
     }
     if (value.botId !== r.bot.botInfo?.id || !authorizeTelegramUpdate({
       from: { id: userId }, chat: { id: value.chatId, type: chatType, is_forum: chatType === "supergroup" },
       message: { message_thread_id: forumDestination(value, id).messageThreadId }
-    }, r.config).ok) throw new Error("The user, bot or topic is no longer authorized.");
+    }, r.config).ok) throw new LocalizedError("errors.theUserBotOrTopicIsNoLongerAuthorized");
   }
   async function exclusive(value, fn) {
     const key = String(value.chatId);
@@ -29,7 +30,7 @@ export function createForumService(r, { accounts, now = Date.now, text: t }) {
   }
   function topic(value, id) {
     const item = value.topics[id];
-    if (!item) throw new Error("This topic is no longer registered. Open /topics again.");
+    if (!item) throw new LocalizedError("errors.thisTopicIsNoLongerRegisteredOpenTopicsAgain");
     return item;
   }
   function assertIdle(value, id) {
@@ -53,7 +54,7 @@ export function createForumService(r, { accounts, now = Date.now, text: t }) {
   }
   async function resolve(ctx, input) {
     const candidates = forumProjects(r.state, ctx.from.id).filter((p) => p.name.toLocaleLowerCase() === input.toLocaleLowerCase());
-    if (candidates.length > 1 && new Set(candidates.map((p) => p.cwd)).size > 1) throw new Error("More than one project has this name. Choose its button or use the full path.");
+    if (candidates.length > 1 && new Set(candidates.map((p) => p.cwd)).size > 1) throw new LocalizedError("errors.moreThanOneProjectHasThisNameChooseIts");
     const selected = candidates[0];
     const cwd = await directory(selected?.cwd || input);
     return selected ? { ...selected, cwd } : { ...preset(ctx, cwd), name: path.basename(cwd) || "Project" };
@@ -61,10 +62,10 @@ export function createForumService(r, { accounts, now = Date.now, text: t }) {
   async function validatePreset(value, id, selected) {
     const cwd = await directory(selected.cwd);
     if (Object.values(value.topics).some((item) => item.role === "project" && item.id !== id && item.cwd === cwd)) {
-      throw new Error("This folder is already connected to another topic in this chat.");
+      throw new LocalizedError("errors.thisFolderIsAlreadyConnectedToAnotherTopicIn");
     }
     const account = await accounts.get(selected.accountId || "default");
-    if (account.status !== "ready") throw new Error("The project account needs sign-in. Use /accounts in a private chat.");
+    if (account.status !== "ready") throw new LocalizedError("errors.theProjectAccountNeedsSignInUseAccountsIn");
     return { ...selected, cwd, accountId: account.id, options: { ...projectOptions(selected.options || {}), workingDirectory: cwd } };
   }
   async function setup(ctx) {
@@ -75,8 +76,8 @@ export function createForumService(r, { accounts, now = Date.now, text: t }) {
       if (!probe.is_forum) throw new Error(t("setupHint"));
     }
     const old = state.groups[String(ctx.chat.id)];
-    if (old && old.botId !== r.bot.botInfo.id) throw new Error("This group belongs to another bot identity in saved state.");
-    if (old && forumChatType(old) !== chatType) throw new Error("The saved chat type does not match.");
+    if (old && old.botId !== r.bot.botInfo.id) throw new LocalizedError("errors.thisGroupBelongsToAnotherBotIdentityInSaved");
+    if (old && forumChatType(old) !== chatType) throw new LocalizedError("errors.theSavedChatTypeDoesNotMatch");
     const value = old || { chatId: ctx.chat.id, chatType, botId: r.bot.botInfo.id, ownerId: ctx.from.id, topics: {}, createdAt: now() };
     authorize(ctx.from.id, value, forumTopicId(ctx));
     return exclusive(value, async () => {
@@ -110,7 +111,7 @@ export function createForumService(r, { accounts, now = Date.now, text: t }) {
     return exclusive(value, async () => {
       authorize(ctx.from.id, value, id);
       const item = topic(value, id);
-      if (item.role !== "project") throw new Error("General and AI Chat cannot be bound to a project.");
+      if (item.role !== "project") throw new LocalizedError("errors.generalAndAIChatCannotBeBoundToA");
       assertIdle(value, id);
       const checked = await validatePreset(value, id, selected);
       assertIdle(value, id);
@@ -123,11 +124,11 @@ export function createForumService(r, { accounts, now = Date.now, text: t }) {
   async function create(ctx, name, selected) {
     const value = group(ctx);
     return exclusive(value, async () => {
-      if (r.config.allowedThreadIds?.size) throw new Error("ALLOWED_THREAD_IDS restricts new topics. Bind an already allowed topic, or update the allowlist before creating topics.");
+      if (r.config.allowedThreadIds?.size) throw new LocalizedError("errors.allowedThreadsRestrictNewTopics");
       const title = String(name || "").trim();
-      if (!title || title.length > 128 || /\p{Cc}/u.test(title)) throw new Error("Use a topic name of 1–128 characters.");
-      if (Object.values(value.topics).some((item) => item.name.toLocaleLowerCase() === title.toLocaleLowerCase())) throw new Error("This topic name is already in use.");
-      if (Object.values(value.topics).filter((item) => item.role === "project").length >= 60) throw new Error("At most 60 project topics per chat.");
+      if (!title || title.length > 128 || /\p{Cc}/u.test(title)) throw new LocalizedError("errors.useATopicNameOf1128Characters");
+      if (Object.values(value.topics).some((item) => item.name.toLocaleLowerCase() === title.toLocaleLowerCase())) throw new LocalizedError("errors.thisTopicNameIsAlreadyInUse");
+      if (Object.values(value.topics).filter((item) => item.role === "project").length >= 60) throw new LocalizedError("errors.atMost60ProjectTopicsPerChat");
       const checked = await validatePreset(value, null, selected);
       await rights(value);
       const created = await r.bot.telegram.createForumTopic(value.chatId, title);
@@ -143,7 +144,7 @@ export function createForumService(r, { accounts, now = Date.now, text: t }) {
     return exclusive(value, async () => {
       authorize(ctx.from.id, value, id);
       const item = topic(value, id);
-      if (item.role !== "project") throw new Error("Only project topics support this action.");
+      if (item.role !== "project") throw new LocalizedError("errors.onlyProjectTopicsSupportThisAction");
       assertIdle(value, id);
       if (action === "unbind") {
         const key = forumTopicKey(value, id), chat = r.getChatState(key);

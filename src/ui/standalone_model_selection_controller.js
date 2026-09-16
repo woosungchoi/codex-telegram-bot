@@ -1,3 +1,4 @@
+import { errorText } from "../i18n.js";
 import {
   findCodexModel,
   isReasoningEffortSupported,
@@ -185,7 +186,7 @@ export function createStandaloneModelSelectionController({
       }
       const edited = await telegram.editStrict(
         ctx,
-        `${b(t("settingFailure"))}\n${code(error instanceof Error ? error.message : String(error))}\n\n${views.formatStandaloneReasoningPromptHtml(restored, catalog)}`,
+        `${b(t("settingFailure"))}\n${code(errorText(error, t))}\n\n${views.formatStandaloneReasoningPromptHtml(restored, catalog)}`,
         views.standaloneReasoningSelectionKeyboard(reasoningOptions, restored)
       );
       await telegram.answerUiCallback(ctx, edited);
@@ -223,7 +224,7 @@ export function createStandaloneModelSelectionController({
       }
       const edited = await telegram.editStrict(
         ctx,
-        `${b(t("settingFailure"))}\n${code(error instanceof Error ? error.message : String(error))}\n\n${views.formatStandaloneFastPromptHtml(chatKey, restored)}`,
+        `${b(t("settingFailure"))}\n${code(errorText(error, t))}\n\n${views.formatStandaloneFastPromptHtml(chatKey, restored)}`,
         views.standaloneFastSelectionKeyboard(restored)
       );
       await telegram.answerUiCallback(ctx, edited);

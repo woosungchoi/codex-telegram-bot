@@ -1,3 +1,4 @@
+import { createMessageFormatter } from "../i18n.js";
 import { renderMenu } from "./menu_definition.js";
 import { inlineKeyboard } from "./keyboard_helpers.js";
 
@@ -11,6 +12,7 @@ export function createOperationsKeyboardViews({
   maintenanceAutoSqliteRepairEnabled,
   withMenuCloseButton
 }) {
+  const msg = createMessageFormatter(text);
   const t = text;
 
   function mainPanelKeyboard(chatKey) {
@@ -76,25 +78,25 @@ export function createOperationsKeyboardViews({
     return withMenuCloseButton(inlineKeyboard([
       [{ text: t("workspaceMcp"), callback_data: "w:mcp:tools" }],
       [
-        { text: "Health", callback_data: "tool:health" },
-        { text: "Doctor", callback_data: "tool:doctor" }
+        { text: msg("ui.health"), callback_data: "tool:health" },
+        { text: msg("ui.doctor"), callback_data: "tool:doctor" }
       ],
       [
-        { text: "Logs", callback_data: "tool:logs" },
-        { text: "Error logs", callback_data: "tool:logs_error" }
+        { text: msg("ui.logs"), callback_data: "tool:logs" },
+        { text: msg("ui.errorLogs"), callback_data: "tool:logs_error" }
       ],
       [
-        { text: "Whoami", callback_data: "tool:whoami" },
-        { text: "Config", callback_data: "tool:config" },
+        { text: msg("ui.whoami"), callback_data: "tool:whoami" },
+        { text: msg("ui.config2"), callback_data: "tool:config" },
         { text: t("skills"), callback_data: "tool:skills" }
       ],
       [
-        { text: "Backup", callback_data: "tool:backup" },
-        { text: "Export", callback_data: "tool:export" }
+        { text: msg("ui.backup"), callback_data: "tool:backup" },
+        { text: msg("ui.export"), callback_data: "tool:export" }
       ],
       [
-        { text: "Cleanup", callback_data: "tool:cleanup" },
-        { text: "Forget", callback_data: "tool:forget" }
+        { text: msg("cleanup"), callback_data: "tool:cleanup" },
+        { text: msg("ui.forget"), callback_data: "tool:forget" }
       ],
       [{ text: t("codexMaintenance"), callback_data: "tool:codex_maintenance", style: "primary" }],
       [{ text: t("main"), callback_data: "p:main" }],
@@ -117,26 +119,26 @@ export function createOperationsKeyboardViews({
     const autoRepair = maintenanceAutoSqliteRepairEnabled();
     return withMenuCloseButton(inlineKeyboard([
       [
-        { text: "📊 Report", callback_data: "tool:codex_maintenance_report", style: "primary" },
-        { text: "💾 Backup", callback_data: "tool:codex_maintenance_backup", style: "success" }
+        { text: msg("ui.report"), callback_data: "tool:codex_maintenance_report", style: "primary" },
+        { text: msg("ui.backup2"), callback_data: "tool:codex_maintenance_backup", style: "success" }
       ],
       [
-        { text: "🧹 Config prune", callback_data: "tool:codex_maintenance_config", style: "primary" },
-        { text: "📦 Worktrees archive", callback_data: "tool:codex_maintenance_worktrees", style: "primary" }
+        { text: msg("ui.configPrune"), callback_data: "tool:codex_maintenance_config", style: "primary" },
+        { text: msg("ui.worktreesArchive"), callback_data: "tool:codex_maintenance_worktrees", style: "primary" }
       ],
-      [{ text: "🗄️ Logs rotate", callback_data: "tool:codex_maintenance_logs", style: "primary" }],
+      [{ text: msg("ui.logsRotate"), callback_data: "tool:codex_maintenance_logs", style: "primary" }],
       [
-        { text: "🧬 SQLite repair", callback_data: "tool:codex_maintenance_sqlite_repair", style: "danger" },
+        { text: msg("ui.sqliteRepair"), callback_data: "tool:codex_maintenance_sqlite_repair", style: "danger" },
         { text: t("handoffCreate"), callback_data: "tool:codex_maintenance_handoff", style: "success" }
       ],
       [
         {
-          text: `🤖 Auto handoff ${autoHandoff ? "on" : "off"}`,
+          text: msg("ui.autoHandoffLine", { value1: autoHandoff ? "on" : "off" }),
           callback_data: "tool:codex_maintenance_auto_handoff",
           style: autoHandoff ? "success" : "primary"
         },
         {
-          text: `🤖 Auto repair ${autoRepair ? "on" : "off"}`,
+          text: msg("ui.autoRepairLine", { value1: autoRepair ? "on" : "off" }),
           callback_data: "tool:codex_maintenance_auto_sqlite_repair",
           style: autoRepair ? "danger" : "primary"
         }
@@ -171,9 +173,9 @@ export function createOperationsKeyboardViews({
         { text: t("refresh"), callback_data: "p:queue" }
       ],
       [
-        { text: "safe", callback_data: "q:mode:safe" },
-        { text: "interrupt", callback_data: "q:mode:interrupt" },
-        { text: "side", callback_data: "q:mode:side" }
+        { text: msg("ui.safe"), callback_data: "q:mode:safe" },
+        { text: msg("ui.interrupt"), callback_data: "q:mode:interrupt" },
+        { text: msg("ui.side"), callback_data: "q:mode:side" }
       ]
     ];
     if (pendingTurns.length > 0) {
@@ -184,7 +186,7 @@ export function createOperationsKeyboardViews({
       rows.push([
         { text: `${label} ${t("cancelItem")}`, callback_data: `queue:cancel:${turn.id}` },
         { text: `${label} ↑`, callback_data: `queue:up:${turn.id}` },
-        { text: `${label} next`, callback_data: `queue:next:${turn.id}` }
+        { text: msg("ui.nextLine", { value1: label }), callback_data: `queue:next:${turn.id}` }
       ]);
     }
     rows.push([{ text: t("main"), callback_data: "p:main" }]);
@@ -195,7 +197,7 @@ export function createOperationsKeyboardViews({
   function uploadCleanupKeyboard(planId) {
     return withMenuCloseButton(inlineKeyboard([[
       {
-        text: "Confirm upload cleanup",
+        text: msg("ui.confirmUploadCleanup"),
         callback_data: `upload_cleanup_confirm:${planId}`
       }
     ], [{ role: "back", text: `← ${t("back")}`, callback_data: "p:tools" }]]));

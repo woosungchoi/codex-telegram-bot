@@ -9,9 +9,9 @@ import {
 test("boolean option keyboard rows include default, on, off, and settings back row", () => {
   assert.deepEqual(booleanOptionKeyboardRows("network", "Settings"), [
     [
-      { text: "default", callback_data: "set:network:default" },
-      { text: "on", callback_data: "set:network:on" },
-      { text: "off", callback_data: "set:network:off" }
+      { text: "Default", callback_data: "set:network:default" },
+      { text: "On", callback_data: "set:network:on" },
+      { text: "Off", callback_data: "set:network:off" }
     ],
     [{ text: "Settings", callback_data: "p:settings" }]
   ]);
