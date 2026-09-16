@@ -1,21 +1,30 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { createTurnRecoveryJournal, digestText } from "../src/recovery/turn_journal.js";
+import { readActiveTurnSnapshots } from "../src/recovery/state.js";
+import { applyAccountEvent, rememberAccountThread } from "../src/accounts/context.js";
+import { recoveryCandidateFromSnapshot } from "../src/recovery/state.js";
+import { createRecoveryTurn } from "../src/recovery/startup.js";
 
-function createFixture({ enabled = false } = {}) {
+function createFixture({ enabled = false, recoveryDir = "/tmp/unused-recovery-journal", chat = {}, onDeliverySent = null } = {}) {
   const state = { worker: { deliveries: {} } };
   let saves = 0;
   const journal = createTurnRecoveryJournal({
     settings: {
       enabled,
-      recoveryDir: "/tmp/unused-recovery-journal",
+      recoveryDir,
       defaultWorkdir: "/workspace",
       defaultModel: "model"
     },
     state,
+    onDeliverySent,
+    logger: { warn() {} },
     activeTurns: new Map(),
     threadCache: new Map(),
-    chats: { get: () => ({}) },
+    chats: { get: () => chat },
     options: { get: () => ({}) },
     persistence: { save: async () => { saves += 1; } },
     telegram: { replyHtml: async () => {} },
@@ -32,6 +41,40 @@ test("disabled recovery journal leaves snapshots untouched", async () => {
   await journal.recordActiveTurnFailed("chat", "failed");
   assert.deepEqual(state.worker.deliveries, {});
   assert.equal(saves(), 0);
+});
+
+test("the original progress identity survives repeated recovery snapshots", async (t) => {
+  const recoveryDir = await fs.mkdtemp(path.join(os.tmpdir(), "progress-recovery-"));
+  t.after(() => fs.rm(recoveryDir, { recursive: true, force: true }));
+  const { journal } = createFixture({ enabled: true, recoveryDir });
+  await journal.recordActiveTurnStarted("chat", { id: "original-turn", text: "hello" });
+  for (const restartId of ["bot-restart", "worker-restart"]) {
+    const snapshot = (await readActiveTurnSnapshots(recoveryDir)).turns.chat;
+    assert.equal(snapshot.progressTurnId, "original-turn");
+    const recoveryTurn = createRecoveryTurn(recoveryCandidateFromSnapshot({ ...snapshot, recoveryEligible: true }), { restartId });
+    await journal.recordActiveTurnStarted("chat", recoveryTurn);
+  }
+  assert.equal((await readActiveTurnSnapshots(recoveryDir)).turns.chat.progressTurnId, "original-turn");
+});
+
+test("account rotation and prior activity survive recovery snapshot writes", async (t) => {
+  const recoveryDir = await fs.mkdtemp(path.join(os.tmpdir(), "accounts-recovery-"));
+  t.after(() => fs.rm(recoveryDir, { recursive: true, force: true }));
+  const chat = { accountId: "default", threadId: "old" };
+  const { journal } = createFixture({ enabled: true, recoveryDir, chat });
+  await journal.recordActiveTurnStarted("chat", { id: "turn", text: "hello" });
+  const event = { type: "account.attempt.started", accountId: "backup", threadId: "", triedAccountIds: ["default", "backup"], hadActivity: true };
+  applyAccountEvent(chat, event);
+  await journal.recordAccountState("chat", event);
+  let snapshot = (await readActiveTurnSnapshots(recoveryDir)).turns.chat;
+  assert.equal(snapshot.accountId, "backup");
+  assert.equal(snapshot.threadId, "");
+  assert.equal(snapshot.accountAttemptState.hadActivity, true);
+  rememberAccountThread(chat, "new", "backup");
+  await journal.recordThreadStarted("chat", "new");
+  snapshot = (await readActiveTurnSnapshots(recoveryDir)).turns.chat;
+  assert.equal(snapshot.threadId, "new");
+  assert.deepEqual(snapshot.accountAttemptState.triedAccountIds, ["default", "backup"]);
 });
 
 test("worker delivery transitions persist even when restart recovery is disabled", async () => {
@@ -88,4 +131,31 @@ test("worker response digest mismatches become non-ambiguous integrity failures"
   assert.equal(entry.lastError.kind, "integrity");
   assert.equal(entry.lastError.code, "RESPONSE_DIGEST_MISMATCH");
   assert.equal(saves(), 1);
+});
+
+test("stream snapshot bursts flush their latest metadata at iterator close", async (t) => {
+  const recoveryDir = await fs.mkdtemp(path.join(os.tmpdir(), "snapshot-batch-"));
+  t.after(() => fs.rm(recoveryDir, { recursive: true, force: true }));
+  const { journal } = createFixture({ enabled: true, recoveryDir });
+  await journal.recordActiveTurnStarted("chat", { id: "t", text: "work" });
+  await journal.recordCodexStreamStarted("chat", "user");
+  for (let i = 0; i < 20; i++) await journal.recordStreamItemEvent("chat", { type: "item.completed", item: { id: `item-${i}`, type: "agent_message" } });
+  assert.equal((await readActiveTurnSnapshots(recoveryDir)).turns.chat.lastCompletedItemId, undefined);
+  await journal.recordCodexStreamIteratorClosed("chat", { outcome: "completed" });
+  const snapshot = (await readActiveTurnSnapshots(recoveryDir)).turns.chat;
+  assert.equal(snapshot.lastCompletedItemId, "item-19");
+  assert.equal(snapshot.streamOutcome, "completed");
+  const lines = (await fs.readFile(path.join(recoveryDir, "recovery-journal.jsonl"), "utf8")).trim().split("\n").map(JSON.parse);
+  assert.equal(lines.filter((e) => e.type === "stream_item").length, 20);
+});
+
+test("archive receipt failure never changes a confirmed Telegram delivery into failure", async () => {
+  let seen;
+  const { journal, state } = createFixture({ onDeliverySent: async (entry) => { seen = entry; throw new Error("old worker"); } });
+  const execution = { executionMode: "sidecar", workerJobId: "job", workerLastSeq: 4 };
+  await journal.recordTelegramReplyReady("chat", execution, "done");
+  await journal.recordTelegramReplyStarted("chat", execution, "done");
+  await journal.recordTelegramReplyCompleted("chat", execution, "done");
+  assert.equal(seen.deliveryStatus, "delivery_sent");
+  assert.equal(state.worker.deliveries["chat:job"].deliveryStatus, "delivery_sent");
 });

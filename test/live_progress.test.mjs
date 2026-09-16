@@ -2,9 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createLiveProgressController } from "../src/ui/live_progress.js";
 
-function createFixture({ enabled = true, source = "both" } = {}) {
+function createFixture({ enabled = true, source = "both", policy = "always", progressStore } = {}) {
   const sent = [];
   const controller = createLiveProgressController({
+    progressStore,
     settings: {
       runtimeValue(key) {
         if (key === "telegramLiveProgressMode") return "brief";
@@ -15,8 +16,8 @@ function createFixture({ enabled = true, source = "both" } = {}) {
       }
     },
     options: {
-      get: () => ({ liveProgressEnabled: enabled, liveProgressSource: source }),
-      defaults: () => ({ liveProgressDeletePolicy: "always" })
+      get: () => ({ liveProgressEnabled: enabled, liveProgressSource: source, liveProgressDeletePolicy: policy }),
+      defaults: () => ({ liveProgressDeletePolicy: policy })
     },
     telegram: {
       getChatKey: () => "chat",
@@ -67,4 +68,13 @@ test("progress summary and final response formatting stay deterministic", () => 
     { type: "reasoning" },
     { type: "command_execution", command: "npm test" }
   ]), "Codex progress\nreasoning:1\ncmd:1\nlast: npm test");
+});
+
+test("restored progress preserves always, on_success, and never deletion policies", () => {
+  for (const [policy, onSuccess, onFailure] of [["always", true, true], ["on_success", true, false], ["never", false, false]]) {
+    const { controller } = createFixture({ policy, enabled: false });
+    const state = controller.createLiveProgressState({ currentPreparedTurn: { id: "turn" } }, "chat");
+    assert.equal(controller.shouldDeleteLiveProgress(state, true), onSuccess);
+    assert.equal(controller.shouldDeleteLiveProgress(state, false), onFailure);
+  }
 });

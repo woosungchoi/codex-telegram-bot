@@ -23,7 +23,7 @@ export function createRuntimePanelPresenter({
   }
 
   async function fastPanelHtml(chatKey) {
-    return views.renderFast(await models.formatFastStatus(chatKey, await models.list()));
+    return views.renderFast(await models.formatFastStatus(chatKey, await models.list(chatKey)));
   }
 
   function settingPanelHtml(title, current, description) {

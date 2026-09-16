@@ -33,14 +33,14 @@ export function createRuntimePanelResolver({
       keyboard: keyboards.settings()
     })],
     ["settings_model", async ({ chatKey }) => {
-      const catalog = await models.list();
+      const catalog = await models.list(chatKey);
       return {
         html: models.formatSelection(chatKey, catalog),
         keyboard: keyboards.settingsSelection(keyboards.modelSelection(catalog), "settings")
       };
     }],
     ["settings_reasoning", async ({ chatKey }) => {
-      const catalog = await models.list();
+      const catalog = await models.list(chatKey);
       return {
         html: models.formatReasoningPrompt(chatKey, catalog),
         keyboard: keyboards.settingsSelection(

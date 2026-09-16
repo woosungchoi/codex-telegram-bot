@@ -10,7 +10,10 @@ function createHarness({
   workerRestartRecoveryAttempts = 3,
   terminalJob = null,
   contextError = null,
-  eventErrors = []
+  eventErrors = [],
+  clockStep = 10,
+  eventLimit = Infinity,
+  progressError = null
 } = {}) {
   const chat = { threadId: "thread-existing", outputSchema: { type: "object" } };
   const deliveries = {};
@@ -30,7 +33,7 @@ function createHarness({
       eventReadCount += 1;
       if (error) throw error;
       const jobEvents = eventsByJob?.[jobId] || events;
-      return { events: jobEvents.filter((event) => event.seq > afterSeq) };
+      return { events: jobEvents.filter((event) => event.seq > afterSeq).slice(0, eventLimit) };
     },
     async getJobStatus(jobId) {
       calls.push(["status", jobId]);
@@ -74,7 +77,7 @@ function createHarness({
           throw contextError;
         }
         : record("context"),
-      maybeSendLiveProgress: record("progress"),
+      maybeSendLiveProgress: progressError ? async () => { throw progressError; } : record("progress"),
       recordActiveTurnFailed: record("active-failed"),
       recordCodexStreamFinalResponseSeen: record("final-seen"),
       recordCodexStreamFirstItem: record("first-item"),
@@ -91,7 +94,7 @@ function createHarness({
     sleep: record("sleep"),
     now: () => new Date("2026-07-21T04:05:06.000Z"),
     nowMs: () => {
-      clock += 10;
+      clock += clockStep;
       return clock;
     },
     logger: { warn: (...args) => calls.push(["warn", ...args]) }
@@ -133,6 +136,7 @@ test("worker payload captures effective chat options and Telegram routing", () =
 
   assert.deepEqual(payload, {
     id: "generated-id",
+    progressTurnId: "generated-id",
     chatKey: "chat:44",
     chatId: -1001,
     chatType: "supergroup",
@@ -145,6 +149,8 @@ test("worker payload captures effective chat options and Telegram routing", () =
     inputText: "hello",
     imagePaths: ["/tmp/image.png"],
     threadId: "thread-recovery",
+    accountId: "default",
+    accountAttemptState: {},
     effectiveOptions: { model: "gpt-test", serviceTier: "fast" },
     outputSchema: { type: "object" },
     transport: "app-server-direct",
@@ -178,6 +184,44 @@ test("worker event polling persists monotonic cursors and reconstructs the turn"
   assert.equal(calls.filter(([name]) => name === "final-seen").length, 1);
   assert.equal(calls.filter(([name]) => name === "stream-closed").length, 1);
   assert.equal(calls.find(([name]) => name === "stream-closed")[2].outcome, "completed");
+});
+
+test("saved accounts fail closed on old workers before submitting work", async () => {
+  const { controller, chat, calls, client } = createHarness();
+  chat.accountId = "saved-account";
+  client.status = async () => ({ status: "ok" });
+  const active = { abortController: new AbortController() };
+  await assert.rejects(controller.processPreparedTurnViaWorker({}, "chat", { text: "hello" }, active, {}), /worker must be updated/);
+  assert.equal(calls.some(([name]) => name === "start"), false);
+});
+
+test("recovery with an empty thread never borrows another account's thread", () => {
+  const { controller, chat } = createHarness();
+  chat.accountId = "default";
+  const job = controller.createWorkerJobPayload("chat", { text: "resume", recovery: { accountId: "backup", threadId: "" } });
+  assert.equal(job.accountId, "backup");
+  assert.equal(job.threadId, "");
+});
+
+test("worker restart just after account rotation retains the fresh account", async () => {
+  const { controller, calls, client } = createHarness({
+    recoveryEnabled: true,
+    startJobIds: ["job-1", "job-2"],
+    eventsByJob: {
+      "job-1": [
+        { seq: 1, type: "account.attempt.started", accountId: "backup", threadId: "", triedAccountIds: ["default", "backup"], hadActivity: true },
+        { seq: 2, type: "worker.job.failed", status: "failed", reason: "worker_restart" }
+      ],
+      "job-2": completedEvents().map((e) => ({ ...e, accountId: "backup" }))
+    }
+  });
+  client.status = async () => ({ capabilities: ["accounts-v1"] });
+  await controller.processPreparedTurnViaWorker({}, "chat", { text: "continue" }, { abortController: new AbortController() }, null);
+  const retried = calls.filter(([name]) => name === "start")[1][1];
+  assert.equal(retried.accountId, "backup");
+  assert.equal(retried.threadId, "");
+  assert.deepEqual(retried.accountAttemptState.triedAccountIds, ["default"]);
+  assert.equal(retried.accountAttemptState.hadActivity, true);
 });
 
 test("worker event polling retries transient transport failures", async () => {
@@ -271,6 +315,8 @@ test("sidecar turn continues in the same thread after the worker restarts", asyn
   assert.equal(result.turn.finalResponse, "final answer");
   assert.equal(starts.length, 2);
   assert.equal(starts[1][1].kind, "recovery");
+  assert.equal(starts[0][1].progressTurnId, "turn-1");
+  assert.equal(starts[1][1].progressTurnId, "turn-1");
   assert.equal(starts[1][1].threadId, "thread-existing");
   assert.deepEqual(starts[1][1].imagePaths, []);
   assert.match(starts[1][1].inputText, /codex-telegram-worker restarted/i);
@@ -334,4 +380,25 @@ test("failed worker terminal events close the stream with an error outcome", asy
     /boom/
   );
   assert.equal(calls.find(([name]) => name === "stream-closed")[2].outcome, "error");
+});
+
+test("a fast 101-event page makes one durable cursor checkpoint", async () => {
+  const events = Array.from({ length: 100 }, (_, i) => ({ seq: i + 1, type: "item.updated", item: { id: "answer", type: "agent_message", text: `part ${i}` } }));
+  events.push({ seq: 101, type: "worker.job.completed", status: "completed" });
+  const h = createHarness({ events, clockStep: 0 });
+  await h.controller.waitForWorkerJob({}, "chat", "job-1", { abortController: new AbortController() }, null);
+  assert.equal(h.calls.filter(([name]) => name === "save").length, 1);
+  assert.equal(h.deliveries["chat:job-1"].seq, 101);
+});
+
+test("checkpoints cover each page and failed partial processing, never unhandled events", async () => {
+  const events = [1, 2, 3, 4].map((seq) => ({ seq, type: "item.updated", item: { id: "a", type: "agent_message", text: "part" } }));
+  events.push({ seq: 5, type: "worker.job.completed", status: "completed" });
+  const paged = createHarness({ events, eventLimit: 2, clockStep: 0 });
+  await paged.controller.waitForWorkerJob({}, "chat", "job-1", { abortController: new AbortController() }, null);
+  assert.equal(paged.calls.filter(([name]) => name === "save").length, 3);
+  const failed = createHarness({ events, progressError: new Error("render failed"), clockStep: 0 });
+  await assert.rejects(failed.controller.waitForWorkerJob({}, "chat", "job-1", { abortController: new AbortController() }, null), /render failed/);
+  assert.equal(failed.deliveries["chat:job-1"].seq, 1);
+  assert.equal(failed.calls.find(([name]) => name === "stream-closed")[2].outcome, "error");
 });

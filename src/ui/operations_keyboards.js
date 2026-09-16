@@ -1,3 +1,4 @@
+import { renderMenu } from "./menu_definition.js";
 import { inlineKeyboard } from "./keyboard_helpers.js";
 
 export function createOperationsKeyboardViews({
@@ -14,24 +15,41 @@ export function createOperationsKeyboardViews({
 
   function mainPanelKeyboard(chatKey) {
     const active = hasActiveTurn(chatKey);
-    return inlineKeyboard([
+    return withMenuCloseButton(inlineKeyboard([
       [
-        { text: t("status"), callback_data: "p:status" },
-        { text: t("queue"), callback_data: "p:queue" }
+        { text: `📋 ${t("status")}`, callback_data: "p:status" },
+        { text: `📥 ${t("queue")}`, callback_data: "p:queue" }
       ],
       [
-        { text: t("settings"), callback_data: "p:settings" },
-        { text: t("tools"), callback_data: "p:tools" }
+        { text: `⚙️ ${t("settings")}`, callback_data: "p:settings" },
+        { text: `🛠️ ${t("tools")}`, callback_data: "p:tools" }
       ],
       [
-        { text: t("newThread"), callback_data: "act:new" },
-        { text: t("resumeLast"), callback_data: "act:resume_last" }
+        { text: t("accounts"), callback_data: "acct:list" },
+        { text: t("accountAdd"), callback_data: "acct:login" }
+      ],
+      [{ text: t("accountUsage"), callback_data: "acct:usage" }],
+      [
+        { text: t("workspaceProjects"), callback_data: "w:projects" },
+        { text: t("workspaceSessions"), callback_data: "w:sessions" }
       ],
       [
-        { text: active ? t("stop") : t("help"), callback_data: active ? "act:stop" : "p:help" }
+        { text: t("workspaceTasks"), callback_data: "w:tasks" },
+        { text: t("workspaceDashboard"), callback_data: "w:dashboard" }
       ],
-      [{ text: t("close"), callback_data: "ui:close:menu" }]
-    ]);
+      [
+        { text: t("workspaceMcp"), callback_data: "w:mcp" },
+        { text: t("workspaceTopics"), callback_data: "w:forum" }
+      ],
+      [
+        { text: `🆕 ${t("newThread")}`, callback_data: "act:new" },
+        { text: `▶️ ${t("resumeLast")}`, callback_data: "act:resume_last" }
+      ],
+      [
+        { text: active ? `🛑 ${t("stop")}` : `❓ ${t("help")}`, callback_data: active ? "act:stop" : "p:help" }
+      ],
+      [{ text: `✖ ${t("close")}`, callback_data: "ui:close:menu" }]
+    ]));
   }
 
   function statusKeyboard(chatKey, options) {
@@ -49,13 +67,14 @@ export function createOperationsKeyboardViews({
     if (hasActiveTurn(chatKey) || sideTurnCount(chatKey) > 0) {
       rows.splice(1, 0, [{ text: t("stop"), callback_data: "act:stop" }]);
     }
-    rows.push([{ text: `← ${t("back")}`, callback_data: "p:main" }]);
+    rows.push([{ role: "back", text: `← ${t("back")}`, callback_data: "p:main" }]);
     const keyboard = inlineKeyboard(rows);
-    return options?.closable === false ? keyboard : withMenuCloseButton(keyboard);
+    return options?.closable === false ? renderMenu(keyboard, { text: t, close: false }) : withMenuCloseButton(keyboard);
   }
 
   function toolsKeyboard() {
-    return inlineKeyboard([
+    return withMenuCloseButton(inlineKeyboard([
+      [{ text: t("workspaceMcp"), callback_data: "w:mcp:tools" }],
       [
         { text: "Health", callback_data: "tool:health" },
         { text: "Doctor", callback_data: "tool:doctor" }
@@ -79,8 +98,8 @@ export function createOperationsKeyboardViews({
       ],
       [{ text: t("codexMaintenance"), callback_data: "tool:codex_maintenance", style: "primary" }],
       [{ text: t("main"), callback_data: "p:main" }],
-      [{ text: `← ${t("back")}`, callback_data: "p:main" }]
-    ]);
+      [{ role: "back", text: `← ${t("back")}`, callback_data: "p:main" }]
+    ]));
   }
 
   function withToolsBack() {
@@ -89,7 +108,7 @@ export function createOperationsKeyboardViews({
         { text: t("tools"), callback_data: "p:tools" },
         { text: t("main"), callback_data: "p:main" }
       ],
-      [{ text: `← ${t("back")}`, callback_data: "p:tools" }]
+      [{ role: "back", text: `← ${t("back")}`, callback_data: "p:tools" }]
     ]));
   }
 
@@ -126,18 +145,18 @@ export function createOperationsKeyboardViews({
         { text: t("tools"), callback_data: "p:tools" },
         { text: t("main"), callback_data: "p:main" }
       ],
-      [{ text: `← ${t("back")}`, callback_data: "p:tools" }]
+      [{ role: "back", text: `← ${t("back")}`, callback_data: "p:tools" }]
     ]));
   }
 
   function codexMaintenanceBusyKeyboard() {
-    return inlineKeyboard([[
+    return withMenuCloseButton(inlineKeyboard([[
       {
         text: t("processing"),
         callback_data: "tool:codex_maintenance",
         style: "primary"
       }
-    ]]);
+    ], [{ role: "back", text: `← ${t("back")}`, callback_data: "tool:codex_maintenance" }]]));
   }
 
   function queueKeyboard(chatKey) {
@@ -169,17 +188,17 @@ export function createOperationsKeyboardViews({
       ]);
     }
     rows.push([{ text: t("main"), callback_data: "p:main" }]);
-    rows.push([{ text: `← ${t("back")}`, callback_data: "p:main" }]);
+    rows.push([{ role: "back", text: `← ${t("back")}`, callback_data: "p:main" }]);
     return withMenuCloseButton(inlineKeyboard(rows));
   }
 
   function uploadCleanupKeyboard(planId) {
-    return inlineKeyboard([[
+    return withMenuCloseButton(inlineKeyboard([[
       {
         text: "Confirm upload cleanup",
         callback_data: `upload_cleanup_confirm:${planId}`
       }
-    ]]);
+    ], [{ role: "back", text: `← ${t("back")}`, callback_data: "p:tools" }]]));
   }
 
   return {

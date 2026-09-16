@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { registerCallbackRoutes } from "../src/telegram/callback_router.js";
 
-function createFixture() {
+function createFixture({ queueChanged = 1 } = {}) {
   const actions = [];
   const calls = [];
   const state = {
@@ -42,9 +42,9 @@ function createFixture() {
       clear: async () => 3,
       format: () => "queue",
       keyboard: () => ({ panel: "queue" }),
-      move: async () => 1,
+      move: async () => queueChanged,
       pruneExpired: async () => {},
-      remove: async () => 1,
+      remove: async () => queueChanged,
       sideTurnCount: () => 0
     },
     selection: {
@@ -75,7 +75,7 @@ function createFixture() {
     telegram: {
       editOrReplyHtml: async (...args) => calls.push(["edit", ...args]),
       getChatKey: () => "chat",
-      replyHtml: async () => {},
+      replyHtml: async (...args) => calls.push(["reply", ...args]),
       summarizeError: String
     },
     keyboards: {
@@ -96,6 +96,22 @@ function createFixture() {
 function route(actions, source) {
   return actions.find(({ trigger }) => trigger instanceof RegExp && trigger.source === source)?.handler;
 }
+
+test("individual queue controls edit the original menu even when the item is gone", async () => {
+  for (const queueChanged of [0, 1]) {
+    for (const action of ["cancel", "up", "next"]) {
+      const { actions, calls } = createFixture({ queueChanged });
+      const ctx = { match: [`queue:${action}:turn`, action, "turn"], callbackQuery: { message: { message_id: 42 } }, answerCbQuery: async () => {} };
+      await route(actions, "^queue:(cancel|up|next):([a-zA-Z0-9_-]+)$")(ctx);
+      assert.equal(calls.filter(([name]) => name === "reply").length, 0);
+      const edits = calls.filter(([name]) => name === "edit");
+      assert.equal(edits.length, 1);
+      assert.equal(edits[0][1], ctx);
+      assert.deepEqual(edits[0][3], { panel: "queue" });
+      assert.match(edits[0][2], queueChanged ? /queue/ : /not found/);
+    }
+  }
+});
 
 test("callback router registers every stable callback family", () => {
   const { actions } = createFixture();

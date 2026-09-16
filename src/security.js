@@ -25,5 +25,6 @@ function chatIdForUpdate(ctx) {
 function threadIdForUpdate(ctx) {
   return ctx.message?.message_thread_id
     ?? ctx.callbackQuery?.message?.message_thread_id
+    ?? (ctx.chat?.is_forum ? 1 : undefined)
     ?? "";
 }

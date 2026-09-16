@@ -4,10 +4,12 @@ import {
   reasoningOptionsForModel
 } from "../codex/models.js";
 import { b, code } from "../telegram/html.js";
+import { accountConfig, selectedAccountId } from "../accounts/context.js";
 
 export function createModelPresenter({ settings, state, chats, localization, formatting }) {
-  async function listCodexModels() {
-    return readCodexModelCatalog(settings.config.codexModelsCacheFile);
+  async function listCodexModels(chatKey) {
+    const config = chatKey ? accountConfig(settings.config, selectedAccountId(state.chats[chatKey])) : settings.config;
+    return readCodexModelCatalog(config.codexModelsCacheFile);
   }
 
   function formatReasoningPromptHtml(chatKey, models) {

@@ -14,6 +14,9 @@ import { CODEX_TRANSPORT_APP_SERVER_DIRECT } from "./thread_factory.js";
 import { createCodexStreamWatchdog, STREAM_IDLE_TIMEOUT_MESSAGE } from "./watchdog.js";
 import { startRecoveryBackfillPoller } from "../recovery/backfill_poller.js";
 
+import { applyAccountEvent, rememberAccountThread } from "../accounts/context.js";
+import { hasAttemptActivity } from "../accounts/errors.js";
+
 const STREAM_BACKFILLED_MESSAGE = "stream_backfilled";
 
 export function createCodexRuntimeExecutor({
@@ -44,7 +47,15 @@ export function createCodexRuntimeExecutor({
     const codexOptions = options.build(chatKey, linkedAbort.controller.signal);
     if (!options.get(chatKey).streamEvents) {
       try {
-        return await thread.run(input, codexOptions);
+        const originAccountId = thread.accountId || "default";
+        const result = await thread.run(input, codexOptions);
+        if (turnOptions.rememberThreadId !== false && thread.id && thread.accountId) {
+          const chat = chats.get(chatKey);
+          rememberAccountThread(chat, thread.id, thread.accountId);
+          applyAccountEvent(chat, { type: "account.selected", fromAccountId: originAccountId, accountId: thread.accountId });
+          await chats.save();
+        }
+        return result;
       } finally {
         linkedAbort.cleanup();
       }
@@ -82,11 +93,28 @@ export function createCodexRuntimeExecutor({
     try {
       for await (const event of events) {
         watchdog.touch();
+        if (turnOptions.rememberThreadId !== false) {
+          const chat = chats.get(chatKey);
+          if (applyAccountEvent(chat, event)) {
+            await chats.save();
+            await recovery.recordAccountState?.(chatKey, event);
+            continue;
+          }
+          if (hasAttemptActivity(event) && chat.accountAttemptState && !chat.accountAttemptState.hadActivity) {
+            chat.accountAttemptState.hadActivity = true;
+            await chats.save();
+            await recovery.recordAccountState?.(chatKey, event);
+          }
+        }
+        if (event.type === "account.rotation") {
+          await telegram.replyHtml(ctx, formatting.keyValue("🔁 Codex account", [["Account", event.accountLabel || event.accountId]]));
+          continue;
+        }
         const update = applyCodexStreamEvent(streamState, event);
         if (update.type === "thread_started") {
           if (turnOptions.rememberThreadId !== false) {
             const chat = chats.get(chatKey);
-            chat.threadId = update.threadId;
+            rememberAccountThread(chat, update.threadId, event.accountId || thread.accountId || "default");
             await chats.save();
             await recovery.recordThreadStarted(chatKey, update.threadId);
           }
@@ -247,14 +275,15 @@ export function createCodexRuntimeExecutor({
       const response = await readAppServerThread({
         threadId,
         codexPath: settings.codexPath,
-        codexEnv: settings.codexEnv,
+        codexEnv: thread.codexEnv || settings.codexEnv,
+        codexAuthFileStore: thread.codexAuthFileStore,
         connectTimeoutMs: settings.runtimeValue("codexAppServerDirectTimeoutMs"),
         includeTurns: true
       });
       return appServerThreadReadEvents(response, { threadId });
     }
     const backfill = await readCodexSessionBackfill({
-      sessionsDir: settings.sessionsDir,
+      sessionsDir: thread.sessionsDir || settings.sessionsDir,
       threadId,
       sinceMs
     });
@@ -271,6 +300,7 @@ export function createCodexRuntimeExecutor({
 
     const chat = chats.get(chatKey);
     chat.usageProbeThreadId = thread.id;
+    chat.usageProbeAccountId = thread.accountId || chat.accountId || "default";
     chat.updatedAt = new Date(now()).toISOString();
     await chats.save();
     return sample;
@@ -286,7 +316,7 @@ export function createCodexRuntimeExecutor({
     return null;
   }
 
-  async function maybeNotifyContextPressure(ctx, chatKey, thread) {
+  async function maybeNotifyContextPressure(ctx, chatKey, thread, liveProgress = null) {
     if (!settings.contextGuardEnabled) return;
     const threadId = thread?.id || chats.get(chatKey).threadId;
     if (!threadId) return;
@@ -301,7 +331,7 @@ export function createCodexRuntimeExecutor({
     if (!overPercent && !lowRemaining) return;
 
     const autoLimit = resolveAutoCompactTokenLimit(settings.config);
-    await telegram.replyHtml(ctx, formatting.keyValue(t("contextCompactContinueTitle"), [
+    const html = formatting.keyValue(t("contextCompactContinueTitle"), [
       [
         t("contextUsage"),
         `${Math.round(pressure.percent)}% (${pressure.inputTokens}/${pressure.modelContextWindow})`
@@ -309,7 +339,9 @@ export function createCodexRuntimeExecutor({
       [t("contextRemaining"), pressure.remainingTokens],
       [t("contextAutoCompact"), autoLimit > 0 ? autoLimit : t("contextAutoCompactDefault")],
       [t("contextAction"), t("contextCompactContinueAction")]
-    ]));
+    ]);
+    if (liveProgress) await telegram.replyTracked(ctx, liveProgress, html);
+    else await telegram.replyHtml(ctx, html);
   }
 
   return {

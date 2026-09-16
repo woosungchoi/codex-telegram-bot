@@ -18,6 +18,8 @@ test("default style instructions include English rich Markdown guidance", () => 
   assert.match(prompt, /Telegram-friendly layout/);
   assert.match(prompt, /Use Markdown tables only when they are compact and likely to fit on mobile/);
   assert.match(prompt, /For long explanatory comparisons, prefer bullets or short key\/value sections/);
+  assert.match(prompt, /actual available HTTP\(S\) URLs directly/);
+  assert.match(prompt, /Show local file paths as inline code, not Markdown hyperlinks/);
 });
 
 test("style instructions keep image tool output bounded and rotate long image sessions", () => {
@@ -42,6 +44,8 @@ test("default style instructions include Korean rich Markdown guidance", () => {
   assert.match(prompt, /Telegram에서 읽기 좋게 구분합니다/);
   assert.match(prompt, /표는 짧고 모바일에서 한눈에 들어갈 때만 사용합니다/);
   assert.match(prompt, /긴 설명형 비교는 bullet 또는 짧은 key\/value 섹션을 우선합니다/);
+  assert.match(prompt, /실제로 이용 가능한 HTTP\(S\) 주소를 직접 제공합니다/);
+  assert.match(prompt, /로컬 파일 경로는 Markdown 링크 대신 inline code로 표시합니다/);
 });
 
 test("default style instructions include Traditional Chinese rich Markdown guidance", () => {
@@ -55,6 +59,8 @@ test("default style instructions include Traditional Chinese rich Markdown guida
   assert.match(prompt, /\*\*bold\*\*/);
   assert.match(prompt, /不要把大量內容壓縮成一個密集段落/);
   assert.match(prompt, /Telegram 友善的版面/);
+  assert.match(prompt, /實際可用的 HTTP\(S\) 網址/);
+  assert.match(prompt, /本機檔案路徑使用 inline code/);
 });
 
 test("custom persona prompt is combined with persistent rich Markdown guidance", () => {

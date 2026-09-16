@@ -8,8 +8,9 @@ import {
   summarizeTelegramError
 } from "./api.js";
 import { splitText } from "./split.js";
+import { sameRef } from "./progress_store.js";
 
-export function createTelegramRuntimeResponder({ bot, settings, localization }) {
+export function createTelegramRuntimeResponder({ bot, settings, localization, progressStore, logger = console }) {
   async function replyLong(ctx, text) {
     const max = Math.max(500, settings.runtimeValue("maxTelegramChars"));
     for (const chunk of splitText(text, max)) await ctx.reply(chunk);
@@ -60,22 +61,66 @@ export function createTelegramRuntimeResponder({ bot, settings, localization }) 
 
   async function replyTrackedProgressHtml(ctx, progressState, html) {
     const message = await replyHtml(ctx, html);
-    trackProgressMessage(ctx, progressState, message);
+    await trackProgressMessage(ctx, progressState, message);
     return message;
   }
 
-  function trackProgressMessage(ctx, progressState, message) {
+  async function trackProgressMessage(ctx, progressState, message) {
     const chatId = message?.chat?.id ?? ctx.chat?.id;
     const messageId = message?.message_id;
-    if (!chatId || !messageId) return;
-    progressState.messageRefs.push({ chatId, messageId });
+    if (!progressState || !chatId || !messageId) return;
+    const ref = { chatId, messageId };
+    progressState.messageRefs ||= [];
+    if (!progressState.messageRefs.some((existing) => sameRef(existing, ref))) {
+      progressState.messageRefs.push(ref);
+    }
+    await progressStore?.track(progressState, ref);
   }
 
   async function deleteTrackedProgressMessages(ctx, progressState) {
-    const refs = progressState?.messageRefs ?? [];
-    progressState.messageRefs = [];
+    if (!progressState) return;
+    const refs = [...(progressState.messageRefs || [])];
+    for (const ref of progressStore?.getRefs(progressState) || []) {
+      if (!refs.some((existing) => sameRef(existing, ref))) refs.push(ref);
+    }
+    const removed = [];
+    try {
+      await progressStore?.beginCleanup(progressState);
+    } catch (error) {
+      logger.warn("Telegram progress cleanup could not be persisted:", summarizeTelegramError(error));
+    }
     for (const ref of refs) {
-      await ctx.telegram.deleteMessage(ref.chatId, ref.messageId).catch(() => {});
+      try {
+        await ctx.telegram.deleteMessage(ref.chatId, ref.messageId);
+        removed.push(ref);
+      } catch (error) {
+        const summary = summarizeTelegramError(error);
+        if (summary.code === 400 && /message to delete not found|message can't be deleted/i.test(summary.description)) {
+          removed.push(ref);
+        } else {
+          logger.warn("Telegram progress deletion will be retried:", summary);
+          // Respect rate limits and leave the rest for a later recovery pass.
+          if (summary.code === 429) break;
+        }
+      }
+    }
+    progressState.messageRefs = refs.filter((ref) => !removed.some((item) => sameRef(item, ref)));
+    try {
+      await progressStore?.remove(progressState, removed);
+    } catch (error) {
+      logger.warn("Telegram progress cleanup result could not be persisted:", summarizeTelegramError(error));
+    }
+  }
+
+  async function retryPendingProgressCleanup() {
+    if (!progressStore) return;
+    try {
+      await progressStore.prune();
+      for (const progressState of progressStore.pending()) {
+        await deleteTrackedProgressMessages({ telegram: bot.telegram }, progressState);
+      }
+    } catch (error) {
+      logger.warn("Telegram progress cleanup retry failed:", summarizeTelegramError(error));
     }
   }
 
@@ -160,6 +205,7 @@ export function createTelegramRuntimeResponder({ bot, settings, localization }) 
     replyHtml,
     replyLong,
     replyTrackedProgressHtml,
+    retryPendingProgressCleanup,
     sendHtmlMessage,
     trackProgressMessage
   };

@@ -1,15 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRuntimePanelController } from "../src/ui/runtime_panel_controller.js";
+import { createRuntimeKeyboardViews, modelSelectionKeyboard, reasoningSelectionKeyboard } from "../src/ui/keyboards.js";
+import { textFor } from "../src/i18n.js";
 
-function createFixture() {
+function createFixture(keyboardOverrides = {}) {
   const calls = [];
   const keyboards = new Proxy({
     mainPanel: (chatKey) => ({ panel: "main", chatKey }),
     previousPanelFor: (panel) => `previous:${panel}`,
     status: (chatKey) => ({ panel: "status", chatKey }),
     withClose: (keyboard) => ({ ...keyboard, close: true }),
-    withPrevious: (keyboard, previous) => ({ ...keyboard, previous })
+    withPrevious: (keyboard, previous) => ({ ...keyboard, previous }),
+    ...keyboardOverrides
   }, {
     get(target, property) {
       return target[property] ?? (() => ({}));
@@ -104,6 +107,37 @@ test("panel helper output remains available to selection and settings callbacks"
   const { controller } = createFixture();
   assert.equal(await controller.fastPanelHtml("chat"), "fast");
   assert.equal(controller.settingsPanelHtml("chat"), "settings:options");
+});
+
+test("rendered menus and every settings subpanel have emoji labels and exactly one previous destination", async () => {
+  const panels = ["main", "status", "queue", "tools", "help", "settings", "settings_model", "settings_reasoning",
+    "settings_fast", "settings_sandbox", "settings_approval", "settings_web", "settings_network", "settings_stream",
+    "settings_live_progress", "settings_runtime", "settings_runtime_output", "settings_runtime_queue", "settings_runtime_codex",
+    "settings_runtime_cleanup", "settings_runtime_snapshot", "settings_git", "settings_paths", "settings_schema",
+    "settings_language", "settings_timezone", "settings_timezone_asia", "settings_locale"];
+  for (const language of ["en", "ko", "zh-tw"]) {
+    for (const active of [false, true]) {
+      const v = createRuntimeKeyboardViews({ text: (key) => textFor(language, key), hasActiveTurn: () => active,
+        sideTurnCount: () => 0, currentLanguage: () => language, currentTimeZone: () => "Asia/Seoul",
+        currentLocale: () => "ko-KR", pendingTurnsFor: () => [{ id: "turn-1" }] });
+      const realKeyboards = Object.fromEntries(Object.entries(v).filter(([name]) => name.endsWith("Keyboard"))
+        .map(([name, build]) => [name.slice(0, -"Keyboard".length), build]));
+      const { calls, controller } = createFixture({ ...realKeyboards, modelSelection: modelSelectionKeyboard,
+        reasoningSelection: reasoningSelectionKeyboard, previousPanelFor: v.previousPanelFor,
+        withClose: v.withMenuCloseButton, withPrevious: v.withPreviousPanelButton });
+      for (const panel of panels) {
+        await controller.sendPanel({}, panel, { edit: true });
+        const buttons = calls.at(-1)[3].reply_markup.inline_keyboard.flat();
+        const context = `${language}/${active}/${panel}`;
+        assert.ok(buttons.every((button) => /^[\p{Extended_Pictographic}\p{Regional_Indicator}]/u.test(button.text)), context);
+        assert.equal(buttons.filter((button) => button.callback_data === "ui:close:menu").length, 1, context);
+        const back = buttons.filter((button) => button.text.startsWith("⬅️ "));
+        assert.equal(back.length, panel === "main" ? 0 : 1, context);
+        if (back.length) assert.equal(back[0].callback_data, `p:${v.previousPanelFor(panel)}`, context);
+        assert.ok(buttons.every((button) => Buffer.byteLength(button.callback_data) <= 64), context);
+      }
+    }
+  }
 });
 
 function createDispatchFixture() {

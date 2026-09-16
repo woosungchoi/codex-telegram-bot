@@ -3,6 +3,7 @@ import net from "node:net";
 import { PRIVATE_FILE_MODE } from "../fs/private.js";
 import { createFrameReader, encodeFrame, errorResponse, okResponse } from "./protocol.js";
 import { createWorkerStore } from "./store.js";
+import { createWorkerLogMaintenance } from "./log_retention.js";
 import { runWorkerJob } from "./executor.js";
 import {
   WORKER_RESTART_FAILURE_MESSAGE,
@@ -20,10 +21,21 @@ export function createWorkerServer({
   const controllers = new Map();
   const codexClients = new Map();
   const jobTasks = new Map();
+  const maintenance = createWorkerLogMaintenance({ config, store });
+  let maintenanceTimer;
+  let maintenanceStart;
+  let maintenanceTask;
+  const archiveLogs = () => {
+    maintenanceTask = maintenance.run({ apply: true }).catch((error) => {
+      logger.warn?.("worker log archival skipped:", error instanceof Error ? error.message : String(error));
+    });
+  };
 
   async function dispatch(request) {
     const method = request?.method || "";
     const params = request?.params || {};
+    if (method === "worker/archive") return maintenance.run(params);
+    if (method === "job/delivered") return store.confirmDelivery(params.entry);
     if (method === "worker/status") return workerStatus(store, controllers);
     if (method === "job/status") return jobStatus(store, params.jobId);
     if (method === "job/events") return jobEvents(store, params.jobId, params);
@@ -71,9 +83,17 @@ export function createWorkerServer({
         });
       });
       await fs.chmod(config.codexWorkerSocket, PRIVATE_FILE_MODE);
+      if (config.codexWorkerLogRetentionDays > 0) {
+        maintenanceStart = setTimeout(archiveLogs, 60_000);
+        maintenanceTimer = setInterval(archiveLogs, 3_600_000);
+        maintenanceStart.unref(); maintenanceTimer.unref();
+      }
       return this;
     },
     async close() {
+      clearTimeout(maintenanceStart);
+      clearInterval(maintenanceTimer);
+      await maintenanceTask;
       await new Promise((resolve) => server.close(resolve));
       for (const [jobId, controller] of controllers.entries()) {
         await store.appendJobEvent(jobId, {
@@ -97,6 +117,8 @@ async function startJob({ config, store, controllers, codexClients, jobTasks, ex
     entry?.chatKey === job.chatKey && entry?.status !== "completed" && entry?.status !== "failed" && entry?.status !== "cancelled"
   ));
   if (duplicate) throw new Error(`Active worker job already exists for chat ${job.chatKey}: ${duplicate.id}`);
+
+  if ((await store.readJobState(job.id))?.eventArchive) throw new Error("Archived worker jobs are immutable; use a new job ID.");
 
   const accepted = {
     ...job,
@@ -186,6 +208,7 @@ async function workerStatus(store, controllers) {
   const active = await store.readActiveJobs();
   return {
     status: "ok",
+    capabilities: ["accounts-v1", "log-archive-v1"],
     activeJobs: Object.values(active.jobs),
     runningJobIds: [...controllers.keys()]
   };

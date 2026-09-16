@@ -38,7 +38,7 @@ export function applyCodexStreamEvent(state, event) {
   }
   if (event.type === "error") {
     const message = errorMessage(event, "Codex stream error.");
-    if (isReconnectNotice(message)) return { type: "reconnecting", message };
+    if (event.willRetry === true || isReconnectNotice(message)) return { type: "reconnecting", message };
     return { type: "error", message };
   }
   return { type: "unknown", eventType: event?.type || "unknown" };
@@ -144,7 +144,7 @@ function normalizeAppServerNotification(state, notification) {
     }
     return { type: "turn.completed", usage: params.usage ?? null };
   }
-  if (method === "error") return { type: "error", message: errorMessage(params, "Codex app-server error.") };
+  if (method === "error") return { type: "error", message: errorMessage(params.error || params, "Codex app-server error."), willRetry: params.willRetry === true, codexErrorInfo: params.error?.codexErrorInfo };
   return notification;
 }
 

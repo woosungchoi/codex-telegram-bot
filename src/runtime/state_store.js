@@ -4,6 +4,7 @@ import {
 } from "../codex/thread_factory.js";
 import { writePrivateFileAtomic } from "../fs/private.js";
 import { parseCleanupExecutionMode } from "../maintenance/cleanup_mode.js";
+import { migrateRuntimeState, validateMutableNamespaces } from "../state/schema.js";
 
 export async function loadRuntimeState(file, options) {
   try {
@@ -19,12 +20,14 @@ export function normalizeRuntimeState(parsed, {
   defaults,
   parseLanguage,
   parseTimeZone,
-  parseLocale
+  parseLocale,
+  now = Date.now()
 }) {
-  const stateValue = parsed && typeof parsed === "object" ? parsed : {};
+  const stateValue = migrateRuntimeState(parsed, { now });
   return {
     ...stateValue,
     ui: {
+      ...stateValue.ui,
       language: parseLanguage(stateValue.ui?.language || defaults.telegramLanguage),
       timeZone: parseTimeZone(stateValue.ui?.timeZone || defaults.telegramTimeZone),
       locale: parseLocale(stateValue.ui?.locale || defaults.telegramLocale)
@@ -35,17 +38,20 @@ export function normalizeRuntimeState(parsed, {
     chats: stateValue.chats && typeof stateValue.chats === "object" ? stateValue.chats : {},
     queues: stateValue.queues && typeof stateValue.queues === "object" ? stateValue.queues : {},
     cleanup: {
+      ...stateValue.cleanup,
       lastDailyDate: stateValue.cleanup?.lastDailyDate ?? "",
       plans: stateValue.cleanup?.plans && typeof stateValue.cleanup.plans === "object"
         ? stateValue.cleanup.plans
         : {}
     },
     uploadCleanup: {
+      ...stateValue.uploadCleanup,
       plans: stateValue.uploadCleanup?.plans && typeof stateValue.uploadCleanup.plans === "object"
         ? stateValue.uploadCleanup.plans
         : {}
     },
     maintenance: {
+      ...stateValue.maintenance,
       autoSqliteRepairEnabled: typeof stateValue.maintenance?.autoSqliteRepairEnabled === "boolean"
         ? stateValue.maintenance.autoSqliteRepairEnabled
         : defaults.codexMaintenanceAutoSqliteRepairEnabled,
@@ -54,11 +60,13 @@ export function normalizeRuntimeState(parsed, {
         : defaults.codexMaintenanceAutoHandoffEnabled
     },
     worker: {
+      ...stateValue.worker,
       deliveries: stateValue.worker?.deliveries && typeof stateValue.worker.deliveries === "object"
         ? stateValue.worker.deliveries
         : {}
     },
     snapshots: {
+      ...stateValue.snapshots,
       lastDailyDate: stateValue.snapshots?.lastDailyDate ?? ""
     }
   };
@@ -91,8 +99,14 @@ export function createRuntimeSettingsController({ state, defaults, threadCache, 
   return { runtimeSeconds, runtimeValue, updateRuntimeSetting };
 }
 
+const pendingStateWrites = new Map();
 export async function saveRuntimeState(file, value) {
-  await writePrivateFileAtomic(file, `${JSON.stringify(value, null, 2)}\n`);
+  validateMutableNamespaces(value);
+  const data = `${JSON.stringify(value, null, 2)}\n`;
+  const pending = (pendingStateWrites.get(file) || Promise.resolve()).catch(() => {})
+    .then(() => writePrivateFileAtomic(file, data));
+  pendingStateWrites.set(file, pending);
+  try { await pending; } finally { if (pendingStateWrites.get(file) === pending) pendingStateWrites.delete(file); }
 }
 
 export function parseRequiredBoolean(value, label) {

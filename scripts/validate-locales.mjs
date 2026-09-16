@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { validateLocaleMessages } from "../src/i18n/validation.js";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -29,20 +30,11 @@ for (const file of files) {
   locales.set(code, payload);
 }
 
-const baseKeys = localeKeys(locales.get("en"));
 for (const [code, payload] of locales) {
-  const keys = localeKeys(payload);
-  const missing = baseKeys.filter((key) => !keys.includes(key));
-  const extra = keys.filter((key) => !baseKeys.includes(key));
-  if (missing.length > 0) fail(`${code}.json is missing keys: ${missing.join(", ")}`);
-  if (extra.length > 0) fail(`${code}.json has unknown keys: ${extra.join(", ")}`);
+  validateLocaleMessages(locales.get("en"), payload, `${code}.json`);
 }
 
 console.log(`Validated ${files.length} locale files.`);
-
-function localeKeys(payload) {
-  return Object.keys(payload).filter((key) => key !== "_meta").sort();
-}
 
 function fail(message) {
   console.error(message);

@@ -18,7 +18,7 @@ test("runtime responder tracks and deletes progress message references", async (
     telegram: { deleteMessage: async (...args) => deleted.push(args) }
   };
   const progress = { messageRefs: [] };
-  responder.trackProgressMessage(ctx, progress, { message_id: 2 });
+  await responder.trackProgressMessage(ctx, progress, { message_id: 2 });
   await responder.deleteTrackedProgressMessages(ctx, progress);
   assert.deepEqual(deleted, [[1, 2]]);
   assert.deepEqual(progress.messageRefs, []);

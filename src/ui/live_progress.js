@@ -1,5 +1,6 @@
 import { code, stripHtml } from "../telegram/html.js";
 import { runTelegramProgressBestEffort } from "../telegram/api.js";
+import { progressTurnId } from "../telegram/progress_store.js";
 import {
   formatCodexAnswerMarkdownHtml,
   formatCodexAnswerSafeHtml
@@ -12,6 +13,7 @@ export function createLiveProgressController({
   recovery,
   localization,
   formatting,
+  progressStore,
   logger = console,
   now = Date.now
 }) {
@@ -36,14 +38,17 @@ export function createLiveProgressController({
     return parts.join("\n");
   }
 
-  function createLiveProgressState(active = null) {
-    return {
+  function createLiveProgressState(active = null, chatKey = "") {
+    const progressState = {
       lastSentAt: 0,
       lastKey: "",
       active,
-      chatKey: "",
+      chatKey: chatKey || active?.currentPreparedTurn?.chatKey || "",
+      progressTurnId: progressTurnId(active?.currentPreparedTurn),
       messageRefs: []
     };
+    progressState.messageRefs = progressStore?.getRefs(progressState) || [];
+    return progressState;
   }
 
   function shouldDeleteLiveProgress(progressState, turnSucceeded) {

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { progressTurnId } from "../telegram/progress_store.js";
 import { STREAM_IDLE_TIMEOUT_MESSAGE } from "../codex/watchdog.js";
 import { b } from "../telegram/html.js";
 import { appendRecoveryJournal, summarizeStreamEvent } from "./journal.js";
@@ -27,6 +28,7 @@ export function createTurnRecoveryJournal({
   formatting,
   text: t,
   logger = console,
+  onDeliverySent = null,
   now = () => new Date()
 }) {
   const workerDelivery = createWorkerDeliveryJournal({
@@ -36,11 +38,17 @@ export function createTurnRecoveryJournal({
     appendRecoveryEvent,
     safeRecoveryWrite,
     updateSnapshot,
-    digestText
+    digestText,
+    onDeliverySent,
+    logger
   });
+  const pendingSnapshots = new Map();
+  const snapshotTimes = new Map();
 
   async function recordActiveTurnStarted(chatKey, turn) {
     if (!settings.enabled) return;
+    pendingSnapshots.delete(chatKey);
+    snapshotTimes.delete(chatKey);
     const effective = options.get(chatKey);
     const timestamp = now().toISOString();
     const snapshot = {
@@ -51,6 +59,9 @@ export function createTurnRecoveryJournal({
       originMessageId: turn.originMessageId,
       originUpdateId: turn.originUpdateId,
       queueItemId: turn.id || "",
+      progressTurnId: progressTurnId(turn),
+      accountId: turn.recovery?.accountId || chats.get(chatKey).accountId || "default",
+      accountAttemptState: turn.recovery?.accountAttemptState || {},
       threadId: chats.get(chatKey).threadId || "",
       inputTextDigest: digestText(turn.inputText || turn.text || ""),
       inputPreview: formatting.truncate(
@@ -82,10 +93,28 @@ export function createTurnRecoveryJournal({
     await safeRecoveryWrite(async () => {
       await updateSnapshot(chatKey, {
         lastKnownStatus: "thread_started",
+        ...accountState(chatKey),
         threadId
       });
       await appendRecoveryEvent({ type: "thread_started", chatKey, threadId });
     });
+  }
+
+  function accountState(chatKey) {
+    const chat = chats.get(chatKey);
+    const attempt = chat.accountAttemptState;
+    return {
+      accountId: attempt?.accountId || chat.threadAccountId || chat.accountId || "default",
+      accountAttemptState: attempt || {}
+    };
+  }
+
+  async function recordAccountState(chatKey, event) {
+    if (!settings.enabled) return;
+    await safeRecoveryWrite(() => updateSnapshot(chatKey, {
+      ...accountState(chatKey),
+      ...(event?.type === "account.attempt.started" ? { threadId: event.threadId || "" } : {})
+    }));
   }
 
   async function recordStreamItemEvent(chatKey, event, update = {}) {
@@ -94,10 +123,11 @@ export function createTurnRecoveryJournal({
     const completed = update.eventType === "item.completed" || event.type === "item.completed";
     await safeRecoveryWrite(async () => {
       await updateSnapshot(chatKey, {
+        ...accountState(chatKey),
         lastCompletedItemType: completed ? summary.itemType : undefined,
         lastCompletedItemId: completed ? summary.itemId : undefined,
         lastKnownStatus: summary.eventType || event.type || "unknown"
-      });
+      }, { defer: true });
       await appendRecoveryEvent({ type: "stream_item", chatKey, ...summary });
     });
   }
@@ -142,7 +172,7 @@ export function createTurnRecoveryJournal({
         lastKnownStatus: "codex_stream_final_response_seen",
         finalResponseLength: length,
         finalResponseSeenAt: now().toISOString()
-      });
+      }, { defer: true });
       await appendRecoveryEvent({
         type: "codex_stream_final_response_seen",
         chatKey,
@@ -256,6 +286,8 @@ export function createTurnRecoveryJournal({
     await safeRecoveryWrite(async () => {
       await appendRecoveryEvent({ type: "turn_completed", chatKey, threadId });
       await removeActiveTurnSnapshot(settings.recoveryDir, chatKey);
+      pendingSnapshots.delete(chatKey);
+      snapshotTimes.delete(chatKey);
       const active = activeTurns.get(chatKey);
       if (active?.currentPreparedTurn?.kind === "recovery") {
         await markRecoveryAttempt(
@@ -281,6 +313,7 @@ export function createTurnRecoveryJournal({
         chatKey,
         message: formatting.truncate(message, 500)
       });
+      snapshotTimes.delete(chatKey);
       const active = activeTurns.get(chatKey);
       if (active?.currentPreparedTurn?.kind === "recovery") {
         await markRecoveryAttempt(
@@ -301,6 +334,7 @@ export function createTurnRecoveryJournal({
         recoveryReason: "user_stop"
       });
       await appendRecoveryEvent({ type: "turn_stopped", chatKey });
+      snapshotTimes.delete(chatKey);
     });
   }
 
@@ -320,11 +354,16 @@ export function createTurnRecoveryJournal({
     }
   }
 
-  async function updateSnapshot(chatKey, update) {
+  async function updateSnapshot(chatKey, update, { defer = false } = {}) {
+    const timestamp = now();
+    const pending = { ...pendingSnapshots.get(chatKey), ...update };
+    pendingSnapshots.set(chatKey, pending);
+    if (defer && timestamp.getTime() - (snapshotTimes.get(chatKey) ?? -Infinity) < 250) return;
     await upsertActiveTurnSnapshot(settings.recoveryDir, chatKey, {
-      lastEventAt: now().toISOString(),
-      ...update
+      lastEventAt: timestamp.toISOString(), ...pending
     });
+    if (pendingSnapshots.get(chatKey) === pending) pendingSnapshots.delete(chatKey);
+    snapshotTimes.set(chatKey, timestamp.getTime());
   }
 
   return {
@@ -334,6 +373,7 @@ export function createTurnRecoveryJournal({
     recordActiveTurnCompleted,
     recordActiveTurnFailed,
     recordActiveTurnStarted,
+    recordAccountState,
     recordCodexStreamBackfill,
     recordCodexStreamFinalResponseSeen,
     recordCodexStreamFirstItem,

@@ -4,6 +4,199 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+## 1.3.6 - 2026-09-14
+
+- Update account status, selection, rotation and input/confirmation menus in the
+  existing Telegram message. Keep Reset credit lists, pages and results in the
+  same panel, with correct prompt bindings after unchanged edits or edit fallback.
+- Update individual queue controls and cleanup previews in place instead of
+  appending a new message after each button press.
+- Show expired or unauthorized callback notices without overwriting the current
+  menu. Serialize confirmation validation so repeated clicks cannot replace a
+  completed result or redeem another Reset credit.
+- Keep workspace error notices in the current panel and preserve valid retry
+  buttons, including private-chat topic setup guidance.
+- Add regression coverage for message identity, prompt bindings, stale callbacks,
+  duplicate confirmations, queue controls, cleanup previews and topic setup.
+- Update the GitHub Actions coverage artifact uploader to version 7.
+
+## 1.3.5 - 2026-09-13
+
+- Add emoji labels throughout Telegram command descriptions and control panels,
+  including nested Settings and Tools menus. Add Previous navigation to usage,
+  account, workspace and tool results while preserving the entry menu and scope.
+- Split workspace feature controllers, share menu navigation rules, and validate
+  account, workspace and forum translations in the locale catalogs.
+- Add real route/execution integration tests, selective type checks, architecture
+  boundaries, source formatting and CI coverage artifacts. Add a read-only
+  repository difference checker with reviewed file fingerprints.
+- Version and validate persisted state on load and before atomic saves; keep
+  workspace/forum reads lightweight and expire only stale interactive UI flows.
+- Start saved queues when Telegram identity is ready, without waiting for the
+  long-polling loop to finish. Cancel pending startup on shutdown or launch failure.
+- Index worker event logs with bounded sparse byte offsets so repeated polling
+  reads new data. Preserve replay, truncation/replacement handling, and incomplete
+  trailing records; reject malformed completed records.
+- Coalesce ordinary streaming cursor and recovery-snapshot writes while retaining
+  immediate queue, account/reset, error and final-delivery checkpoints. Repair
+  running-worker recovery snapshots displaced by failed duplicate turns.
+- Cache usage and session reads briefly, deduplicate concurrent requests, and cache
+  session titles by file identity. Isolate account/authentication keys; explicit
+  Refresh and session resume read current data, and account/reset changes invalidate
+  usage results.
+- Archive completed, confirmed-delivered worker logs after 30 days by default.
+  Protect active/recoverable jobs and uncertain deliveries, verify gzip contents
+  before removing originals, and retain archive replay. Old logs without delivery
+  proof remain protected; archives and job metadata are not automatically deleted.
+- Add `CODEX_WORKER_LOG_RETENTION_DAYS` (`0` disables automatic archival),
+  `npm run worker:logs -- --dry-run` / `--apply`, and a reproducible synthetic
+  benchmark with `npm run benchmark:runtime`.
+
+See [maintenance checks](docs/maintainability.md) and
+[runtime performance and log retention](docs/runtime-optimization.md) for the
+validation commands, cache/checkpoint behavior and upgrade notes. Update both
+bot and worker, letting active jobs finish before restarting the worker; back up
+its whole state directory, including jobs and archives.
+
+Thank you to **artickc** and the contributors to
+[Grok Telegram Bot](https://github.com/artickc/grok-telegram-bot) for the account,
+workspace and project-topic workflow ideas that this release continues to refine.
+
+## 1.3.4 - 2026-09-13
+
+- Add Projects, Sessions, Scheduled tasks, Task dashboard and MCP servers to
+  `/menu`, with scoped input steps, cancellation, expiry and Close buttons.
+- Save and browse project presets with account/model options. Preview, resume
+  and watch account-scoped Codex sessions without starting a model turn to view them.
+- Default `/sessions` to the current project, with an All history toggle,
+  useful request titles, dates and short IDs. Preserve search and navigation;
+  keep the stored sessions and names intact.
+- Schedule prompts once, daily, weekly, monthly or at intervals with timezone
+  handling, explicit action confirmations, persistent queues and run history.
+- Add a live task dashboard and administrator MCP connection checks and toggles.
+- Add `/forum_setup`, `/topics` and `/dispatch` for project topics in forum groups
+  and private chats. Keep each topic's folder, account, session and queue separate;
+  return completion status to the requesting bot and chat/topic.
+- Support private-chat Threaded Mode with fresh capability checks, setup guidance
+  for the BotFather mini app, and pause/resume controls for topic work.
+- Ignore Telegram service notifications that previously produced false
+  `Unauthorized.` replies; localize real access-denied messages and preserve
+  user, chat and topic allowlists.
+- Expand regression coverage for menus, schedules, authorization, topic isolation,
+  session labels and recovery. Keep the existing public dependencies and CI configuration.
+
+Thank you to **artickc** and the contributors to
+[Grok Telegram Bot](https://github.com/artickc/grok-telegram-bot) for the project,
+session, scheduling, dashboard, MCP and forum workflow ideas. This release adapts
+them to Codex's App Server, account isolation and persistent execution architecture.
+See [workspace menus](docs/workspace-menus.md) and [project topics](docs/forum-topics.md).
+
+## 1.3.3 - 2026-09-12
+
+- Add **Use Reset credit** to Accounts and Usage, with account selection,
+  paged credit buttons, expiry details, and explicit automatic selection when
+  the service returns only a count or capped details.
+- Confirm the account and credit before redeeming through the Codex App Server.
+  Show distinct results and re-read actual usage after a completed request.
+- Persist each redemption's account, credit, and idempotency key before sending
+  it. Recheck uncertain requests with the same key across navigation or restart;
+  prevent duplicate clicks and concurrent redemption for the same account.
+- Preserve private-chat administrator checks, account leases, task selection,
+  and threads. Expire unused confirmations and provide Cancel and Close.
+- Add redemption, retry, restart, authorization, concurrency, and persistence
+  regression coverage. Verification does not spend real Reset credits.
+
+## 1.3.2 - 2026-09-12
+
+- Fix `/reauth` and account commands throwing a Telegraf callback-query error
+  when invoked as ordinary messages.
+- Add interactive account registration, naming, and confirmed removal, with
+  cancellation, expiry, and recovery of pending menu steps after a restart.
+- Add account management, registration, and usage shortcuts to `/menu`, plus
+  Close buttons across account menus.
+- Add `/usage` and a live usage panel with used/remaining quota, reset times,
+  separate model pools such as Spark, and available Reset credits with expiry
+  details. Queries use the account API without starting a model turn.
+- Add account-name buttons to inspect another account's usage and Reset credits
+  while preserving task selection and threads. Refresh stays on the viewed
+  account, and deleted or unavailable accounts retain navigation.
+- Preserve private-chat administrator access, account leases, HTML escaping,
+  and navigation through errors. Expand command, menu, and quota regression tests.
+
+## 1.3.1 - 2026-09-12
+
+- Include automatic context-compaction notices in temporary progress cleanup.
+- Persist progress message IDs per logical turn and restore them after bot or
+  worker restarts, including completed-result replay and session-log backfill.
+- Keep failed deletions for retry during recovery; preserve per-chat deletion
+  policies and isolate cleanup from other turns, topics, and final answers.
+
+## 1.3.0 - 2026-09-12
+
+This release adds chat sign-in, isolated accounts, bounded automatic account
+rotation, and more reliable Telegram delivery. Changes were cherry-picked into
+the public branch while preserving its dependency and CI configuration.
+
+The account features were inspired by
+[Grok Telegram Bot](https://github.com/artickc/grok-telegram-bot) by **artickc**.
+We were impressed by its chat sign-in, multiple-account management, and
+auto-rotate design, and adapted these ideas for Codex. Thank you!
+
+### Chat sign-in and account management
+
+- Add `/reauth [name]` using Codex's official ChatGPT device-code login.
+  Complete authentication in the browser; the protected one-time-code message
+  is removed after completion, cancellation, or expiry.
+- Add `/accounts` with account selection, custom names, status and quota checks,
+  removal confirmation, and an automatic-rotation toggle. Management is limited
+  to account administrators in private chats.
+- Give saved accounts separate credential files, sessions, databases, model
+  caches, and SDK clients under private account homes. Keep the host's existing
+  login available as `default`; share installed tools and user instructions.
+- Add `CODEX_ACCOUNTS_DIR` and `CODEX_ACCOUNT_ADMIN_USER_IDS`. With a single
+  allowlisted user, that user is the default account administrator.
+
+### Bounded account rotation and recovery
+
+- Offer automatic rotation after a confirmed terminal account quota or
+  authentication failure. It is disabled by default and can be enabled with
+  `/accounts rotate on`.
+- Wait for the CLI's retries and process exit before trying each eligible
+  account once. Cancellation, generic network/throttling failures, and turns
+  with prior output or tool activity do not trigger automatic replay.
+- Start a new thread when changing accounts and provide the original input
+  plus bounded conversation context. Preserve account identity and attempt
+  history through worker and inline execution, restart recovery, and replay of
+  completed responses awaiting Telegram delivery.
+- Advertise worker capability `accounts-v1` and reject managed-account jobs
+  sent to older workers. Prevent deletion while an account is in use.
+- Fix App Server stream hangs after unexpected exits and early completion
+  notifications, and preserve terminal error details needed for rotation.
+
+### Telegram delivery and links
+
+- Bind background completion notifications to the requesting bot and exact
+  chat/topic, with identity checks and persistent delivery receipts.
+- Preserve local file destinations as readable code-formatted paths in
+  Telegram answers. Keep HTTP(S) links clickable and retain safe formatting
+  fallbacks without inventing public URLs for private files.
+
+### Release verification
+
+- Validate the installed default CLI and the currently configured
+  `CODEX_REAL_PATH` CLI separately, comparing each wrapper invocation with the
+  executable actually selected instead of assuming they have the same version.
+- Cover explicit override precedence, paths with spaces, argument forwarding,
+  unset/empty overrides, `PATH` fallback, and invalid-path failures with isolated
+  fixtures. Keep production environment variables and installed versions intact.
+- Document how to verify an already-installed current or newer Codex CLI without
+  adding a network-dependent latest-version installation to the test suite.
+- Update package and lockfile metadata and the version regression assertion to
+  `1.3.0`. Keep the installed dependency set and runtime configuration intact.
+- Account setup, operational limits, and validation coverage are documented in
+  [the account guide](docs/accounts.md). Additional live account authentication
+  requires the user's browser sign-in.
+
 ## 1.2.12 - 2026-09-09
 
 This release collects 19 public commits since `v1.2.11`, focused on reliable

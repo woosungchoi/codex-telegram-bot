@@ -7,6 +7,7 @@ import {
   planModelReasoningTransition
 } from "./options.js";
 import { b, code } from "../telegram/html.js";
+import { assertTopicDirectory } from "../forum/store.js";
 
 export function createChatOptionsController({
   settings,
@@ -56,7 +57,9 @@ export function createChatOptionsController({
   }
 
   function getEffectiveOptions(chatKey) {
-    return { ...defaultChatOptions(), ...getChatState(chatKey).options };
+    const chat = getChatState(chatKey);
+    return { ...defaultChatOptions(), ...chat.options,
+      ...(chat.forumBinding?.cwd ? { workingDirectory: chat.forumBinding.cwd } : {}) };
   }
 
   function effectiveModelSlug(chatKey) {
@@ -121,6 +124,7 @@ export function createChatOptionsController({
 
   async function setOption(chatKey, key, rawValue) {
     const value = rawValue.trim();
+    if (key === "workingDirectory") assertTopicDirectory(getChatState(chatKey), value);
     const lower = value.toLowerCase();
     const clearsOption = lower === "off" || lower === "default" || lower === "clear";
     let transition = { action: "keep" };

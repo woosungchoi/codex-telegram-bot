@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "strict": false,
+    "noEmit": true,
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "src/workspace/*_controller.js",
+    "src/workspace/controller.js",
+    "src/workspace/capabilities.js",
+    "src/workspace/contracts.d.ts"
+  ]
+}

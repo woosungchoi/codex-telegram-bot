@@ -129,10 +129,10 @@ export function registerCallbackRoutes({
     else if (action === "up") changed = await queue.move(chatKey, turnId, "up");
     else if (action === "next") changed = await queue.move(chatKey, turnId, "next");
     if (changed === 0) {
-      await telegram.replyHtml(ctx, "Queue item not found. Run /queue to refresh.");
+      await telegram.editOrReplyHtml(ctx, "Queue item not found. Run /queue to refresh.", queue.keyboard(chatKey));
       return;
     }
-    await telegram.replyHtml(ctx, queue.format(chatKey), queue.keyboard(chatKey));
+    await telegram.editOrReplyHtml(ctx, queue.format(chatKey), queue.keyboard(chatKey));
   });
 
   registerSelectionRoutes();

@@ -1,4 +1,5 @@
 import { b, code } from "./html.js";
+import { commandReplyKeyboard } from "../ui/keyboard_helpers.js";
 
 export function registerChatCommands({
   bot,
@@ -20,6 +21,8 @@ export function registerChatCommands({
   filesystem,
   persistence
 }) {
+  const replyHtml = telegram.replyHtml;
+  telegram = { ...telegram, replyHtml: (ctx, html, extra) => replyHtml(ctx, html, commandReplyKeyboard(ctx, localization.text, extra)) };
   bot.start(async (ctx) => {
     await telegram.replyHtml(ctx, panels.helpHtml());
   });
@@ -43,6 +46,8 @@ export function registerChatCommands({
     threadCache.set(chatKey, thread);
     const chat = chats.get(chatKey);
     delete chat.threadId;
+    chat.threadAccountId = chat.accountId || "default";
+    if (chat.accountThreads) delete chat.accountThreads[chat.threadAccountId];
     chat.updatedAt = new Date().toISOString();
     await persistence.save();
 
@@ -90,12 +95,16 @@ export function registerChatCommands({
   async function handleResumeCommand(ctx, overrideArg = null) {
     const chatKey = telegram.getChatKey(ctx);
     if (await chats.rejectIfActive(ctx, chatKey)) return;
+    if (chats.get(chatKey).forumBinding?.cwd) {
+      await telegram.replyHtml(ctx, "Use /sessions to select a session from this topic's project folder.");
+      return;
+    }
 
     const arg = overrideArg ?? telegram.getCommandArgs(ctx).trim();
     let threadId = arg;
     let session = null;
     if (!threadId || threadId.toLowerCase() === "last") {
-      session = (await sessions.listRecent(1))[0] ?? null;
+      session = (await sessions.listRecent(1, chatKey))[0] ?? null;
       threadId = session?.id ?? "";
     }
     if (!threadId) {
@@ -107,6 +116,8 @@ export function registerChatCommands({
     threadCache.set(chatKey, thread);
     const chat = chats.get(chatKey);
     chat.threadId = threadId;
+    chat.threadAccountId = chat.accountId || "default";
+    chat.accountThreads = { ...chat.accountThreads, [chat.threadAccountId]: threadId };
     chat.updatedAt = new Date().toISOString();
     await persistence.save();
     await telegram.replyHtml(ctx, formatting.keyValue("Resumed Codex thread.", [
@@ -116,7 +127,7 @@ export function registerChatCommands({
   }
 
   bot.command("threads", async (ctx) => {
-    const recent = await sessions.listRecent(8);
+    const recent = await sessions.listRecent(8, telegram.getChatKey(ctx));
     if (recent.length === 0) {
       await telegram.replyHtml(ctx, "No Codex sessions found.");
       return;
@@ -225,7 +236,7 @@ export function registerChatCommands({
     const arg = (overrideArg ?? telegram.getCommandArgs(ctx).trim()).toLowerCase();
     const chat = chats.get(chatKey);
     const fastEnabled = chats.getEffectiveOptions(chatKey).serviceTier === "fast";
-    const catalog = await models.list();
+    const catalog = await models.list(chatKey);
     if (arg === "status") {
       await telegram.replyHtml(ctx, models.formatFastStatus(chatKey, catalog));
       return;

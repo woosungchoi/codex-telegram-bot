@@ -9,6 +9,8 @@ export function createWorkerClient(config = {}) {
     startJob: (job) => request(socketPath, timeoutMs, "job/start", { job }),
     getJobStatus: (jobId) => request(socketPath, timeoutMs, "job/status", { jobId }),
     readJobEvents: (jobId, afterSeq = 0, limit = 500) => request(socketPath, timeoutMs, "job/events", { jobId, afterSeq, limit }),
+    confirmDelivery: (entry) => request(socketPath, timeoutMs, "job/delivered", { entry }),
+    archiveLogs: (options = {}) => request(socketPath, Math.max(timeoutMs, 300_000), "worker/archive", options),
     cancelJob: (jobId) => request(socketPath, timeoutMs, "job/cancel", { jobId })
   };
 }

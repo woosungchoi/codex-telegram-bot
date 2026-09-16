@@ -14,8 +14,9 @@ test("bootstrapBot prepares directories, starts schedulers, launches bot, and re
   const events = [];
   const signals = [];
   const bot = {
-    async launch() {
+    async launch(onLaunch) {
       events.push("launch");
+      onLaunch();
     },
     stop(signal) {
       events.push(`stop:${signal}`);
@@ -79,8 +80,9 @@ test("bootstrapBot registered signal handlers call the supplied signal handler",
   const events = [];
   const handlers = new Map();
   const bot = {
-    async launch() {
+    async launch(onLaunch) {
       events.push("launch");
+      onLaunch();
     },
     stop(signal) {
       events.push(`stop:${signal}`);

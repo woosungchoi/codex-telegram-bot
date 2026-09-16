@@ -43,6 +43,7 @@ import {
 } from "./telegram/api.js";
 import { createTelegramRuntimeContext } from "./telegram/runtime_context.js";
 import { createTelegramRuntimeResponder } from "./telegram/runtime_responder.js";
+import { loadProgressMessageStore } from "./telegram/progress_store.js";
 import { createTelegramCommandMenu } from "./telegram/command_menu.js";
 import { createRuntimeStatusSupport } from "./status/runtime_status.js";
 import {
@@ -162,6 +163,9 @@ let adminCommandHandlers = null;
 let codexSessionRuntime = null;
 let modelPresenter = null;
 let executionRuntime = null;
+const progressMessageStore = await loadProgressMessageStore(
+  path.join(config.botRecoveryDir, "telegram-progress.json")
+);
 const {
   answerUiCallback,
   deleteTrackedProgressMessages,
@@ -174,9 +178,11 @@ const {
   replyDocumentQuietly,
   replyHtml,
   replyTrackedProgressHtml,
+  retryPendingProgressCleanup,
   sendHtmlMessage
 } = createTelegramRuntimeResponder({
   bot,
+  progressStore: progressMessageStore,
   settings: {
     runtimeValue
   },
@@ -1045,6 +1051,7 @@ const {
     readMaintenanceReport: readCodexMaintenanceReport
   },
   telegram: {
+    editOrReplyHtml,
     replyHtml,
     sendHtmlMessage
   },
@@ -1057,7 +1064,14 @@ const {
     formatResult: formatCleanupResultHtml
   }
 });
+let workspaceMenus = null;
 executionRuntime = createExecutionComposition({
+  onTurnFinished: async (...args) => {
+    await workspaceMenus?.scheduler.recordResult(...args);
+    await workspaceMenus?.forum.jobs.recordResult(...args);
+  },
+  beforeTurn: (...args) => workspaceMenus?.forum.jobs.beforeTurn(...args),
+  beforeDelivery: (...args) => workspaceMenus?.forum.jobs.validateDelivery(...args),
   config,
   state,
   activeTurns,
@@ -1077,6 +1091,8 @@ executionRuntime = createExecutionComposition({
   redactText,
   getChatKey,
   replyTrackedProgressHtml,
+  progressMessageStore,
+  retryPendingProgressCleanup,
   replyHtml,
   editMessageQuietly,
   readLatestTokenCount,
@@ -1136,9 +1152,15 @@ const {
 } = executionRuntime;
 hydratePendingTurnsFromState();
 
-({ adminCommandHandlers } = registerRuntimeRoutes({
+({ adminCommandHandlers, workspaceMenus } = registerRuntimeRoutes({
   bot,
   config,
+  getPendingTurns,
+  hasPendingFinalDelivery,
+  isQueuePaused,
+  enqueuePendingTurn,
+  createSyntheticCtx,
+  redactText,
   state,
   valid: VALID,
   activeTurns,
@@ -1262,7 +1284,8 @@ await bootstrapBot({
   startPersistedQueues,
   startStateSnapshotScheduler,
   startRecoveryScheduler,
-  handleSignal: handleProcessSignal
+  startWorkspaceServices: () => workspaceMenus.start(),
+  handleSignal: (signal) => { workspaceMenus.stop(); return handleProcessSignal(signal); }
 });
 
 async function rejectCallbackIfActive(ctx, chatKey) {

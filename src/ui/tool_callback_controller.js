@@ -57,14 +57,14 @@ export function createToolCallbackController({
         ["file", result.path],
         ["size", formatting.bytes(result.bytes)],
         ["chats", result.chatCount]
-      ]));
+      ]), keyboards.withToolsBack());
       await telegram.replyDocument(ctx, result.path, "Codex Telegram Bot backup");
     } else if (action === "export") {
       const file = await backup.createChatExport(chatKey);
       await telegram.replyHtml(ctx, formatting.keyValue("Chat export created:", [
         ["file", file.path],
         ["size", formatting.bytes(file.bytes)]
-      ]));
+      ]), keyboards.withToolsBack());
       await telegram.replyDocument(ctx, file.path, "Current chat export");
     } else if (action === "cleanup") {
       await cleanup.handleCommand(ctx);
@@ -113,7 +113,7 @@ export function createToolCallbackController({
               style: "primary"
             }
           ],
-          [{ text: `← ${localization.text("back")}`, callback_data: "tool:codex_maintenance" }]
+          [{ role: "back", text: `← ${localization.text("back")}`, callback_data: "tool:codex_maintenance" }]
         ]))
       );
     } else if (action === "codex_maintenance_sqlite_repair_apply") {
@@ -153,7 +153,7 @@ export function createToolCallbackController({
             { text: localization.text("forgetRun"), callback_data: "confirm:forget" },
             { text: localization.text("cancel"), callback_data: "p:tools" }
           ],
-          [{ text: `← ${localization.text("back")}`, callback_data: "p:tools" }]
+          [{ role: "back", text: `← ${localization.text("back")}`, callback_data: "p:tools" }]
         ]))
       );
     }

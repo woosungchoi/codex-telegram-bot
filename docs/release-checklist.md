@@ -25,6 +25,23 @@ separate change.
 Confirm the dry-run package includes runtime source, docs, assets, systemd
 files, and executable bin entries.
 
+### CLI selection checks
+
+`npm test` verifies the installed package-local CLI with an isolated child
+environment, then separately compares `codex-yolo --version` against the CLI
+selected by the current `CODEX_REAL_PATH` override (or the local default).
+Their versions may legitimately differ; neither check pins a version string.
+
+To check another already-installed CLI, including a newer release, run:
+
+```bash
+CODEX_REAL_PATH=/absolute/path/to/codex node --test test/package_bin.test.mjs
+```
+
+This sets the override only for that test process. Tests do not download the
+latest CLI, change `.env`, update dependencies, or execute a model turn. A
+missing or broken explicitly configured CLI remains a failure, not a skip.
+
 ## Startup Smoke
 
 Before restarting the service, confirm the runtime configuration and local state

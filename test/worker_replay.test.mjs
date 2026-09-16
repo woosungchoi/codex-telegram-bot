@@ -35,6 +35,18 @@ test("completed worker replay reconstructs final response without starting or mu
   assert.deepEqual(client.calls.map((call) => call.method), ["events"]);
 });
 
+test("completed delivery replay retains the account that produced the response", async () => {
+  const selectedAccount = { seq: 3, type: "account.selected", fromAccountId: "default", accountId: "backup" };
+  const result = await reconstructCompletedWorkerJob(createClient([
+    { seq: 1, type: "thread.started", thread_id: "new", accountId: "backup" },
+    { seq: 2, type: "item.completed", item: { id: "message", type: "agent_message", text: "answer" } },
+    selectedAccount,
+    { seq: 4, type: "worker.job.completed", status: "completed", threadId: "new", accountId: "backup" }
+  ]), "job-1");
+  assert.equal(result.accountId, "backup");
+  assert.deepEqual(result.selectedAccount, selectedAccount);
+});
+
 test("completed worker replay uses terminal job status when the terminal event page is exhausted", async () => {
   const client = createClient([
     { seq: 1, type: "thread.started", thread_id: "thread-1" },

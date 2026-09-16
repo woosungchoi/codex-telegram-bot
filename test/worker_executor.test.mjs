@@ -86,3 +86,18 @@ test("worker executor writes failed events", async (t) => {
   assert.equal(events.at(-1).type, "worker.job.failed");
   assert.equal((await store.readJobState("job-1")).status, "failed");
 });
+
+test("a terminal streamed failure never produces a completed worker job", async (t) => {
+  const store = await tempStore();
+  t.after(() => fs.rm(store.paths.stateDir, { recursive: true, force: true }));
+  const createThread = () => ({
+    async runStreamed() {
+      return { events: (async function* () {
+        yield { type: "turn.failed", error: { message: "usage limit", codexErrorInfo: "usageLimitExceeded" } };
+      })() };
+    }
+  });
+  await assert.rejects(runWorkerJob({ job: { id: "failure", chatKey: "chat" }, config: {}, store, createThread }), /usage limit/);
+  assert.equal((await store.readJobState("failure")).status, "failed");
+  assert.equal((await store.readJobEvents("failure")).some((e) => e.type === "worker.job.completed"), false);
+});

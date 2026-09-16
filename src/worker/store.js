@@ -7,9 +7,12 @@ import {
   writePrivateFileAtomic
 } from "../fs/private.js";
 import { workerPaths } from "./paths.js";
+import { deliveryReceipt, readArchivedEvents } from "./log_retention.js";
+import { createEventLogReader } from "./event_log.js";
 
 const STATE_VERSION = 1;
 const fileLocks = new Map();
+const readEventLog = createEventLogReader();
 
 export async function ensureWorkerStateDir(paths) {
   await ensurePrivateDirectory(paths.stateDir);
@@ -27,6 +30,16 @@ export function createWorkerStore(config = {}) {
     writeJobState: (job) => writeJobState(paths, job),
     readJobState: (jobId) => readJobState(paths, jobId),
     readActiveJobs: () => readActiveJobs(paths),
+    // Maintenance runs these together under the same lock as append/start.
+    withJobLock: (id, action) => withFileLock(jobPath(paths, id), action),
+    writeJobStateLocked: (job) => writeJobStateLocked(paths, job),
+    confirmDelivery: (entry) => withFileLock(jobPath(paths, entry?.jobId), async () => {
+      const job = await readJobState(paths, entry?.jobId);
+      const receipt = deliveryReceipt(job, entry);
+      if (!receipt) return { recorded: false };
+      await writeJobStateLocked(paths, { id: job.id, deliveryReceipt: receipt });
+      return { recorded: true };
+    }),
     upsertActiveJob: (job) => upsertActiveJob(paths, job),
     removeActiveJob: (jobId) => removeActiveJob(paths, jobId)
   };
@@ -36,6 +49,7 @@ export async function appendJobEvent(paths, jobId, event) {
   return withFileLock(jobPath(paths, jobId), async () => {
     await ensureWorkerStateDir(paths);
     const job = await readJobState(paths, jobId);
+    if (job?.eventArchive) throw new Error("Archived worker jobs are immutable; use a new job ID.");
     const seq = Number(job?.lastSeq || 0) + 1;
     const payload = {
       ...event,
@@ -54,18 +68,15 @@ export async function appendJobEvent(paths, jobId, event) {
   });
 }
 
-export async function readJobEvents(paths, jobId, { afterSeq = 0, limit = 500 } = {}) {
-  try {
-    const body = await fs.readFile(jobEventsPath(paths, jobId), "utf8");
-    return body.split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line))
-      .filter((event) => Number(event.seq || 0) > Number(afterSeq || 0))
-      .slice(0, limit);
-  } catch (error) {
-    if (error?.code === "ENOENT") return [];
-    throw error;
-  }
+export async function readJobEvents(paths, jobId, options = {}) {
+  return withFileLock(jobPath(paths, jobId), async () => {
+    try { return await readEventLog(jobEventsPath(paths, jobId), options); }
+    catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      const job = await readJobState(paths, jobId);
+      return readArchivedEvents(paths.archivesDir, job?.eventArchive, options);
+    }
+  });
 }
 
 export async function writeJobState(paths, job) {
@@ -75,6 +86,9 @@ export async function writeJobState(paths, job) {
 async function writeJobStateLocked(paths, job) {
   await ensureWorkerStateDir(paths);
   const existing = await readJobState(paths, job.id);
+  if (existing?.eventArchive && job.acceptedAt && job.acceptedAt !== existing.acceptedAt) {
+    throw new Error("Archived worker jobs are immutable; use a new job ID.");
+  }
   await writeJsonFileAtomic(jobPath(paths, job.id), {
     version: STATE_VERSION,
     ...(existing ?? {}),

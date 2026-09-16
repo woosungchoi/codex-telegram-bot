@@ -1,7 +1,11 @@
 import test from "node:test";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import assert from "node:assert/strict";
 import {
   createRuntimeSettingsController,
+  saveRuntimeState,
   normalizeRuntimeState,
   setRuntimeValue
 } from "../src/runtime/state_store.js";
@@ -85,4 +89,19 @@ test("runtime setting validation supports defaults and rejects invalid values", 
     () => setRuntimeValue(target, "unknown", "1"),
     /Unknown runtime setting/
   );
+});
+
+test("invalid direct workspace/forum mutations are rejected before overwriting persisted state", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "state-mutation-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const file = path.join(root, "state.json");
+  const state = { workspace: { version: 1, projects: {}, tasks: {}, flows: {}, panels: {}, panelPreferences: {} } };
+  await saveRuntimeState(file, state); const original = await fs.readFile(file, "utf8");
+  state.workspace.tasks.bad = null;
+  await assert.rejects(saveRuntimeState(file, state), /workspace.tasks.bad/);
+  assert.equal(await fs.readFile(file, "utf8"), original);
+  delete state.workspace.tasks.bad;
+  state.forum = { groups: { group: { topics: { bad: false } } }, jobs: {} };
+  await assert.rejects(saveRuntimeState(file, state), /forum.groups/);
+  assert.equal(await fs.readFile(file, "utf8"), original);
 });

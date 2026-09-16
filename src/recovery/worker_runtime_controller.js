@@ -1,6 +1,7 @@
 import { runTelegramFinalDelivery, summarizeTelegramError } from "../telegram/api.js";
 import { b, code } from "../telegram/html.js";
 import { truncate } from "../utils/text.js";
+import { applyAccountEvent, rememberAccountThread } from "../accounts/context.js";
 import {
   isWorkerSnapshotResumeEligible,
   normalizeWorkerDeliveryEntry,
@@ -86,7 +87,15 @@ export function createWorkerRuntimeRecoveryController({
       });
     }
     for (const candidate of selection.ignored) {
-      if (candidate.reason !== "already_sent" || !candidate.snapshot) continue;
+      if (candidate.reason !== "already_sent") continue;
+      const snapshot = candidate.snapshot ?? workerRecoverySnapshot(candidate.chatKey, candidate.job);
+      const recoveredTurn = createWorkerRecoveryTurn(candidate.chatKey, snapshot);
+      const progress = turn.createLiveProgressState({ currentPreparedTurn: recoveredTurn }, candidate.chatKey);
+      progress.chatKey = candidate.chatKey;
+      if (turn.shouldDeleteLiveProgress(progress, true)) {
+        await turn.deleteTrackedProgressMessages(turn.createSyntheticCtx(recoveredTurn), progress);
+      }
+      if (!candidate.snapshot) continue;
       await removeActiveTurnSnapshot(settings.recoveryDir, candidate.chatKey);
       await turn.appendRecoveryEvent({
         type: "worker_delivery_snapshot_cleaned",
@@ -110,6 +119,37 @@ export function createWorkerRuntimeRecoveryController({
         expectedDigest: "",
         showProgress: true
       })) started += 1;
+    }
+
+    for (const [key, rawEntry] of Object.entries(stateStore.getWorkerDeliveries())) {
+      const entry = normalizeWorkerDeliveryEntry(key, rawEntry);
+      const job = entry ? jobs[entry.jobId] : null;
+      const snapshot = entry ? snapshots[entry.chatKey] : null;
+      if (
+        !entry
+        || entry.deliveryStatus !== "streaming"
+        || (job?.status !== "accepted" && job?.status !== "running")
+        || (job?.id && String(job.id) !== entry.jobId)
+        || (job?.chatKey && String(job.chatKey) !== entry.chatKey)
+        || String(snapshot?.workerJobId || "") === entry.jobId
+        || stateStore.activeTurns.has(entry.chatKey)
+      ) continue;
+      const repairedSnapshot = {
+        ...workerRecoverySnapshot(entry.chatKey, job),
+        recoveryReason: "active_worker_snapshot_mismatch"
+      };
+      await replaceActiveTurnSnapshot(settings.recoveryDir, entry.chatKey, repairedSnapshot);
+      if (startWorkerJobRecovery(
+        entry.chatKey,
+        repairedSnapshot,
+        job,
+        {
+          source,
+          expectedDigest: "",
+          showProgress: true,
+          reason: "active_worker_snapshot_mismatch"
+        }
+      )) started += 1;
     }
 
     for (const candidate of selection.safe) {
@@ -148,6 +188,7 @@ export function createWorkerRuntimeRecoveryController({
 
       const armed = {
         ...snapshot,
+        ...(job.accountId ? { accountId: job.accountId, accountAttemptState: job.accountAttemptState || {}, threadId: job.threadId || "" } : {}),
         workerJobId: "",
         workerEventSeq: 0,
         recoveryEligible: true,
@@ -199,6 +240,7 @@ export function createWorkerRuntimeRecoveryController({
     if (!snapshot || !job?.id || stateStore.activeTurns.has(chatKey)) return false;
     const preparedSnapshot = {
       ...snapshot,
+      ...(job.accountId ? { accountId: job.accountId, accountAttemptState: job.accountAttemptState || {}, threadId: job.threadId || "" } : {}),
       chatKey,
       workerJobId: job.id,
       workerEventSeq: Number(snapshot.workerEventSeq || 0),
@@ -220,8 +262,9 @@ export function createWorkerRuntimeRecoveryController({
       workerEventSeq: Number(snapshot.workerEventSeq || 0)
     };
     stateStore.activeTurns.set(chatKey, active);
-    const liveProgress = options.showProgress ? turn.createLiveProgressState(active) : null;
-    if (liveProgress) liveProgress.chatKey = chatKey;
+    // Completed replay suppresses new progress, but still restores cleanup state.
+    const liveProgress = turn.createLiveProgressState(active, chatKey);
+    liveProgress.chatKey = chatKey;
     resumeWorkerJobRecovery(ctx, chatKey, job.id, active, liveProgress, options).catch((error) => {
       logger.warn("worker recovery failed:", summarizeTelegramError(error));
     });
@@ -238,7 +281,9 @@ export function createWorkerRuntimeRecoveryController({
       originMessageId: job?.originMessageId,
       originUpdateId: job?.originUpdateId,
       queueItemId: job?.id || "",
+      progressTurnId: job?.progressTurnId || job?.id || "",
       threadId: job?.threadId || "",
+      ...(job?.accountId ? { accountId: job.accountId, accountAttemptState: job.accountAttemptState || {} } : {}),
       inputPreview: "",
       startedAt: job?.startedAt || job?.acceptedAt || "",
       lastEventAt: job?.completedAt || job?.updatedAt || "",
@@ -287,12 +332,13 @@ export function createWorkerRuntimeRecoveryController({
     });
     let finalReaction = "";
     let deliveryCompleted = false;
+    let completedThreadId = "";
     try {
       let workerResult;
       try {
         workerResult = options.completedReplay
           ? await reconstructCompletedWorkerJob(worker.getClient(), jobId)
-          : await worker.waitForJob(ctx, chatKey, jobId, active, liveProgress, {
+          : await worker.waitForJob(ctx, chatKey, jobId, active, options.showProgress ? liveProgress : null, {
             afterSeq: 0,
             turnKind: "recovery"
           });
@@ -329,9 +375,10 @@ export function createWorkerRuntimeRecoveryController({
         executionMode: "sidecar",
         workerJobId: jobId
       };
-      if (execution.threadId && stateStore.getChat(chatKey).threadId !== execution.threadId) {
+      if (execution.threadId) {
         const chat = stateStore.getChat(chatKey);
-        chat.threadId = execution.threadId;
+        rememberAccountThread(chat, execution.threadId, execution.accountId || chat.threadAccountId || "default");
+        if (execution.selectedAccount) applyAccountEvent(chat, execution.selectedAccount);
         chat.updatedAt = now().toISOString();
         await stateStore.save();
       }
@@ -380,10 +427,7 @@ export function createWorkerRuntimeRecoveryController({
         return;
       }
 
-      await turn.recordActiveTurnCompleted(
-        chatKey,
-        execution.threadId || stateStore.getChat(chatKey).threadId || ""
-      );
+      completedThreadId = execution.threadId || stateStore.getChat(chatKey).threadId || "";
       await turn.appendRecoveryEvent({
         type: "worker_recovery_completed",
         chatKey,
@@ -396,6 +440,7 @@ export function createWorkerRuntimeRecoveryController({
       if (liveProgress && turn.shouldDeleteLiveProgress(liveProgress, deliveryCompleted)) {
         await turn.deleteTrackedProgressMessages(ctx, liveProgress);
       }
+      if (deliveryCompleted) await turn.recordActiveTurnCompleted(chatKey, completedThreadId);
       await telegram.reactQuietly(
         ctx,
         finalReaction,
@@ -423,11 +468,13 @@ export function createWorkerRecoveryTurn(chatKey, snapshot, { now = Date.now } =
     originMessageId: snapshot.originMessageId,
     originUpdateId: snapshot.originUpdateId,
     kind: "recovery",
+    progressTurnId: snapshot.progressTurnId || snapshot.queueItemId || snapshot.workerJobId || "",
     text: snapshot.inputPreview || "",
     inputText: "",
     imagePaths: [],
     recovery: {
       chatKey,
+      ...(snapshot.accountId ? { accountId: snapshot.accountId, accountAttemptState: snapshot.accountAttemptState || {} } : {}),
       threadId: snapshot.threadId || "",
       recoveryKey: snapshot.recoveryKey || "",
       startedAt: snapshot.startedAt || "",
