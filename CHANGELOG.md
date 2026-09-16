@@ -4,6 +4,28 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+## 1.3.7 - 2026-09-16
+
+- Add Russian and complete all 1,255 translation keys in English, Korean,
+  Traditional Chinese and Russian, including settings, account and usage menus,
+  skills, diagnostics, progress, time zones and default response instructions.
+- Move fixed Telegram UI text into shared locale catalogs. Resolve the current
+  language when rendering and preserve command syntax, callback data, model IDs,
+  external messages and user content.
+- Localize application validation errors at the UI boundary while retaining
+  English diagnostic messages and optional locale metadata through worker
+  requests, persisted events and recovery replay.
+- Add a UI localization source check to verification, document the translation
+  policy, and cover all supported languages, live language changes, escaping,
+  callback behavior and worker error replay with regression tests.
+- Update public tooling to TypeScript 7 and retain the TypeScript 6 compiler API
+  for source checks. Make compiler selection explicit, preserve the existing
+  strictness policy, and update Node.js types and markdown-it in
+  [PR #73](https://github.com/woosungchoi/codex-telegram-bot/pull/73).
+
+Thank you to **9Lucky9** for the Russian locale contribution in
+[PR #76](https://github.com/woosungchoi/codex-telegram-bot/pull/76).
+
 ## 1.3.6 - 2026-09-14
 
 - Update account status, selection, rotation and input/confirmation menus in the
