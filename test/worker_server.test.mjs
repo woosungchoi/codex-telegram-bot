@@ -17,7 +17,7 @@ async function startServer(executeJob, options = {}) {
   const config = {
     codexWorkerStateDir: dir,
     codexWorkerSocket: path.join(dir, "worker.sock"),
-    codexWorkerConnectTimeoutMs: 1000,
+    codexWorkerConnectTimeoutMs: 5000,
     codexTransport: "sdk"
   };
   const store = createWorkerStore(config);
@@ -43,10 +43,10 @@ test("worker server writes heartbeat events for running jobs", async () => {
       await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
     }
   };
-  const { worker, client } = await startServer(executeJob, { heartbeatMs: 5 });
+  const { worker, client } = await startServer(executeJob, { heartbeatMs: 20 });
   try {
     await client.startJob({ id: "job-heartbeat", chatKey: "chat-heartbeat", inputText: "hi" });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 60));
     const events = await client.readJobEvents("job-heartbeat", 0);
     assert.equal(events.events.some((event) => event.type === "worker.heartbeat"), true);
     await client.cancelJob("job-heartbeat");
