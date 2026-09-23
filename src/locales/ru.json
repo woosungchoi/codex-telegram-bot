@@ -388,6 +388,7 @@
   "accounts.usagePending": "Завершите вход в этот аккаунт, затем обновите статистику использования.",
   "accounts.usageFailed": "Не удалось загрузить статистику. Обновите её или проверьте состояние входа в разделе «Аккаунты».",
   "accounts.usageResetCredits": "🎟️ Кредиты сброса лимитов",
+  "accounts.usageResetScope": "Профили с одним аккаунтом ChatGPT используют эти кредиты совместно.",
   "accounts.usageResetAvailable": "Доступно",
   "accounts.usageResetCredit": "Кредит сброса",
   "accounts.usageResetExpires": "Срок действия",

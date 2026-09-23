@@ -33,8 +33,8 @@ export function createAccountUsageReader(config, { read = readAccountUsage, now 
 
 export function formatAccountUsageHtml(usage, { label, text: t, formatDateTime = (ms) => new Date(ms).toISOString() }) {
   const identity = usage.account;
-  const lines = [b(t("usageTitle")), "", `${t("usageAccount")}: ${b(label)}${identity?.planType ? ` · ${b(identity.planType)}` : ""}`];
-  if (identity?.email && identity.email !== label) lines.push(code(identity.email));
+  const authenticatedEmail = typeof identity?.email === "string" ? identity.email.trim() : "";
+  const lines = [b(t("usageTitle")), "", `${t("usageAccount")}: ${b(authenticatedEmail || label)}${identity?.planType ? ` · ${b(identity.planType)}` : ""}`];
   if (identity?.type !== "chatgpt") {
     lines.push("", t("usageSignIn"));
   } else {
@@ -58,7 +58,7 @@ export function formatAccountUsageHtml(usage, { label, text: t, formatDateTime =
       }
     }
     if (!count) lines.push("", t("usageUnavailable"));
-    lines.push("", ...formatResetCredits(usage.rateLimitResetCredits, t, formatDateTime));
+    lines.push("", ...formatResetCredits(usage.rateLimitResetCredits, t, formatDateTime), t("usageResetScope"));
   }
   lines.push("", `${t("usageChecked")}: ${code(formatDateTime(usage.checkedAt))}`);
   return lines.join("\n");

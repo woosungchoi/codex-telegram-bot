@@ -388,6 +388,7 @@
   "accounts.usagePending": "請完成此帳號的登入，再重新整理用量。",
   "accounts.usageFailed": "無法載入用量。請重新整理，或從帳號列表檢查登入狀態。",
   "accounts.usageResetCredits": "🎟️ 用量重設使用券",
+  "accounts.usageResetScope": "登入同一 ChatGPT 帳號的設定檔會共用這些使用券。",
   "accounts.usageResetAvailable": "可使用",
   "accounts.usageResetCredit": "重設使用券",
   "accounts.usageResetExpires": "到期",

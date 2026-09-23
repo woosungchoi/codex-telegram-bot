@@ -388,6 +388,7 @@
   "accounts.usagePending": "Finish this account's sign-in, then refresh its usage.",
   "accounts.usageFailed": "Could not load usage. Try Refresh, or check the sign-in status in Accounts.",
   "accounts.usageResetCredits": "🎟️ Rate limit reset credits",
+  "accounts.usageResetScope": "Profiles signed in to the same ChatGPT account share these credits.",
   "accounts.usageResetAvailable": "Available",
   "accounts.usageResetCredit": "Reset credit",
   "accounts.usageResetExpires": "Expires",

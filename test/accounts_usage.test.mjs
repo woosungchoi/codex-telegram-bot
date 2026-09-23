@@ -94,6 +94,8 @@ test("logged-out and API-key accounts do not make a ChatGPT quota request", asyn
 
 test("usage renders a weekly primary window once and separate Spark windows with remaining quota", () => {
   const html = formatAccountUsageHtml(usage, options);
+  assert.match(html, /조회 계정: <b>person@example\.com<\/b> · <b>pro<\/b>/);
+  assert.doesNotMatch(html, /조회 계정: <b>Work<\/b>/);
   assert.equal((html.match(/<b>Codex · 주간<\/b>/g) || []).length, 1);
   assert.match(html, /사용 52% · 남음 <b>48%<\/b>/);
   assert.match(html, /GPT-5.3-Codex-Spark · 5시간/);
@@ -111,10 +113,12 @@ test("usage renders a weekly primary window once and separate Spark windows with
 
 test("legacy and map-only responses escape text and keep missing quota values unknown", () => {
   const html = formatAccountUsageHtml({
-    ...usage, rateLimits: null,
+    ...usage, account: { ...usage.account, email: "<person & example>" }, rateLimits: null,
     rateLimitsByLimitId: { codex: { limitName: "<Codex & Work>", primary: { usedPercent: null, resetsAt: null }, secondary: { usedPercent: 100, windowDurationMins: 120, resetsAt: null } } }
   }, { ...options, label: "<Work & personal>" });
-  assert.match(html, /&lt;Work &amp; personal&gt;/);
+  assert.match(html, /조회 계정: <b>&lt;person &amp; example&gt;<\/b>/);
+  assert.doesNotMatch(html, /&lt;Work &amp; personal&gt;/);
+  assert.match(formatAccountUsageHtml({ ...usage, account: null }, { ...options, label: "<Work & personal>" }), /조회 계정: <b>&lt;Work &amp; personal&gt;<\/b>/);
   assert.match(html, /&lt;Codex &amp; Work&gt; · 기간 미제공/);
   assert.match(html, /사용 정보 없음 · 남음 <b>정보 없음<\/b>/);
   assert.match(html, /초기화: <code>정보 없음<\/code>/);
@@ -136,6 +140,7 @@ test("usage labels follow the account menu language", () => {
 test("reset credits preserve the server count, render expiry in the selected timezone and omit opaque IDs", () => {
   const html = formatAccountUsageHtml(usage, options);
   assert.match(html, /🎟️ Reset 사용권/);
+  assert.match(html, /같은 ChatGPT 계정으로 로그인한 프로필은 이 사용권을 공유합니다/);
   assert.match(html, /사용 가능: <b>3<\/b>/);
   assert.match(html, /Full reset · 만료: <code>2026-09-21T00:11:29.000Z<\/code>/);
   assert.match(html, /표시된 사용권 상세: 1\/3/);
