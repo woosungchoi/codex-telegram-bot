@@ -88,6 +88,8 @@ export function createChatOptionsController({
       stateStore.chats[chatKey] = { options: {}, updatedAt: now().toISOString() };
     }
     if (!stateStore.chats[chatKey].options) stateStore.chats[chatKey].options = {};
+    const accountId = stateStore.defaultAccountId?.();
+    if (!stateStore.chats[chatKey].accountId && accountId) stateStore.chats[chatKey].accountId = accountId;
     return stateStore.chats[chatKey];
   }
 

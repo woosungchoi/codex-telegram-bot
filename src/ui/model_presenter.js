@@ -10,7 +10,8 @@ import { accountConfig, selectedAccountId } from "../accounts/context.js";
 export function createModelPresenter({ settings, state, chats, localization, formatting }) {
   const msg = createMessageFormatter(localization.text);
   async function listCodexModels(chatKey) {
-    const config = chatKey ? accountConfig(settings.config, selectedAccountId(state.chats[chatKey])) : settings.config;
+    const config = chatKey ? accountConfig(settings.config,
+      selectedAccountId(state.chats[chatKey] || { accountId: state.accountDefaultId })) : settings.config;
     return readCodexModelCatalog(config.codexModelsCacheFile);
   }
 

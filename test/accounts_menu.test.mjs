@@ -331,8 +331,46 @@ test("legacy delete buttons require a fresh confirmation and active accounts rem
   assert.match(f.messages.at(-1).text, /작업이 실행 중/);
   assert.ok(await f.store.get(account.id));
   await f.click("acct:remove:default");
-  assert.match(f.messages.at(-1).text, /기본 계정/);
-  assert.equal(f.savedState().accountUi["1:1"], undefined);
+  assert.match(f.messages.at(-1).text, /서버의 Codex 로그인과 세션 파일은 유지/);
+  assert.equal(f.savedState().accountUi["1:1"].kind, "delete");
+  await f.click(f.buttonData("acct:cancelui:"));
+  assert.deepEqual((await f.store.list()).map((a) => a.id), ["default", account.id]);
+});
+
+test("default account removal keeps host files and moves conversations to the remaining account", async (t) => {
+  const f = await fixture(t);
+  const account = await f.store.create("남길 계정");
+  await f.store.update(account.id, { status: "ready" });
+  f.r.state.chats["1"] = { threadId: "host-thread", accountThreads: { default: "host-thread" } };
+  f.r.state.chats["topic"] = { accountId: "default", threadAccountId: "default", threadId: "topic-thread" };
+  f.r.state.forum = { groups: { group: { topics: { 1: { preset: { accountId: "default" } } } } } };
+  await f.send("/accounts");
+  assert.ok(f.buttons().some((button) => button.callback_data === "acct:remove:default"));
+  await f.click("acct:remove:default");
+  await f.click(f.buttonData("acct:confirm:"));
+  assert.deepEqual((await f.store.list()).map((a) => a.id), [account.id]);
+  assert.equal(f.savedState().accountDefaultId, account.id);
+  assert.equal(f.savedState().chats["1"].accountId, account.id);
+  assert.equal(f.savedState().chats["1"].threadId, undefined);
+  assert.equal(f.savedState().chats.topic.accountId, account.id);
+  assert.equal(f.savedState().chats.topic.threadId, undefined);
+  assert.equal(f.savedState().forum.groups.group.topics[1].preset.accountId, account.id);
+  assert.equal(await fs.readFile(path.join(f.config.codexHome, "auth.json"), "utf8"), "HOST_TOKEN_SENTINEL");
+  await assert.rejects(f.store.get("default"), /계정|account/);
+  await f.send("/accounts");
+  assert.ok(f.buttons().every((button) => button.callback_data !== "acct:use:default"));
+});
+
+test("queued turns prevent default account removal", async (t) => {
+  const f = await fixture(t);
+  const account = await f.store.create("Other");
+  await f.store.update(account.id, { status: "ready" });
+  f.r.state.queues = { "1": [{ accountId: "default", text: "waiting" }] };
+  await f.send("/accounts");
+  await f.click("acct:remove:default");
+  await f.click(f.buttonData("acct:confirm:"));
+  assert.match(f.messages.at(-1).text, /작업이 실행 중/);
+  assert.ok(await f.store.get("default"));
 });
 
 test("persisted deletion confirmations retain their binding and expiry across restart", async (t) => {

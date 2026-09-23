@@ -69,10 +69,17 @@ export function createAccountStore(config, { now = Date.now } = {}) {
     }
   }
   const listData = (data) => [
-    { ...DEFAULT_ACCOUNT, ...(data.accounts.find((a) => a.id === DEFAULT_ACCOUNT_ID) || {}) },
+    ...(data.defaultDisabled ? [] : [{ ...DEFAULT_ACCOUNT, ...(data.accounts.find((a) => a.id === DEFAULT_ACCOUNT_ID) || {}) }]),
     ...data.accounts.filter((a) => a.id !== DEFAULT_ACCOUNT_ID)
   ];
   async function list() { return listData(await read()); }
+  async function defaultAccountId() {
+    const data = await read();
+    const accounts = listData(data);
+    const id = accounts.find((a) => a.id === data.primaryAccountId)?.id || accounts[0]?.id;
+    if (!id) throw new LocalizedError("errors.accountNotFoundOpenAccounts");
+    return id;
+  }
   async function get(id) {
     const account = (await list()).find((a) => a.id === id);
     if (!account) throw new LocalizedError("errors.accountNotFoundOpenAccounts");
@@ -127,9 +134,13 @@ export function createAccountStore(config, { now = Date.now } = {}) {
     return () => fs.rm(lease, { force: true });
   }
   async function remove(id) {
-    if (id === DEFAULT_ACCOUNT_ID) throw new LocalizedError("errors.theHostSDefaultAccountCannotBeDeletedHere");
     accountHome(config, id);
-    await locked(async (data) => {
+    return locked(async (data) => {
+      if (!listData(data).some((a) => a.id === id)) throw new LocalizedError("errors.accountNotFound");
+      const remaining = listData(data).filter((a) => a.id !== id);
+      const replacement = remaining.find((a) => a.id === data.primaryAccountId && a.status === "ready")
+        || remaining.find((a) => a.status === "ready");
+      if (!replacement) throw new LocalizedError("errors.cannotDeleteLastReadyAccount");
       const leaseDir = path.join(root, "leases", id);
       const leases = await fs.readdir(leaseDir).catch((error) => {
         if (error.code === "ENOENT") return [];
@@ -138,9 +149,12 @@ export function createAccountStore(config, { now = Date.now } = {}) {
       if (leases.some((name) => processAlive(Number(name.split("-")[0])))) {
         throw new LocalizedError("errors.thisAccountHasARunningTaskWaitForIt");
       }
-      await fs.rm(accountHome(config, id), { recursive: true, force: true });
+      if (id !== DEFAULT_ACCOUNT_ID) await fs.rm(accountHome(config, id), { recursive: true, force: true });
       await fs.rm(leaseDir, { recursive: true, force: true });
       data.accounts = data.accounts.filter((a) => a.id !== id);
+      if (id === DEFAULT_ACCOUNT_ID) data.defaultDisabled = true;
+      data.primaryAccountId = replacement.id;
+      return replacement.id;
     });
   }
   async function candidates() {
@@ -149,7 +163,7 @@ export function createAccountStore(config, { now = Date.now } = {}) {
     return listData(data).filter((a) => a.status === "ready" && !(a.cooldownUntil > now()));
   }
   return {
-    read, list, get, create, update, acquire, remove, candidates,
+    read, list, get, defaultAccountId, create, update, acquire, remove, candidates,
     rename: (id, label) => update(id, { label: cleanLabel(label) }),
     setAutoRotate: (enabled) => locked((data) => { data.autoRotate = enabled === true; }),
     markFailure: (id, failure) => update(id, {

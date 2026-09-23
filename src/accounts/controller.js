@@ -2,6 +2,7 @@ import { errorText, LocalizedError, SUPPORTED_LANGUAGES } from "../i18n.js";
 import { randomBytes } from "node:crypto";
 import { createAccountStore, cleanLabel } from "./store.js";
 import { selectedAccountId } from "./context.js";
+import { reconcileAccountSelections } from "./selection.js";
 import { signInAccount, inspectAccount } from "./auth.js";
 import { accountText } from "./messages.js";
 import { createAccountUsageReader, formatAccountUsageHtml, readAccountUsage } from "./usage.js";
@@ -100,8 +101,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
   }
   async function promptRemoval(ctx, id) {
     const account = await store.get(id);
-    if (account.legacy) return replyMenu(ctx, t("defaultProtected"), menuKeyboard());
-    return prompt(ctx, "delete", id, `${t("deleteConfirm")}\n\n${b(account.label)}`);
+    return prompt(ctx, "delete", id, `${t(account.legacy ? "deleteDefaultConfirm" : "deleteConfirm")}\n\n${b(account.label)}`);
   }
   async function consumeCallbackFlow(ctx, token, kind) {
     const flow = readFlow(ctx);
@@ -169,7 +169,7 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
         button(t("check"), `acct:check:${account.id}`)
       ], [
         button(t("rename"), `acct:rename:${account.id}`),
-        ...(account.legacy ? [] : [button(t("remove"), `acct:remove:${account.id}`)])
+        button(t("remove"), `acct:remove:${account.id}`)
       ]);
     }
     lines.push("", `${t("rotate")}: ${settings.autoRotate ? t("on") : t("off")}`, escapeHtml(t("commands")));
@@ -280,14 +280,14 @@ export function registerAccountCommands(r, { store = createAccountStore(r.config
       const accountId = flow.accountId;
       const account = await store.get(accountId);
       if (account.status === "pending" && pending.size) throw new LocalizedError("errors.signInIsStillPendingUseReauthCancelFirst");
-      await store.remove(accountId);
+      const queued = Object.entries(r.state.queues || {}).some(([key, turns]) =>
+        Array.isArray(turns) && turns.some((turn) =>
+          (turn.accountId || selectedAccountId(r.state.chats?.[key] || { accountId: r.state.accountDefaultId })) === accountId));
+      if (queued) throw new LocalizedError("errors.thisAccountHasARunningTaskWaitForIt");
+      const replacementId = await store.remove(accountId);
       usageReader.invalidate();
-      for (const [key, chat] of Object.entries(r.state.chats || {})) {
-        if (chat.accountId === accountId) chat.accountId = "default";
-        if (chat.threadAccountId === accountId) { delete chat.threadId; delete chat.threadAccountId; }
-        if (chat.accountThreads) delete chat.accountThreads[accountId];
-        r.threadCache.delete(key);
-      }
+      reconcileAccountSelections(r.state, await store.list(), replacementId);
+      for (const key of Object.keys(r.state.chats || {})) r.threadCache.delete(key);
       await r.saveState();
       return show(ctx, `${t("deleted")} ${b(account.label)}`);
     }

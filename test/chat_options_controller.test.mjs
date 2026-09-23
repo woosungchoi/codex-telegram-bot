@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createChatOptionsController } from "../src/codex/chat_options_controller.js";
 
-function createHarness() {
+function createHarness(defaultAccountId) {
   const state = { chats: {} };
   const threadCache = new Map();
   const ensured = [];
@@ -25,7 +25,7 @@ function createHarness() {
       additionalDirectories: ["/shared", "/uploads"],
       uploadDir: "/uploads"
     },
-    stateStore: { chats: state.chats, save: async () => {} },
+    stateStore: { chats: state.chats, defaultAccountId: () => defaultAccountId, save: async () => {} },
     threadCache,
     models: { list: async () => [] },
     telegram: {
@@ -55,6 +55,11 @@ function createHarness() {
   });
   return { controller, ensured, replies, state, threadCache };
 }
+
+test("new chats use the remaining account after default removal", () => {
+  const { controller } = createHarness("managed-account");
+  assert.equal(controller.getChatState("new-chat").accountId, "managed-account");
+});
 
 test("bound topic folders survive preference resets and cannot be changed with workdir", async () => {
   const { controller } = createHarness();

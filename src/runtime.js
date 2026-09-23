@@ -15,6 +15,8 @@ import {
   reasoningOptionsForModel
 } from "./codex/models.js";
 import { createChatOptionsController } from "./codex/chat_options_controller.js";
+import { createAccountStore } from "./accounts/store.js";
+import { reconcileAccountSelections } from "./accounts/selection.js";
 import { createCodexSessionRuntime } from "./codex/session_runtime.js";
 import { replyCodexSkillsStatus } from "./codex/skills_status.js";
 import {
@@ -122,6 +124,10 @@ const state = await loadRuntimeState(config.stateFile, {
   parseTimeZone,
   parseLocale
 });
+if (config.codexAccountsDir) {
+  const accountStore = createAccountStore(config);
+  reconcileAccountSelections(state, await accountStore.list(), await accountStore.defaultAccountId());
+}
 const {
   cleanupCount,
   formatText: tf,
@@ -379,6 +385,7 @@ const {
   },
   stateStore: {
     chats: state.chats,
+    defaultAccountId: () => state.accountDefaultId,
     save: () => saveState(config.stateFile, state)
   },
   threadCache,

@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createAccountStore, accountHome } from "../src/accounts/store.js";
 import { accountConfig, accountThreadId, applyAccountEvent, rememberAccountThread } from "../src/accounts/context.js";
+import { reconcileAccountSelections } from "../src/accounts/selection.js";
 import { accountFixture } from "./helpers/accounts_fixture.mjs";
 
 test("managed accounts isolate writable state and never snapshot the host credential", async (t) => {
@@ -32,7 +33,36 @@ test("independent bot and worker stores serialize updates and protect in-use acc
   await releaseB();
   await other.remove(a.id);
   assert.deepEqual((await store.list()).map((x) => x.id), ["default", b.id]);
-  await assert.rejects(store.remove("default"), /cannot be deleted/);
+  const releaseDefault = await store.acquire("default");
+  await assert.rejects(store.remove("default"), /running task/);
+  await releaseDefault();
+  assert.equal(await store.remove("default"), b.id);
+  assert.deepEqual((await other.list()).map((x) => x.id), [b.id]);
+  assert.equal(await store.defaultAccountId(), b.id);
+  await store.setAutoRotate(true);
+  assert.deepEqual((await store.candidates()).map((x) => x.id), [b.id]);
+  assert.equal(await fs.readFile(path.join(config.codexHome, "auth.json"), "utf8"), "HOST_TOKEN_SENTINEL");
+  await assert.rejects(store.remove(b.id), /at least one ready account/);
+  await assert.rejects(store.acquire("default"), /needs sign-in/);
+});
+
+test("startup reconciles a deleted default account even if the prior state save failed", async (t) => {
+  const { store } = await accountFixture(t);
+  const account = await store.create("Available");
+  await store.update(account.id, { status: "ready" });
+  await store.remove("default");
+  const state = { chats: { old: { threadId: "host-thread" }, selected: { accountId: "default" } } };
+  reconcileAccountSelections(state, await store.list(), await store.defaultAccountId());
+  assert.equal(state.accountDefaultId, account.id);
+  assert.deepEqual(state.chats.old, { accountId: account.id });
+  assert.deepEqual(state.chats.selected, { accountId: account.id });
+});
+
+test("default account cannot be removed until another account is ready", async (t) => {
+  const { store } = await accountFixture(t);
+  const pending = await store.create("Pending");
+  await assert.rejects(store.remove("default"), /at least one ready account/);
+  assert.deepEqual((await store.list()).map((a) => a.id), ["default", pending.id]);
 });
 
 test("corrupt account registry fails closed", async (t) => {
