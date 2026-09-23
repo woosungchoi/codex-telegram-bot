@@ -1,0 +1,5 @@
+# GitHub supports ubuntu-26.04, but actionlint v1.7.12 does not yet recognize it.
+paths:
+  .github/workflows/ci.yml:
+    ignore:
+      - 'label "ubuntu-26[.]04" is unknown'
