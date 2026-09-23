@@ -17,6 +17,10 @@ jobs:
     name: Merge Verified Dependency PRs
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # Both upstream workflows can finish together; each run scans all open PRs.
+    concurrency:
+      group: dependency-pr-auto-merge
+      cancel-in-progress: false
 
     steps:
       - name: Merge eligible dependency PRs
@@ -106,10 +110,27 @@ jobs:
             fi
 
             echo "Merging PR #$number: $title"
-            gh pr merge "$number" \
+            if ! gh pr merge "$number" \
               --repo "$REPO" \
               --squash \
               --delete-branch \
               --subject "$title" \
-              --body "Automatically merged after successful dependency PR checks."
+              --body "Automatically merged after successful dependency PR checks."; then
+              echo "PR #$number merge returned an error; checking the final PR state."
+            fi
+
+            # Another actor may have completed the merge while this run waited.
+            # Only a confirmed MERGED state turns a merge error into success.
+            for attempt in 1 2 3 4 5 6; do
+              state="$(gh pr view "$number" --repo "$REPO" --json state --jq .state)"
+              if [ "$state" = "MERGED" ]; then
+                echo "PR #$number is merged."
+                break
+              fi
+              if [ "$state" != "OPEN" ] || [ "$attempt" -eq 6 ]; then
+                echo "PR #$number did not merge (state: $state)." >&2
+                exit 1
+              fi
+              sleep 5
+            done
           done
