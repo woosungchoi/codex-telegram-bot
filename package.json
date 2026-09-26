@@ -61,7 +61,7 @@
     "check:ui-localization": "node scripts/check-ui-localization.mjs"
   },
   "dependencies": {
-    "@openai/codex-sdk": "0.157.0",
+    "@openai/codex-sdk": "0.157.1",
     "dotenv": "^18.0.2",
     "markdown-it": "^15.0.2",
     "node-fetch": "^3.3.2",
@@ -69,7 +69,7 @@
     "telegraf": "^4.16.3"
   },
   "devDependencies": {
-    "@openai/codex": "0.157.0",
+    "@openai/codex": "0.157.1",
     "@types/node": "26.6.2",
     "@typescript/typescript6": "6.0.2",
     "eslint": "10.11.0",
