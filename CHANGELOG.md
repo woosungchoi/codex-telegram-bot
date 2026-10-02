@@ -4,6 +4,67 @@ All notable public changes are documented here.
 
 ## Unreleased
 
+## 1.4.0 - 2026-10-02
+
+### Session cleanup and disk reclamation
+
+- Make the three Cleanup options follow distinct file operations. **Quarantine
+  only** moves eligible session logs into the quarantine directory and retains
+  their contents. **Permanently delete only** unlinks files that have already
+  completed their quarantine period. **Both** quarantines new candidates and
+  deletes only previously expired quarantine files.
+- Remove backup copies from permanent deletion. Newly deleted session contents
+  are no longer duplicated in `delete-backup` directories, so deleting expired
+  files can reclaim their storage. Keep only small plans, results and operation
+  receipts, with irreversible deletion explicitly recorded in the manifest.
+- Preserve the existing retention policy: sessions become quarantine candidates
+  after their configured retention period, and newly quarantined files must
+  complete their own quarantine period before deletion. The default 14-day
+  session retention and 7-day quarantine period are unchanged.
+
+### Execution safety and restore behavior
+
+- Recheck protected thread IDs and the current quarantine timestamp immediately
+  before deletion. Skip files that are still protected, were quarantined too
+  recently, have an invalid timestamp, or fall exactly on the retention cutoff.
+  Execution uses current metadata instead of trusting a previously approved plan.
+- Refuse deletion outside the configured quarantine directory or through linked
+  paths; require a regular file with a matching real path. Require regular
+  quarantine metadata files, and reject unsupported action names before creating
+  operation artifacts.
+- Keep missing-file handling idempotent: files already removed after planning
+  are skipped instead of producing an `ENOENT` failure.
+- Return a restore-script path only when an operation actually quarantined files.
+  New permanent deletions cannot be restored. Generated restore scripts skip
+  irreversible deletion records while retaining support for quarantine moves
+  and historical deletion records that already have backups. Existing historical
+  backups are not automatically purged by this release.
+- Show the no-backup/no-restore notice in English, Korean, Traditional Chinese
+  and Russian when permanent deletion occurs. Document all three options and
+  their retention and restoration rules in both English and Korean READMEs.
+
+### Security and dependencies
+
+- Pin transitive `basic-ftp` to patched version `6.2.1` through an npm override,
+  resolving [GHSA-c475-qrg2-pj4r](https://github.com/advisories/GHSA-c475-qrg2-pj4r)
+  in the `proxy-agent → pac-proxy-agent → get-uri` dependency chain. Preserve the
+  security audit gate and the existing proxy stack; this fix does not downgrade
+  `proxy-agent` or suppress vulnerability reports. See
+  [PR #95](https://github.com/woosungchoi/codex-telegram-bot/pull/95).
+- Refresh the public Codex SDK and CLI packages from `0.159.0` in 1.3.9 to
+  `0.159.3`. Preserve the existing application settings and persisted state.
+
+### Verification and upgrade notes
+
+- Add regression coverage for all three options, absence of payload backups,
+  recently quarantined and protected files, changed timestamps, exact retention
+  boundaries, linked paths, invalid actions, and mixed legacy/new restore records.
+- Verify the full suite (860 passed, one skipped), syntax, lint, formatting,
+  types, architecture and UI localization. Verify zero reported npm
+  vulnerabilities and FTP compatibility through the existing `get-uri` stack.
+- No state migration or new Cleanup setting is required. Review the permanent
+  deletion choice with the understanding that new deletions are irreversible.
+
 ## 1.3.9 - 2026-09-30
 
 - Refresh public Codex SDK/CLI packages and npm dependencies.
