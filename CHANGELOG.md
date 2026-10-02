@@ -1,8 +1,6 @@
 # Changelog
 
-All notable public changes are documented here.
-
-## Unreleased
+Released versions are listed below, newest first.
 
 ## 1.4.0 - 2026-10-02
 
