@@ -2,6 +2,59 @@
 
 Released versions are listed below, newest first.
 
+## 1.4.1 - 2026-10-04
+
+### Worker transport and concurrent admission
+
+- Preserve Korean, emoji and other multibyte UTF-8 text when RPC data arrives
+  across byte boundaries; reject incomplete frames on disconnect.
+- Serialize admission through durable reservation and controller registration.
+  Matching job-ID retries return the existing status without executing twice;
+  different chats continue to execute concurrently.
+- Keep live chat reservations even if the disk index changes. Roll back failed
+  admissions; if rollback fails, pause new admission until healthy recovery.
+
+### Event log and storage recovery
+
+- Derive event sequences from the committed, newline-terminated JSONL prefix,
+  reconciling stale state and cursors without reusing sequence numbers.
+- Preserve incomplete trailing writes in private quarantine before trimming.
+  Reject duplicate/decreasing sequences and logs behind persisted cursors.
+- Surface `EVENT_COMMITTED` with the committed sequence when appending succeeds
+  but saving job state fails. Callers must not blindly repeat that event body.
+- Distinguish missing files, corrupt JSON/container structures, and permission
+  or I/O errors. Rebuild missing/corrupt active indexes only after validating
+  job records, preserving originals and propagating quarantine failures.
+- Recover interrupted reservations at startup without re-executing orphaned work.
+
+### Dependency pull-request merge security
+
+- Verify updater author IDs/types and repository identity; reject spoofed branch
+  names and external forks. Preserve supported owner-PAT and Actions identities.
+- Inspect files at immutable commits as data; execute only trusted workflow code.
+  Permit dependency-version changes or Dependabot action-reference changes,
+  while routing script, permission and unrelated changes to manual review.
+- Require successful CI for the exact head commit, recheck head/base SHAs before
+  merging, and use `--match-head-commit` without an administrator bypass.
+
+### Upgrade and verification notes
+
+- Add regression coverage for UTF-8 splits, concurrent starts and retries,
+  interrupted append/state saves, partial records, I/O failures, quarantine
+  failures and malicious or changed dependency PRs.
+- Stop accepting new work and drain running jobs plus final delivery before
+  restarting the worker. Historical invalid logs require explicit recovery;
+  preserve originals rather than discarding or replaying ambiguous records.
+- Recovery assumes one worker per state directory. File writes are not fsynced,
+  so this release does not promise OS/power-loss durability. Arbitrary event
+  bodies have no deduplication key. See [Worker integrity](docs/worker-integrity.md).
+
+### Distribution
+
+- Update the public Codex SDK/CLI dependencies from `0.159.3` to `0.160.0`.
+- Keep released changelog entries newest first with no empty unreleased heading.
+- Includes [PR #99](https://github.com/woosungchoi/codex-telegram-bot/pull/99).
+
 ## 1.4.0 - 2026-10-02
 
 ### Session cleanup and disk reclamation
@@ -1620,16 +1673,3 @@ and clearer CI diagnostics.
 - Added queue modes, inline settings, image input support, cleanup, backups,
   export, health checks, and maintenance tools inspired by keep-codex-fast.
 - Added English and Korean README files, hero image, and MIT license.
-
-## Pending changes (unreleased)
-
-- Preserve UTF-8 characters across Worker RPC chunk boundaries and reject
-  incomplete frames on disconnect.
-- Serialize Worker job admission, make identical job ID retries idempotent and
-  rollback failed reservations while preserving parallel execution across chats.
-- Recover event sequences from committed JSONL records, preserve partial writes
-  in quarantine and distinguish corrupt state from permission/I/O failures.
-- Restrict dependency auto merge by author identity, repository, semantic file
-  changes and successful required CI; pin the inspected head SHA at merge time.
-- Add concurrent admission and storage fault injection tests plus mocked
-  dependency merge policy tests. See [recovery notes](docs/worker-integrity.md).
