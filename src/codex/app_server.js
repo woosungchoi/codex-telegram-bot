@@ -89,6 +89,8 @@ async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
     if (error) { client.fail(error); client.close(); }
   });
   let activeTurnId = "";
+  let finished = false;
+  let releaseSteering;
   let terminalError;
   const pending = [];
   const questionControllers = new Map();
@@ -108,7 +110,7 @@ async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
     const error = codexEventError(notification);
     if (error && !error.willRetry) terminalError = error;
     queue.push(notification);
-    if (notification.method === "turn/completed" || (notification.method === "error" && notification.params?.willRetry !== true)) queue.end();
+    if (notification.method === "turn/completed" || (notification.method === "error" && notification.params?.willRetry !== true)) { finished = true; queue.end(); }
   };
 
   const unsubscribe = client.onNotification((notification) => {
@@ -121,6 +123,7 @@ async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
   });
 
   const abort = () => {
+    finished = true;
     const error = turnOptions.signal?.reason instanceof Error ? turnOptions.signal.reason : new Error("This operation was aborted");
     if (activeTurnId && thread.id) {
       client.request("turn/interrupt", { threadId: thread.id, turnId: activeTurnId }).catch(() => {});
@@ -145,6 +148,20 @@ async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
 
     const turnResponse = await client.request("turn/start", appServerTurnParams(thread, input, turnOptions));
     activeTurnId = turnResponse?.turn?.id || "";
+    releaseSteering = turnOptions.onSteerReady?.({
+      threadId: thread.id, turnId: activeTurnId,
+      async steer(input) {
+        if (finished || client.closed || turnOptions.signal?.aborted || !activeTurnId) return { status: "rejected" };
+        try {
+          const result = await client.request("turn/steer", { threadId: thread.id, expectedTurnId: activeTurnId, input: appServerInput(input) });
+          return { status: result?.turnId === activeTurnId ? "accepted" : "unknown", turnId: result?.turnId };
+        } catch (error) {
+          // A JSON-RPC error is a definite rejection. Lost acknowledgements are
+          // ambiguous and must never trigger an automatic resend or next turn.
+          return { status: Number.isInteger(error.code) ? "rejected" : "unknown" };
+        }
+      }
+    });
     for (const notification of pending.splice(0)) {
       if (isRelevantNotification(notification, thread.id, activeTurnId)) enqueue(notification);
     }
@@ -152,9 +169,12 @@ async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
       for (const event of appServerThreadReadEvents({ thread: { id: thread.id, turns: [turnResponse.turn] } }, { threadId: thread.id, turnId: activeTurnId })) {
         queue.push(event);
       }
+      finished = true;
       queue.end();
     }
   } catch (error) {
+    finished = true;
+    releaseSteering?.();
     unsubscribe();
     unsubscribeError();
     turnOptions.signal?.removeEventListener("abort", abort);
@@ -165,6 +185,8 @@ async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
 
   return {
     events: wrapQueue(queue, async () => {
+      finished = true;
+      releaseSteering?.();
       for (const controller of questionControllers.values()) controller.abort();
       unsubscribe();
       unsubscribeError();

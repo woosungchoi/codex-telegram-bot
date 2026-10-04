@@ -1310,5 +1310,13 @@
   "questionsStale": "This question has already changed or ended.",
   "questionsOwner": "Only the user who started this task can answer.",
   "questionsDone": "✅ Answers delivered. Continuing with your choices.",
-  "questionsCancelled": "Task cancelled."
+  "questionsCancelled": "Task cancelled.",
+  "steerButton": "Apply to current task",
+  "steerInspect": "Check steering delivery",
+  "steerStale": "This item has already started, was removed, or belongs to another user.",
+  "steerWaiting": "Answer the pending questions first, or wait until maintenance finishes. The message remains queued.",
+  "steerAccepted": "✅ Added to the current turn. This message will not run again as a separate turn.",
+  "steerRejected": "The original turn cannot accept this input. It remains queued for the next turn.",
+  "steerUnknown": "⚠️ Delivery is unconfirmed. This item is held and will not be resent automatically. Check its delivery from /queue, or cancel the held item after reviewing the task.",
+  "steerHeld": "Steering delivery review · automatic execution held"
 }

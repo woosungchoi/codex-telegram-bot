@@ -39,6 +39,7 @@ export function registerRuntimeRoutes(r, { accounts, workspace } = {}) {
   registerForumContext(r);
   if (r.config.codexInteractiveQuestions) r.bot.use(r.questions.handle);
   registerWorkspaceFlowBoundary(r);
+  if (r.config.codexSteering) r.bot.use(r.steering.handle);
   r.bot.command("delivery", (ctx) => r.handleManualDelivery(
     ctx, r.getChatKey(ctx), r.getCommandArgs(ctx)
   ));

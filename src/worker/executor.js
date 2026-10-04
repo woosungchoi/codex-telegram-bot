@@ -13,6 +13,7 @@ export async function runWorkerJob({
   signal,
   codexClients = new Map(),
   onUserInput,
+  onSteerReady,
   createThread = createCodexThreadDefault,
   now = () => new Date()
 } = {}) {
@@ -34,7 +35,7 @@ export async function runWorkerJob({
   const input = Array.isArray(job.input)
     ? job.input
     : buildInput(job.inputText || job.text || "", job.imagePaths || []);
-  const turnOptions = { signal, onUserInput };
+  const turnOptions = { signal, onUserInput, onSteerReady };
   if (job.outputSchema) turnOptions.outputSchema = job.outputSchema;
 
   try {

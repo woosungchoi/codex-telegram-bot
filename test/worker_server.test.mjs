@@ -31,7 +31,7 @@ async function startServer(executeJob, options = {}) {
 test("worker server reports status", async () => {
   const { config, worker, client } = await startServer(async () => {});
   try {
-  assert.deepEqual(await client.status(), { status: "ok", capabilities: ["accounts-v1", "log-archive-v1", "questions-v1"], activeJobs: [], runningJobIds: [] });
+  assert.deepEqual(await client.status(), { status: "ok", capabilities: ["accounts-v1", "log-archive-v1", "questions-v1", "steer-v1"], activeJobs: [], runningJobIds: [] });
     assert.equal(mode(await fs.stat(config.codexWorkerSocket)), 0o600);
   } finally {
     await worker.close();
@@ -176,7 +176,7 @@ test("worker startup marks persisted orphaned jobs failed", async () => {
     }
   });
   try {
-  assert.deepEqual(await client.status(), { status: "ok", capabilities: ["accounts-v1", "log-archive-v1", "questions-v1"], activeJobs: [], runningJobIds: [] });
+  assert.deepEqual(await client.status(), { status: "ok", capabilities: ["accounts-v1", "log-archive-v1", "questions-v1", "steer-v1"], activeJobs: [], runningJobIds: [] });
     assert.equal((await store.readJobState("job-orphan")).status, "failed");
     assert.equal((await store.readJobState("job-orphan")).failureReason, "worker_restart");
     assert.equal(
@@ -440,4 +440,32 @@ test("worker restart does not arm automatic execution for an interrupted questio
     assert.equal(isWorkerRestartFailure((await client.getJobStatus("waiting")).job), false);
     assert.equal((await client.readJobEvents("waiting")).events.at(-1).reason, "question_interrupted");
   } finally { await worker.close(); }
+});
+
+test('worker steering RPC reaches the live turn once and persists its delivery result', async () => {
+  let calls=0;
+  const {worker,client,store}=await startServer(async ({job,signal,onSteerReady})=>{
+    await store.writeJobState({...job,status:'running'});
+    const release=onSteerReady({threadId:'thread',turnId:'turn',steer:async()=>{calls++;return {status:'accepted'};}});
+    await new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}));release();
+  });
+  try {
+    await client.startJob({id:'steer-job',chatKey:'chat',requesterUserId:'7',inputText:'start'});
+    for(let i=0;i<50 && (await store.readJobState('steer-job')).status!=='running';i++) await new Promise(r=>setTimeout(r,10));
+    const input={jobId:'steer-job',requestId:'q',chatKey:'chat',userId:'7',inputText:'focus on B'};
+    assert.equal((await client.steerJob(input)).status,'accepted');
+    assert.equal((await client.steerJob(input)).status,'accepted');assert.equal(calls,1);
+    await client.cancelJob('steer-job');
+  } finally {await worker.close();}
+});
+
+test('orphaned steered jobs are not replayed with the uncorrected original prompt',async()=>{
+  const {worker,client}=await startServer(async()=>{}, {prepareStore:async store=>{
+    await store.ensure();const job={id:'steered-orphan',chatKey:'chat',status:'running',steers:{q:{status:'sending'}}};
+    await store.writeJobState(job);await store.upsertActiveJob(job);
+  }});
+  try {
+    const {job}=await client.getJobStatus('steered-orphan');
+    assert.equal(job.failureReason,'steer_interrupted');assert.equal(isWorkerRestartFailure(job),false);
+  }finally{await worker.close();}
 });

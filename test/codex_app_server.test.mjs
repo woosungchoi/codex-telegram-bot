@@ -92,3 +92,30 @@ createInterface({input:process.stdin}).on('line',line=>{
   assert.equal(requested, true);
   assert.equal(result.finalResponse, "A");
 });
+
+test('app-server steering uses the active turn and never interrupts or starts a second turn', async (t) => {
+  const fs = await import('node:fs/promises');const os=await import('node:os');const path=await import('node:path');
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'steer-rpc-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));
+  const script=path.join(dir,'fake.mjs');
+  await fs.writeFile(script, `#!/usr/bin/env node
+import {createInterface} from 'node:readline';
+const send=x=>process.stdout.write(JSON.stringify(x)+'\\n');
+let started=0;
+createInterface({input:process.stdin}).on('line',line=>{
+ const x=JSON.parse(line);
+ if(x.method==='initialize')send({id:x.id,result:{}});
+ if(x.method==='thread/start')send({id:x.id,result:{thread:{id:'thread'}}});
+ if(x.method==='turn/start'){started++;send({id:x.id,result:{turn:{id:'turn',status:'inProgress'}}});}
+ if(x.method==='turn/interrupt')process.exit(22);
+ if(x.method==='turn/steer'){
+  if(started!==1 || x.params.expectedTurnId!=='turn'||x.params.threadId!=='thread')process.exit(23);
+  send({id:x.id,result:{turnId:'turn'}});
+  send({method:'item/completed',params:{threadId:'thread',turnId:'turn',item:{id:'answer',type:'agentMessage',text:x.params.input[0].text}}});
+  send({method:'turn/completed',params:{threadId:'thread',turn:{id:'turn',status:'completed'}}});
+ }
+});`,{mode:0o700});
+  let control, delivery, released=false;
+  const result=await createAppServerThread({codexPath:script}).run('start',{onSteerReady:c=>{control=c;delivery=c.steer('changed');return ()=>{released=true;};}});
+  assert.equal(result.finalResponse,'changed');assert.equal((await delivery).status,'accepted');assert.equal(released,true);
+  assert.equal((await control.steer('too late')).status,'rejected');
+});

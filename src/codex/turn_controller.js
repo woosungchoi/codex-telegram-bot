@@ -16,6 +16,7 @@ function isCodexBadRequest(message) {
 }
 
 export function createTurnRuntimeController({
+  steering = null,
   settings,
   activeTurns,
   queue,
@@ -108,6 +109,7 @@ export function createTurnRuntimeController({
   }
 
   async function handleSafeQueuedMessage(ctx, chatKey, text, loadImages) {
+    const steerTarget = steering ? activeTurns.get(chatKey)?.workerJobId : null;
     let preparedTurn;
     try {
       preparedTurn = await prepareCodexTurn(ctx, text, loadImages);
@@ -118,6 +120,7 @@ export function createTurnRuntimeController({
       );
       return;
     }
+    if (steerTarget) preparedTurn.steerTarget = steerTarget;
     const queued = await queue.enqueue(chatKey, preparedTurn);
     if (!queued.ok) {
       await telegram.replyHtml(
@@ -131,7 +134,8 @@ export function createTurnRuntimeController({
       : "";
     await telegram.replyHtml(
       ctx,
-      msg("ui.queuedCodexTurnUseToInspectOrToLine", { value1: code(`#${queued.position}`), value2: paused, value3: code("/queue"), value4: code("/cancelqueue") })
+      msg("ui.queuedCodexTurnUseToInspectOrToLine", { value1: code(`#${queued.position}`), value2: paused, value3: code("/queue"), value4: code("/cancelqueue") }),
+      steering?.keyboard(preparedTurn)
     );
   }
 

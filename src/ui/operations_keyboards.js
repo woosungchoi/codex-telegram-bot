@@ -184,6 +184,7 @@ export function createOperationsKeyboardViews({
     }
     for (const [index, turn] of pendingTurns.slice(0, 10).entries()) {
       const label = `#${index + 1}`;
+      if (turn.steerTarget) rows.push([{ text: `${label} ${t(turn.steering ? "steerInspect" : "steerButton")}`, callback_data: `steer:${turn.id}` }]);
       rows.push([
         { text: `${label} ${t("cancelItem")}`, callback_data: `queue:cancel:${turn.id}` },
         { text: `${label} ↑`, callback_data: `queue:up:${turn.id}` },

@@ -4,6 +4,9 @@ Released versions are listed below, newest first.
 
 ## Pending changes (unreleased)
 
+- Add optional `CODEX_STEERING`: queued follow-ups can be sent to the original active Codex turn using a Telegram button, preserving the current task and avoiding separate side sessions.
+- Add durable steering receipts, requester/topic validation, duplicate-click protection, question priority, and explicit holds for uncertain delivery across restarts.
+
 - Add optional sequential Telegram decision buttons, direct answers and cancellation.
 - Persist question/answer cursors in the worker and wait for all required answers
   through a synchronous per-job MCP tool. Preserve normal concurrent chats.

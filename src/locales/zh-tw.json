@@ -1310,5 +1310,13 @@
   "questionsStale": "此問題已變更或結束。",
   "questionsOwner": "只有提出此工作的使用者可以回答。",
   "questionsDone": "✅ 已傳送答案，將依您的選擇繼續。",
-  "questionsCancelled": "已取消工作。"
+  "questionsCancelled": "已取消工作。",
+  "steerButton": "套用至目前工作",
+  "steerInspect": "查看指示傳送狀態",
+  "steerStale": "此項目已開始、已刪除，或屬於其他使用者。",
+  "steerWaiting": "請先回答待處理問題，或等候維護完成。訊息將保留在佇列中。",
+  "steerAccepted": "✅ 已將指示加入目前回合，不會再以獨立回合重複執行。",
+  "steerRejected": "原回合無法接受此指示，已保留在下一回合佇列中。",
+  "steerUnknown": "⚠️ 無法確認傳送結果。此項目已暫停，不會自動重送。請在 /queue 查看傳送狀態，或確認工作後取消該項目。",
+  "steerHeld": "待確認指示傳送 · 暫停自動執行"
 }

@@ -80,7 +80,7 @@ export function createRuntimeDiagnosticsPresenter({
     ];
     for (const [index, turn] of pending.entries()) {
       const imageSuffix = turn.imagePaths.length > 0 ? msg("ui.imagesLine", { value1: turn.imagePaths.length }) : "";
-      const expires = maxAgeSeconds <= 0
+      const expires = turn.steering ? localization.text("steerHeld") : maxAgeSeconds <= 0
         ? msg("ui.noExpiry")
         : msg("ui.expiresLine2", { value1: formatting.dateTime(turn.expiresAt) });
       const kindPrefix = turn.kind === "recovery" ? msg("ui.recovery") : "";

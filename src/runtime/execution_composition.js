@@ -1,3 +1,4 @@
+import { createSteeringUi } from "../telegram/steering.js";
 import { createQuestionUi } from "../telegram/questions.js";
 import { createCodexRuntimeExecutor } from "../codex/runtime_executor.js";
 import { createTurnRuntimeController } from "../codex/turn_controller.js";
@@ -10,6 +11,10 @@ import { accountThreadId } from "../accounts/context.js";
 import { updateAdmissionPaused } from "../maintenance/update_state.js";
 
 export function createExecutionComposition(r) {
+  const steering = createSteeringUi({ getClient: r.getWorkerClient, getChatKey: r.getChatKey, text: r.text,
+    admissionPaused: () => updateAdmissionPaused(r.config),
+    queue: { get: r.getPendingTurns, persist: r.persistPendingTurns, remove: r.removePendingTurn, startDrain: r.startQueueDrainIfIdle }
+  });
   const questions = createQuestionUi({ getClient: r.getWorkerClient, getChatKey: r.getChatKey, text: r.text });
   const journal = createTurnRecoveryJournal({
     settings: {
@@ -108,7 +113,7 @@ export function createExecutionComposition(r) {
     questions: r.config.codexInteractiveQuestions ? questions : null,
     settings: {
       recoveryEnabled: r.config.botRestartRecoveryEnabled,
-      interactiveQuestions: r.config.codexInteractiveQuestions,
+      interactiveQuestions: r.config.codexInteractiveQuestions || r.config.codexSteering,
       recoveryDir: r.config.botRecoveryDir,
       workerRestartRecoveryAttempts: r.config.botRecoverySuspendAfter,
       workingDirectory: r.config.codexWorkdir,
@@ -156,6 +161,7 @@ export function createExecutionComposition(r) {
 
   let recoveryController = null;
   const turn = createTurnRuntimeController({
+    steering: r.config.codexSteering ? steering : null,
     settings: {
       maxPendingTurns: () => r.runtimeValue("telegramPendingTurnsMax"),
       pendingTurnMaxAgeSeconds: () => r.runtimeValue("telegramPendingTurnMaxAgeSeconds"),
@@ -312,6 +318,7 @@ export function createExecutionComposition(r) {
 
   return {
     questions,
+    steering,
     cancelWorkerJobOnce: worker.cancelWorkerJobOnce,
     handleCodexMessage: turn.handleCodexMessage,
     handleManualDelivery: manualDelivery.handle,

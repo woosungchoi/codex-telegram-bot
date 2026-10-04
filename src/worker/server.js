@@ -1,3 +1,4 @@
+import { createSteeringBroker } from "./steering.js";
 import { createQuestionBroker } from "./questions.js";
 import fs from "node:fs/promises";
 import net from "node:net";
@@ -23,6 +24,7 @@ export function createWorkerServer({
   if (!config) throw new Error("config is required.");
   const controllers = new Map();
   const questions = createQuestionBroker({ store, controllers });
+  const steering = createSteeringBroker({ store, controllers });
   const chatReservations = new Map();
   const codexClients = new Map();
   const jobTasks = new Map();
@@ -40,6 +42,7 @@ export function createWorkerServer({
   async function dispatch(request) {
     const method = request?.method || "";
     const params = request?.params || {};
+    if (method === "job/steer") return steering.submit(params);
     if (method === "question/ask") {
       const controller = controllers.get(params.jobId);
       const job = await store.readJobState(params.jobId);
@@ -63,7 +66,7 @@ export function createWorkerServer({
       if (updateAdmissionPaused(config)) throw new Error("Codex update is waiting for idle; new jobs are paused.");
       return store.withAdmissionLock(() => {
         if (admissionError) throw admissionError;
-        return startJob({ config, store, controllers, chatReservations, codexClients, jobTasks, executeJob, logger, heartbeatMs, questions, job: params.job, onAdmissionFailure: (error) => { admissionError = error; } });
+        return startJob({ config, store, controllers, chatReservations, codexClients, jobTasks, executeJob, logger, heartbeatMs, questions, steering, job: params.job, onAdmissionFailure: (error) => { admissionError = error; } });
       });
     }
     throw new Error(`Unknown worker method: ${method}`);
@@ -133,7 +136,7 @@ export function createWorkerServer({
   };
 }
 
-async function startJob({ config, store, controllers, chatReservations, codexClients, jobTasks, executeJob, logger, heartbeatMs, questions, job, onAdmissionFailure }) {
+async function startJob({ config, store, controllers, chatReservations, codexClients, jobTasks, executeJob, logger, heartbeatMs, questions, steering, job, onAdmissionFailure }) {
   if (!job?.id) throw new Error("job/start requires job.id.");
   if (typeof job.id !== "string" || !/^[a-zA-Z0-9._:-]{1,120}$/.test(job.id)) throw new Error("job/start requires a safe job ID of at most 120 characters.");
   if (!job.chatKey) throw new Error("job/start requires job.chatKey.");
@@ -207,7 +210,7 @@ async function startJob({ config, store, controllers, chatReservations, codexCli
     if (heartbeat) clearInterval(heartbeat);
   };
   controller.signal.addEventListener("abort", stopHeartbeat, { once: true });
-  const task = Promise.resolve().then(() => executeJob({ job: accepted, config, store, signal: controller.signal, codexClients, onUserInput: (request, requestSignal) => questions.ask(accepted, request, requestSignal ? globalThis.AbortSignal.any([controller.signal, requestSignal]) : controller.signal) }))
+  const task = Promise.resolve().then(() => executeJob({ job: accepted, config, store, signal: controller.signal, codexClients, onSteerReady: (control) => steering.register(job.id, control), onUserInput: (request, requestSignal) => questions.ask(accepted, request, requestSignal ? globalThis.AbortSignal.any([controller.signal, requestSignal]) : controller.signal) }))
     .catch((error) => {
       logger.warn?.("worker job failed:", error instanceof Error ? error.message : String(error));
     })
@@ -246,8 +249,8 @@ async function reconcileOrphanedJobs(store) {
         ...(job ?? {}),
         id: jobId,
         status: "failed",
-        failureReason: job?.userQuestion ? "question_interrupted" : WORKER_RESTART_FAILURE_REASON,
-        error: job?.userQuestion ? "Pending decision interrupted by worker restart; explicit recovery required." : WORKER_RESTART_FAILURE_MESSAGE,
+        failureReason: job?.userQuestion ? "question_interrupted" : Object.keys(job?.steers || {}).length ? "steer_interrupted" : WORKER_RESTART_FAILURE_REASON,
+        error: job?.userQuestion ? "Pending decision interrupted by worker restart; explicit recovery required." : Object.keys(job?.steers || {}).length ? "Steered job interrupted; inspect prior input before recovery." : WORKER_RESTART_FAILURE_MESSAGE,
         completedAt
       });
       await store.appendJobEvent(jobId, {
@@ -255,8 +258,8 @@ async function reconcileOrphanedJobs(store) {
         status: "failed",
         chatKey: job?.chatKey ?? entry?.chatKey,
         threadId: job?.threadId ?? entry?.threadId ?? "",
-        reason: job?.userQuestion ? "question_interrupted" : WORKER_RESTART_FAILURE_REASON,
-        message: job?.userQuestion ? "Pending decision interrupted by worker restart; explicit recovery required." : WORKER_RESTART_FAILURE_MESSAGE,
+        reason: job?.userQuestion ? "question_interrupted" : Object.keys(job?.steers || {}).length ? "steer_interrupted" : WORKER_RESTART_FAILURE_REASON,
+        message: job?.userQuestion ? "Pending decision interrupted by worker restart; explicit recovery required." : Object.keys(job?.steers || {}).length ? "Steered job interrupted; inspect prior input before recovery." : WORKER_RESTART_FAILURE_MESSAGE,
         at: completedAt
       });
     }
@@ -268,7 +271,7 @@ async function workerStatus(store, controllers) {
   const active = await store.readActiveJobs();
   return {
     status: "ok",
-    capabilities: ["accounts-v1", "log-archive-v1", "questions-v1"],
+    capabilities: ["accounts-v1", "log-archive-v1", "questions-v1", "steer-v1"],
     activeJobs: Object.values(active.jobs),
     runningJobIds: [...controllers.keys()]
   };

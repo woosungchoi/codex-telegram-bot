@@ -48,6 +48,11 @@ export function buildAppServerDirectThreadOptions(config, effectiveOptions = {})
   const threadOptions = { ...effectiveOptions };
   for (const key of RUNTIME_ONLY_OPTION_KEYS) delete threadOptions[key];
   const codexConfig = { ...(config.codexConfig ?? {}), ...buildCodexCompactConfig(config) };
+  if (config.codexSteering) {
+    threadOptions.developerInstructions = [threadOptions.developerInstructions,
+      "New user input arriving during an active turn is steering for the ongoing task. Incorporate corrections and constraints at the next opportunity while preserving the original objective unless the user replaces or cancels it. Acknowledge briefly and continue; do not treat an implementation correction as a separate side conversation."
+    ].filter(Boolean).join("\n");
+  }
   if (config.codexInteractiveQuestions) {
     codexConfig["features.default_mode_request_user_input"] = false;
     threadOptions.developerInstructions = [threadOptions.developerInstructions,

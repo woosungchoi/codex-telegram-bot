@@ -1156,6 +1156,7 @@ executionRuntime = createExecutionComposition({
   trackSideTurn,
   untrackSideTurn,
   persistPendingTurns,
+  removePendingTurn,
   startQueueDrainIfIdle,
   createCodexThread,
   createSyntheticCtx,
@@ -1183,6 +1184,7 @@ hydratePendingTurnsFromState();
 
 ({ adminCommandHandlers, workspaceMenus } = registerRuntimeRoutes({
   questions: executionRuntime.questions,
+  steering: executionRuntime.steering,
   bot,
   config,
   getPendingTurns,

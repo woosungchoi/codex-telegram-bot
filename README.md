@@ -456,6 +456,22 @@ waiting for safe automatic replay hold the queue until recovery runs.
 - `interrupt`: prepare the new message, put it at the front of the queue, abort the active turn, then run the new message next in the same thread.
 - `side`: keep the active turn running and answer the new message in a separate side thread. Side replies are marked and should be treated as separate from the main thread context.
 
+With `CODEX_STEERING=true`, safe-mode queue acknowledgements offer **Apply to
+current task** when a worker job is active. This submits the selected message
+(including prepared reply context and images) to that original turn via
+`turn/steer`, without interrupting it or creating a side thread. Otherwise the
+message runs normally as the next turn. The setting forces sidecar/direct
+app-server execution. It does not override an existing chat's queue mode; use
+`/queue_mode_safe` to select queued follow-ups.
+
+Pending decision questions have priority. Accepted steering is removed from the
+queue; definite rejection leaves it queued. Unconfirmed delivery is held across
+restarts, does not expire, and blocks automatic queue execution when at its head.
+Use **Check steering delivery** in `/queue` to inspect the original receipt; an
+uncertain request is never resent automatically. Cancel a held queue item only
+after checking the task. Already-running commands cannot be undone by steering.
+See [Steering](docs/telegram-steering.md) for recovery and validation details.
+
 Queued items older than `TELEGRAM_PENDING_TURN_MAX_AGE_SECONDS` expire
 automatically and the bot notifies the chat when it prunes them. Short status
 questions such as "지금 뭐해?", "진행 상태?", or "status" are answered immediately

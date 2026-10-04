@@ -25,6 +25,7 @@ export function dequeueNextTurn(queue, options = {}) {
   let turn = null;
   let expired = 0;
   while (nextQueue.length > 0) {
+    if (nextQueue[0]?.steering) break;
     const candidate = nextQueue.shift();
     if (isPendingTurnExpired(candidate, options)) {
       expired += 1;
@@ -104,6 +105,8 @@ export function normalizePendingTurn(turn, options = {}) {
   return {
     id: typeof turn.id === "string" && turn.id ? turn.id : options.createId?.() ?? "",
     chatKey: options.chatKey,
+    ...(turn.steerTarget ? { steerTarget: turn.steerTarget } : {}),
+    ...(turn.steering ? { steering: turn.steering } : {}),
     chatId: turn.chatId ?? options.chatKey,
     ...(turn.requesterUserId ? { requesterUserId: String(turn.requesterUserId) } : {}),
     ...(turn.chatType ? { chatType: turn.chatType } : {}),
@@ -126,6 +129,8 @@ export function normalizePendingTurn(turn, options = {}) {
 export function serializePendingTurn(turn) {
   return {
     id: turn.id,
+    ...(turn.steerTarget ? { steerTarget: turn.steerTarget } : {}),
+    ...(turn.steering ? { steering: turn.steering } : {}),
     chatKey: turn.chatKey,
     chatId: turn.chatId,
     ...(turn.requesterUserId ? { requesterUserId: String(turn.requesterUserId) } : {}),
@@ -147,7 +152,7 @@ export function serializePendingTurn(turn) {
 }
 
 export function isPendingTurnExpired(turn, { now = new Date(), maxAgeSeconds = 0 } = {}) {
-  if (maxAgeSeconds <= 0) return false;
+  if (turn?.steering || maxAgeSeconds <= 0) return false;
   const expiresAt = Date.parse(turn?.expiresAt ?? "");
   return Number.isFinite(expiresAt) && expiresAt <= now.getTime();
 }
