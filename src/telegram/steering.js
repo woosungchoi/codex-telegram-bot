@@ -9,18 +9,21 @@ export function createSteeringUi({ getClient, getChatKey, queue, text, admission
     const match = /^steer:([a-zA-Z0-9_-]{1,55})$/.exec(ctx.callbackQuery?.data || "");
     if (!match) return next();
     await ctx.answerCbQuery();
+    return apply(ctx, match[1], { editMarkup: true });
+  }
+  async function apply(ctx, turnId, { editMarkup = false } = {}) {
     const key = getChatKey(ctx);
-    if (busy.has(key)) return;
+    if (busy.has(key)) return false;
     busy.add(key);
     try {
-      const turn = queue.get(key).find((t) => t.id === match[1]);
+      const turn = queue.get(key).find((t) => t.id === turnId);
       if (!turn?.steerTarget || !turn.requesterUserId || String(turn.requesterUserId) !== String(ctx.from?.id)) {
-        await ctx.reply(text("steerStale")); return;
+        await ctx.reply(text("steerStale")); return true;
       }
       if (admissionPaused() || await getClient().currentQuestion(key)) {
-        await ctx.reply(text("steerWaiting")); return;
+        await ctx.reply(text("steerWaiting")); return true;
       }
-      if (!queue.get(key).includes(turn)) { await ctx.reply(text("steerStale")); return; }
+      if (!queue.get(key).includes(turn)) { await ctx.reply(text("steerStale")); return true; }
       // Set before the first await: queue dequeue cannot race this claim. The
       // serialized marker also holds this item across frontend/worker restart.
       turn.steering = { jobId: turn.steerTarget, status: "sending" };
@@ -33,10 +36,11 @@ export function createSteeringUi({ getClient, getChatKey, queue, text, admission
       if (result.status === "accepted") await queue.remove(key, turn.id);
       else if (result.status === "rejected") { delete turn.steering; await queue.persist(key); }
       else { turn.steering.status = "unknown"; await queue.persist(key); }
-      if (result.status !== "unknown") await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+      if (editMarkup && result.status !== "unknown") await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
       await ctx.reply(text(result.status === "accepted" ? "steerAccepted" : result.status === "rejected" ? "steerRejected" : "steerUnknown"));
       await queue.startDrain(key);
+      return true;
     } finally { busy.delete(key); }
   }
-  return { keyboard, handle };
+  return { keyboard, handle, apply };
 }

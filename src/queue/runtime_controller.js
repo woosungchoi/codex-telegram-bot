@@ -12,7 +12,7 @@ import {
 import { code } from "../telegram/html.js";
 import { hasBlockingWorkerDelivery } from "../worker/delivery.js";
 
-const VALID_QUEUE_MODES = new Set(["safe", "interrupt", "side"]);
+const VALID_QUEUE_MODES = new Set(["safe", "steer", "interrupt", "side"]);
 
 export function createQueueRuntimeController({
   state,
@@ -150,7 +150,7 @@ export function createQueueRuntimeController({
 
   function getQueueMode(chatKey) {
     const mode = chats.get(chatKey).queueMode;
-    return VALID_QUEUE_MODES.has(mode) ? mode : "safe";
+    return VALID_QUEUE_MODES.has(mode) ? mode : "steer";
   }
 
   async function setQueuePaused(chatKey, paused) {

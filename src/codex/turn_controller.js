@@ -81,8 +81,8 @@ export function createTurnRuntimeController({
       await handleSideMessage(ctx, chatKey, text, loadImages);
       return;
     }
-    if (incomingPlan === "enqueue_back") {
-      await handleSafeQueuedMessage(ctx, chatKey, text, loadImages);
+    if (incomingPlan === "enqueue_back" || incomingPlan === "steer") {
+      await handleSafeQueuedMessage(ctx, chatKey, text, loadImages, incomingPlan === "steer");
       return;
     }
 
@@ -108,7 +108,7 @@ export function createTurnRuntimeController({
     }
   }
 
-  async function handleSafeQueuedMessage(ctx, chatKey, text, loadImages) {
+  async function handleSafeQueuedMessage(ctx, chatKey, text, loadImages, autoSteer = false) {
     const steerTarget = steering ? activeTurns.get(chatKey)?.workerJobId : null;
     let preparedTurn;
     try {
@@ -129,6 +129,7 @@ export function createTurnRuntimeController({
       );
       return;
     }
+    if (autoSteer && steerTarget && await steering.apply(ctx, preparedTurn.id)) return;
     const paused = queue.isPaused(chatKey)
       ? t("ui.queuePausedNotice")
       : "";

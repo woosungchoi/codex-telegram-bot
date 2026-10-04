@@ -106,7 +106,7 @@ const VALID = {
   webSearch: new Set(["disabled", "cached", "live"]),
   codexTransport: new Set([CODEX_TRANSPORT_SDK, CODEX_TRANSPORT_APP_SERVER_DIRECT]),
   codexWorkerMode: new Set(["sidecar", "inline"]),
-  queueMode: new Set(["safe", "interrupt", "side"]),
+  queueMode: new Set(["safe", "steer", "interrupt", "side"]),
   liveProgressSource: new Set(["agent", "activity", "both"]),
   liveProgressDeletePolicy: new Set(["always", "on_success", "never"])
 };

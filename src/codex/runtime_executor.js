@@ -9,7 +9,8 @@ import {
   applyCodexStreamEvent,
   codexStreamItems,
   codexStreamResult,
-  createCodexStreamState
+  createCodexStreamState,
+  normalizeCodexStreamEvent
 } from "./stream.js";
 import { CODEX_TRANSPORT_APP_SERVER_DIRECT } from "./thread_factory.js";
 import { createCodexStreamWatchdog, STREAM_IDLE_TIMEOUT_MESSAGE } from "./watchdog.js";
@@ -113,7 +114,9 @@ export function createCodexRuntimeExecutor({
           await telegram.replyHtml(ctx, formatting.keyValue(msg("ui.accountRotated"), [[msg("workspace.account"), event.accountLabel || event.accountId]]));
           continue;
         }
-        const update = applyCodexStreamEvent(streamState, event);
+        // Normalize once so presentation sees the same accumulated text as the result.
+        const normalizedEvent = normalizeCodexStreamEvent(streamState, event);
+        const update = applyCodexStreamEvent(streamState, normalizedEvent);
         if (update.type === "thread_started") {
           if (turnOptions.rememberThreadId !== false) {
             const chat = chats.get(chatKey);
@@ -122,10 +125,10 @@ export function createCodexRuntimeExecutor({
             await recovery.recordThreadStarted(chatKey, update.threadId);
           }
         } else if (update.type === "item") {
-          await recovery.recordStreamItem(chatKey, event, update);
+          await recovery.recordStreamItem(chatKey, normalizedEvent, update);
           if (!firstItemSeen) {
             firstItemSeen = true;
-            await recovery.recordFirstItem(chatKey, event, update, now() - streamStartedAt);
+            await recovery.recordFirstItem(chatKey, normalizedEvent, update, now() - streamStartedAt);
           }
           if (update.finalResponseChanged) {
             await recovery.recordFinalResponse(
@@ -155,7 +158,7 @@ export function createCodexRuntimeExecutor({
         } else if (update.type === "unknown") {
           await recovery.recordUnknownEvent(chatKey, event, now() - streamStartedAt);
         }
-        await progress.maybeSend(ctx, liveProgress, event, codexStreamItems(streamState));
+        await progress.maybeSend(ctx, liveProgress, normalizedEvent, codexStreamItems(streamState));
       }
 
       return codexStreamResult(streamState);

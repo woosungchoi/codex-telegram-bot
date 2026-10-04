@@ -175,6 +175,9 @@ export function createOperationsKeyboardViews({
       ],
       [
         { text: msg("ui.safe"), callback_data: "q:mode:safe" },
+        { text: t("queueModeSteerLabel"), callback_data: "q:mode:steer" }
+      ],
+      [
         { text: msg("ui.interrupt"), callback_data: "q:mode:interrupt" },
         { text: msg("ui.side"), callback_data: "q:mode:side" }
       ]

@@ -25,6 +25,13 @@ function normalizeConfig(config) {
   ]));
 }
 
+test("steering is enabled by default but honors explicit opt-out", () => {
+  assert.equal(readTestConfig().codexSteering, true);
+  assert.equal(readTestConfig({ CODEX_STEERING: "" }).codexSteering, true);
+  assert.equal(readTestConfig({ CODEX_STEERING: "true" }).codexSteering, true);
+  assert.equal(readTestConfig({ CODEX_STEERING: "false" }).codexSteering, false);
+});
+
 test("readConfig preserves the complete flat default contract", () => {
   assert.deepEqual(normalizeConfig(readTestConfig()), {
     telegramBotToken: "123456789:telegram-token",
@@ -33,7 +40,7 @@ test("readConfig preserves the complete flat default contract", () => {
     allowedThreadIds: [],
     codexWorkdir: "/home/tester",
     codexPath: "codex",
-    codexSteering: false,
+    codexSteering: true,
     codexInteractiveQuestions: false,
     codexTransport: "sdk",
     codexAppServerDirectTimeoutMs: 5000,

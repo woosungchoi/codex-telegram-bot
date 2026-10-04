@@ -41,7 +41,7 @@ function readCodexRuntimeConfig(env, paths, selections) {
   return {
     codexWorkdir: env.CODEX_WORKDIR?.trim() || paths.homeDir,
     codexPath: env.CODEX_PATH?.trim() || "codex",
-    codexSteering: parseOptionalBoolean(env.CODEX_STEERING) ?? false,
+    codexSteering: parseOptionalBoolean(env.CODEX_STEERING) ?? true,
     codexInteractiveQuestions: parseOptionalBoolean(env.CODEX_INTERACTIVE_QUESTIONS) ?? false,
     codexTransport: selections.transport,
     codexAppServerDirectTimeoutMs: parseNonnegativeInteger(

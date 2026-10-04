@@ -4,7 +4,8 @@ import {
   applyCodexStreamEvent,
   codexStreamItems,
   codexStreamResult,
-  createCodexStreamState
+  createCodexStreamState,
+  normalizeCodexStreamEvent
 } from "../codex/stream.js";
 import { createRecoveryTurn } from "../recovery/startup.js";
 import { upsertActiveTurnSnapshot } from "../recovery/state.js";
@@ -295,7 +296,9 @@ export function createWorkerRuntimeController({
               accountChat.accountAttemptState.hadActivity = true;
               await checkpoint();
             }
-            const update = applyCodexStreamEvent(streamState, event);
+            // Keep the raw cursor/account metadata, but present normalized stream events.
+            const normalizedEvent = normalizeCodexStreamEvent(streamState, event);
+            const update = applyCodexStreamEvent(streamState, normalizedEvent);
             if (update.type === "thread_started") rememberAccountThread(accountChat, update.threadId, event.accountId || "default");
             if (eventType === "account.rotation") {
               await turn.notifyAccountRotation?.(ctx, event.accountLabel || event.accountId);
@@ -322,12 +325,12 @@ export function createWorkerRuntimeController({
                 accountChat.accountAttemptState.hadActivity = true;
                 await checkpoint();
               }
-              await turn.recordStreamItemEvent(chatKey, event, update);
+              await turn.recordStreamItemEvent(chatKey, normalizedEvent, update);
               if (!firstItemSeen) {
                 firstItemSeen = true;
                 await turn.recordCodexStreamFirstItem(
                   chatKey,
-                  event,
+                  normalizedEvent,
                   update,
                   nowMs() - streamStartedAt
                 );
@@ -357,7 +360,7 @@ export function createWorkerRuntimeController({
             await turn.maybeSendLiveProgress(
               ctx,
               progressState,
-              event,
+              normalizedEvent,
               codexStreamItems(streamState)
             );
             if (nowMs() - checkpointAt >= 250) await checkpoint();

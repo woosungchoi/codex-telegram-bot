@@ -44,6 +44,7 @@ export function telegramCommands(language = "en") {
     { command: "status", description: text("commandStatus") },
     { command: "usage", description: text("commandUsage") },
     { command: "queue", description: text("commandQueue") },
+    { command: "steer", description: text("commandSteer") },
     { command: "settings", description: text("commandSettings") },
     { command: "accounts", description: text("commandAccounts") },
     { command: "reauth", description: text("commandReauth") },

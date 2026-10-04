@@ -1,6 +1,7 @@
 export function planIncomingTurn({ active, pendingDelivery, paused, pendingCount, queueMode }) {
   if (pendingDelivery) return "enqueue_back";
   if (active) {
+    if (queueMode === "steer" && !paused) return "steer";
     if (queueMode === "interrupt") return "enqueue_front_interrupt";
     if (queueMode === "side") return "start_side";
     return "enqueue_back";

@@ -110,6 +110,7 @@ test("menu close decoration is immutable, idempotent, unique, and last", () => {
 
 test("queue and maintenance keyboards keep their dynamic runtime state", () => {
   const queueButtons = buttons(keyboardViews.queueKeyboard("chat"));
+  assert.ok(queueButtons.some(({ callback_data }) => callback_data === "q:mode:steer"));
   assert.ok(
     queueButtons.some(
       ({ callback_data: callbackData }) => callbackData === "queue:cancel:turn-1"

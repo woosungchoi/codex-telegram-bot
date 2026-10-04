@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { setImmediate as waitForImmediate } from "node:timers/promises";
 import { createTurnRuntimeController } from "../src/codex/turn_controller.js";
 
-function createHarness({ queueMode = "safe", workerEnabled = false, runTurnError = null, replyError = null, beforeTurn, isAdmissionPaused = () => false } = {}) {
+function createHarness({ queueMode = "safe", workerEnabled = false, runTurnError = null, replyError = null, beforeTurn, isAdmissionPaused = () => false, steering = null, paused = false, pendingDelivery = false } = {}) {
   const activeTurns = new Map();
   const pending = new Map();
   const calls = [];
@@ -28,6 +28,7 @@ function createHarness({ queueMode = "safe", workerEnabled = false, runTurnError
       completeReaction: "complete"
     },
     activeTurns,
+    steering,
     queue: {
       createItemId: () => "turn-1",
       dequeue: async (chatKey) => pending.get(chatKey)?.shift() ?? null,
@@ -45,8 +46,8 @@ function createHarness({ queueMode = "safe", workerEnabled = false, runTurnError
       },
       getMode: () => queueMode,
       getPending: (chatKey) => pending.get(chatKey) ?? [],
-      hasPendingFinalDelivery: () => false,
-      isPaused: () => false,
+      hasPendingFinalDelivery: () => pendingDelivery,
+      isPaused: () => paused,
       pruneExpired: record("prune"),
       startDrain: record("drain")
     },
@@ -337,4 +338,63 @@ test("side prompt explicitly prevents writes while the main turn continues", () 
   assert.match(prompt, /side reply/);
   assert.match(prompt, /Avoid file changes or write commands/);
   assert.match(prompt, /status\?$/);
+});
+
+test("steer mode durably queues prepared input before sending to the original active job", async () => {
+  let f;
+  let sent = 0;
+  const steering = {
+    keyboard: () => undefined,
+    apply: async (ctx, id) => {
+      sent++;
+      assert.equal(ctx, f.ctx);
+      const turn = f.pending.get("chat:42").find((item) => item.id === id);
+      assert.equal(turn.steerTarget, "original-job");
+      assert.match(turn.inputText, /correction/);
+      assert.deepEqual(turn.imagePaths, ["reply.png", "new.png"]);
+      f.pending.set("chat:42", []);
+      return true;
+    }
+  };
+  f = createHarness({ queueMode: "steer", steering });
+  const abortController = new AbortController();
+  f.activeTurns.set("chat:42", { workerJobId: "original-job", abortController });
+  await f.controller.handleCodexMessage(f.ctx, "correction", async () => {
+    f.activeTurns.set("chat:42", { workerJobId: "newer-job" });
+    return ["new.png"];
+  });
+  assert.equal(sent, 1);
+  assert.equal(f.pending.get("chat:42").length, 0);
+  assert.equal(abortController.signal.aborted, false);
+  assert.equal(f.calls.some(([name]) => name === "run-turn"), false);
+});
+
+test("automatic steering respects safe mode, pauses, pending delivery and unknown workers", async () => {
+  for (const options of [
+    { queueMode: "safe" },
+    { paused: true },
+    { pendingDelivery: true },
+    { isAdmissionPaused: () => true },
+    { unknownWorker: true },
+    { disabled: true },
+    { busy: true }
+  ]) {
+    let sent = 0;
+    const steering = { keyboard: () => undefined, apply: async () => { sent++; return false; } };
+    const f = createHarness({ queueMode: "steer", steering: options.disabled ? null : steering, ...options });
+    const abortController = new AbortController();
+    f.activeTurns.set("chat:42", { abortController, ...(options.unknownWorker ? {} : { workerJobId: "job" }) });
+    await f.controller.handleCodexMessage(f.ctx, "follow up", async () => []);
+    assert.equal(sent, options.busy ? 1 : 0, JSON.stringify(options));
+    assert.equal(f.pending.get("chat:42").length, 1);
+    assert.equal(abortController.signal.aborted, false);
+    assert.equal(f.replies.length, 1);
+  }
+});
+
+test("steer mode without an active task starts a normal turn", async () => {
+  const f = createHarness({ queueMode: "steer" });
+  await f.controller.handleCodexMessage(f.ctx, "new task", async () => []);
+  await waitForImmediate();
+  assert.equal(f.calls.filter(([name]) => name === "run-turn").length, 1);
 });

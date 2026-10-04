@@ -335,6 +335,7 @@ PR 체크리스트와 locale metadata 형식은 `docs/translations.md`에 정리
 - `/status`: 연결된 thread와 설정 표시
 - `/status`는 현재 thread log에 token count data가 있을 때 짧은 Codex usage summary, sample age를 표시하고, reset이 지난 limit은 오래된 percent를 현재값처럼 표시하지 않고 stale로 표시합니다. `사용량 새로 조회` 버튼은 별도 Codex probe turn을 작게 실행해 더 최신 usage sample을 가져올 수 있으며, 소량의 quota를 사용할 수 있습니다.
 - `/queue`: pause/resume, mode, clear, cancel, up, next 버튼이 있는 queue panel 표시
+- `/steer`: 현재 chat/topic의 후속 메시지를 실행 중인 작업에 자동 반영하도록 설정
 - `/settings`: model, thinking, fast, sandbox, approval, web search, network, stream, live progress, runtime env-style override, language, time zone, locale, path, schema 버튼 열기
 - `/tools`: health, doctor, logs, config, backup, export, cleanup, forget 버튼 열기
 - `/stop`: 현재 chat의 실행 중인 turn 중단
@@ -343,7 +344,7 @@ PR 체크리스트와 locale metadata 형식은 `docs/translations.md`에 정리
 
 - `/threads`: 최근 Codex thread id 목록 표시
 - `/queue_pause`, `/queue_resume`: 자동 queue turn 처리를 일시정지하거나 재개
-- `/queue_mode`, `/queue_mode_safe`, `/queue_mode_interrupt`, `/queue_mode_side`: Codex turn 실행 중 새 메시지를 어떻게 처리할지 확인하거나 선택
+- `/queue_mode`, `/queue_mode_steer`, `/queue_mode_safe`, `/queue_mode_interrupt`, `/queue_mode_side`: Codex turn 실행 중 새 메시지를 어떻게 처리할지 확인하거나 선택
 - `/cancelqueue [id|number]`: 모든 queue 메시지를 지우거나, id 또는 1-based number로 queue item 하나 제거
 - `/forget`: 저장된 thread binding 제거
 - `/cleanup`, `/cleanup_status`: cleanup 후보와 승인 버튼 표시
@@ -376,15 +377,18 @@ Telegram 사진과 이미지 문서는 로컬에 다운로드한 뒤 caption tex
 
 Telegram 메시지를 reply로 보내면, reply 대상 메시지의 text/caption을 현재 요청 앞에 context로 붙입니다. reply 대상 메시지에 photo 또는 image document가 있으면 해당 이미지도 `local_image` 입력으로 함께 Codex에 전달합니다.
 
-Codex가 inbound Telegram 메시지를 처리하는 동안 같은 chat에 추가 plain text, photo, image-document 메시지가 들어오면 기본적으로 queue에 저장되고, active turn이 끝난 뒤 순서대로 처리됩니다. Queue는 `STATE_FILE`에 저장되므로 queued text와 다운로드한 image path는 bot restart 후에도 유지됩니다. `/status`와 `/queue`는 backlog를 표시합니다. `/queue`에는 pause/resume, queue mode, clear all, cancel one item, move an item up, run an item next inline button도 표시됩니다. 직접 명령어 `/queue_pause`, `/queue_resume`, `/cancelqueue`, `/cancelqueue <id|number>`도 계속 사용할 수 있습니다.
+Codex가 inbound Telegram 메시지를 처리하는 동안 같은 chat에 추가 plain text, photo, image-document 메시지가 들어오면 기본 `steer` 모드에서는 실행 중인 작업에 추가 지시로 전달됩니다. `safe` 모드에서는 queue에 저장되고, active turn이 끝난 뒤 순서대로 처리됩니다. Queue는 `STATE_FILE`에 저장되므로 queued text와 다운로드한 image path는 bot restart 후에도 유지됩니다. `/status`와 `/queue`는 backlog를 표시합니다. `/queue`에는 pause/resume, queue mode, clear all, cancel one item, move an item up, run an item next inline button도 표시됩니다. 직접 명령어 `/queue_pause`, `/queue_resume`, `/cancelqueue`, `/cancelqueue <id|number>`도 계속 사용할 수 있습니다.
 
 Codex 실행은 완료됐지만 최종 Telegram 답변의 전달 결과가 불확실하면 실패 기록은 보존하고 같은 chat의 다음 요청은 계속 처리합니다. `/status`와 `/queue`는 Codex 실행과 최종 전달 상태를 구분합니다. `/delivery`로 불확실한 답변을 확인하고, 채팅에 이미 도착했는지 확인한 뒤 `/delivery resend JOB_ID`로 명시적으로 재전송할 수 있습니다. 저장된 worker 결과를 복원하고 해시를 검증하므로 Codex 작업을 다시 실행하지 않습니다. 기존 전송이 Telegram에 도착한 뒤 타임아웃됐다면 답변이 중복될 수 있습니다. 안전한 자동 재전송을 기다리는 결과는 복구가 실행될 때까지 queue를 보류합니다.
 
 `/queue_mode`는 Codex turn 실행 중 새 메시지가 어떻게 동작할지 정합니다.
 
-- `safe`: 메시지를 queue에 넣고 active turn 뒤에 실행합니다. 기본값입니다.
+- `steer` (기본값): 후속 메시지를 실행 중인 작업에 자동 반영합니다. `/steer` 또는 `/queue_mode_steer`로 선택합니다.
+- `safe`: 메시지를 queue에 넣고 active turn 뒤에 실행합니다.
 - `interrupt`: 새 메시지를 준비해 queue 앞에 넣고 active turn을 abort한 뒤, 같은 thread에서 새 메시지를 다음 turn으로 실행합니다.
 - `side`: active turn은 계속 실행하고 새 메시지는 별도 side thread에서 답변합니다. Side reply는 표시되며 main thread context와 별개로 취급해야 합니다.
+
+Steering은 기본 활성화되며(`CODEX_STEERING=true`), sidecar worker와 direct app-server를 사용합니다. 저장된 대기열 모드는 유지하고, 모드가 없는 chat/topic만 `steer`를 기본값으로 사용합니다. `/steer`는 모드만 바꾸며 기존 대기열을 재실행하지 않습니다. `safe` 모드에서는 **현재 작업에 반영** 버튼으로 직접 적용할 수 있습니다. 기존 `.env`의 `CODEX_STEERING=false`는 그대로 적용되므로 활성화하려면 `true`로 변경하세요. 업그레이드 후 bot과 worker를 모두 재시작하세요. [상세 동작](docs/telegram-steering.md)
 
 `TELEGRAM_PENDING_TURN_MAX_AGE_SECONDS`보다 오래된 queued item은 자동 만료되고, 봇은 prune할 때 chat에 알립니다. "지금 뭐해?", "진행 상태?", "status" 같은 짧은 상태 질문은 queue에 들어가지 않고 즉시 답변됩니다. `/stop`은 해당 chat의 active turn, side turn, queued message를 중단합니다. Streaming이 켜져 있으면 봇은 file check, command execution, file change 같은 짧은 progress message를 선택한 Telegram 언어로 보냅니다. 이 progress message는 turn 실행 중에는 보이고, final 또는 error response가 전송된 뒤 삭제됩니다. Raw command log나 reasoning text는 stream하지 않습니다. Progress message 전송 실패는 기록하지만 Codex 실행이나 worker event 소비를 중단하지 않습니다. 봇은 각 메시지가 실제로 처리될 때 reaction을 답니다. 기본 흐름은 처리 중 `🤔`, 완료 `👌`, 오류 `😢`, 중단 `😴`입니다. Live progress가 비활성화되어 있으면 긴 turn에는 `TELEGRAM_COMPLETION_NOTICE_SECONDS` 이후 compact completion notice도 전송됩니다.
 

@@ -101,3 +101,17 @@ test('queue promotion rechecks a dequeue race after asynchronous question lookup
   await ui.handle({callbackQuery:{data:'steer:q'},from:{id:7},answerCbQuery:async()=>{},reply:async()=>{}},()=>{});
   assert.equal(sent,false);
 });
+
+test('automatic steering uses the same receipts without callback-only Telegram methods', async () => {
+  for (const status of ['accepted', 'rejected', 'unknown']) {
+    const f = uiFixture({status});
+    delete f.ctx.callbackQuery;
+    delete f.ctx.answerCbQuery;
+    delete f.ctx.editMessageReplyMarkup;
+    assert.equal(await f.ui.apply(f.ctx, 'q'), true);
+    assert.equal(f.sent, 1);
+    assert.equal(f.items.length, status === 'accepted' ? 0 : 1);
+    if (status === 'unknown') assert.equal(dequeueNextTurn(f.items).turn, null);
+    if (status === 'rejected') assert.equal(f.turn.steering, undefined);
+  }
+});

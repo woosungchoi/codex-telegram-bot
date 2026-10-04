@@ -1,12 +1,29 @@
 # Telegram steering
 
-Enable `CODEX_STEERING=true` and use `/queue_mode_safe` in the desired chat.
-The feature selects sidecar worker and direct app-server transport; restart both
-services after deploying. Existing chat modes remain explicit user choices.
+Steering is enabled by default (`CODEX_STEERING=true`). Chats/topics without a
+saved queue mode default to `steer`; existing saved modes remain unchanged.
+Choose a mode in the desired chat/topic:
 
-Ordinary follow-ups enter the durable queue. If the original worker job is
+- `/steer` (also `/queue_mode_steer` or `/queue mode steer`) sends subsequent
+  messages to the current task automatically. The mode is saved for that chat/topic.
+- `/queue_mode_safe` queues follow-ups and offers an explicit steering button.
+- `/queue` shows both mode buttons; `/queue_mode` shows the current mode.
+
+The `/steer` command changes the mode only; it does not submit a Codex prompt,
+interrupt the task, or replay existing queued messages. With no active task,
+messages start normally. While paused, restarting, recovering, or waiting for
+final delivery, follow-ups remain queued. If steering is disabled or the worker
+job is not yet known, they also remain queued.
+
+The feature selects sidecar worker and direct app-server transport; restart both
+services after upgrading. Set `CODEX_STEERING=false` to disable steering and
+queue follow-ups normally. Existing `.env` files with that explicit setting keep
+steering disabled until changed to `true`. `/steer` selects the chat mode; it
+does not override the environment setting.
+
+In safe mode, ordinary follow-ups enter the durable queue. If the original worker job is
 already known when the message arrives, its acknowledgement and `/queue` show
-**Apply to current task**. Pressing the button transfers the prepared input to
+**Apply to current task**. Pressing the button (or sending a follow-up in steer mode) transfers prepared input to
 that exact job's active thread/turn through `turn/steer`, including reply context
 and images. It never targets a newer job or starts another Codex turn.
 

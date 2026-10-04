@@ -23,7 +23,7 @@ function createFixture() {
     settings: {
       config: { botRecoveryDir: "/tmp/recovery" },
       runtimeValue: () => true,
-      validQueueModes: new Set(["safe", "interrupt", "side"])
+      validQueueModes: new Set(["safe", "steer", "interrupt", "side"])
     },
     state,
     activeTurns,
@@ -138,4 +138,16 @@ test("stop in a forum topic leaves other topics and General running", async () =
 test("commandArgument accepts bot mentions and rejects a different command", () => {
   assert.equal(commandArgument("/skills@codex_bot details", "skills"), "details");
   assert.equal(commandArgument("/status", "skills"), "");
+});
+
+test("steer commands select the mode in the requesting topic without stopping work", async () => {
+  for (const name of ["steer", "queue_mode_steer", "queue"]) {
+    const f = createFixture();
+    const abortController = new AbortController();
+    f.activeTurns.set("-100123:topic:40", { abortController });
+    await f.commands.get(name)({ args: "mode steer", chat: { id: -100123, type: "supergroup" }, message: { message_thread_id: 40 } });
+    assert.deepEqual(f.calls[0], ["setMode", "-100123:topic:40", "steer"]);
+    assert.equal(abortController.signal.aborted, false);
+    assert.equal(f.calls.some(([name]) => name === "cancelWorker"), false);
+  }
 });

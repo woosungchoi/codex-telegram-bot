@@ -101,9 +101,9 @@ test("queue runtime hydrates persisted turns from its injected state", () => {
   assert.equal(fixture.state.queues.chat[0].inputText, "resume this turn");
 });
 
-test("queue mode and pause state use safe defaults and persist updates", async () => {
+test("queue mode defaults to steer and pause state persists updates", async () => {
   const fixture = createFixture();
-  assert.equal(fixture.controller.getQueueMode("chat"), "safe");
+  assert.equal(fixture.controller.getQueueMode("chat"), "steer");
   assert.equal(fixture.controller.isQueuePaused("chat"), false);
 
   await fixture.controller.setQueueMode("chat", "side");
@@ -111,6 +111,18 @@ test("queue mode and pause state use safe defaults and persist updates", async (
   assert.equal(fixture.controller.getQueueMode("chat"), "side");
   assert.equal(fixture.controller.isQueuePaused("chat"), true);
   assert.equal(fixture.saves(), 2);
+});
+
+test("default steer preserves saved modes and replaces missing or invalid modes without writes", () => {
+  const f = createFixture();
+  for (const mode of ["safe", "steer", "interrupt", "side"]) {
+    f.chats.set(mode, { queueMode: mode });
+    assert.equal(f.controller.getQueueMode(mode), mode);
+  }
+  f.chats.set("invalid", { queueMode: "obsolete" });
+  assert.equal(f.controller.getQueueMode("invalid"), "steer");
+  assert.equal(f.controller.getQueueMode("new-topic"), "steer");
+  assert.equal(f.saves(), 0);
 });
 
 test("side turns are tracked, counted, aborted, and removed", () => {
@@ -138,4 +150,13 @@ test("cancelled startup timer cannot dequeue a persisted turn after shutdown", a
   await Promise.resolve();
   assert.equal(f.pendingTurns.get("chat").length, 1);
   assert.equal(f.activeTurns.size, 0);
+});
+
+test("steer mode persists and reads back independently for each topic", async () => {
+  const f = createFixture();
+  await f.controller.setQueueMode("chat:topic:1", "steer");
+  assert.equal(f.chats.get("chat:topic:1").queueMode, "steer");
+  assert.equal(f.controller.getQueueMode("chat:topic:1"), "steer");
+  assert.equal(f.controller.getQueueMode("chat:topic:2"), "steer");
+  assert.equal(f.saves(), 1);
 });

@@ -386,6 +386,7 @@ entry points.
 - `/status`: show the bound thread and config
 - `/status` also includes a short Codex usage summary when the current thread log has token count data, shows the sample age, and marks reset-passed limits as stale instead of showing old percentages as current. The `Refresh usage` button can run a tiny separate Codex probe turn to fetch a fresher usage sample; it may consume a small amount of quota.
 - `/queue`: show the queue panel with pause/resume, mode, clear, cancel, up, and next buttons
+- `/steer`: select automatic follow-up steering for this chat/topic
 - `/settings`: open model, thinking, fast, sandbox, approval, web search, network, stream, live progress, runtime env-style overrides, language, time zone, locale, path, and schema buttons
 - `/tools`: open health, doctor, logs, config, backup, export, cleanup, and forget buttons
 - `/stop`: abort the current turn for this chat
@@ -395,7 +396,7 @@ but remain available for typed use and automation:
 
 - `/threads`: list recent Codex thread ids
 - `/queue_pause`, `/queue_resume`: pause or resume automatic queued turn processing
-- `/queue_mode`, `/queue_mode_safe`, `/queue_mode_interrupt`, `/queue_mode_side`: inspect or choose how new messages are handled while a Codex turn is running
+- `/queue_mode`, `/queue_mode_steer`, `/queue_mode_safe`, `/queue_mode_interrupt`, `/queue_mode_side`: inspect or choose how new messages are handled while a Codex turn is running
 - `/cancelqueue [id|number]`: clear all queued messages, or remove one queued item by id or 1-based number
 - `/forget`: remove the saved thread binding
 - `/cleanup`, `/cleanup_status`: show cleanup candidates and approval buttons
@@ -433,9 +434,9 @@ message text/caption as context. If the replied-to message contains a photo or
 image document, that image is also sent to Codex as a `local_image` input.
 
 While Codex is processing an inbound Telegram message, additional plain text,
-photo, or image-document messages are queued for the same chat and processed in
-order after the active turn finishes by default. The queue is persisted in
-`STATE_FILE`, so queued text and downloaded image paths survive a bot restart.
+photo, or image-document messages steer the active task by default. In safe mode,
+they are queued and processed in order after the active turn finishes. The queue
+is persisted in `STATE_FILE`, so queued text and downloaded image paths survive a bot restart.
 `/status` and `/queue` show the backlog. `/queue` also shows inline buttons for
 pause/resume, queue mode, clear all, cancel one item, move an item up, or run an
 item next. The direct commands `/queue_pause`, `/queue_resume`, `/cancelqueue`,
@@ -452,17 +453,22 @@ waiting for safe automatic replay hold the queue until recovery runs.
 
 `/queue_mode` controls how new messages behave while a Codex turn is running:
 
-- `safe`: queue the message and run it after the active turn. This is the default.
+- `steer` (default): apply follow-ups to the active task automatically; choose it with `/steer` or `/queue_mode_steer`.
+- `safe`: queue the message and run it after the active turn.
 - `interrupt`: prepare the new message, put it at the front of the queue, abort the active turn, then run the new message next in the same thread.
 - `side`: keep the active turn running and answer the new message in a separate side thread. Side replies are marked and should be treated as separate from the main thread context.
 
-With `CODEX_STEERING=true`, safe-mode queue acknowledgements offer **Apply to
+Steering is enabled by default (`CODEX_STEERING=true`). Safe-mode queue acknowledgements offer **Apply to
 current task** when a worker job is active. This submits the selected message
 (including prepared reply context and images) to that original turn via
 `turn/steer`, without interrupting it or creating a side thread. Otherwise the
 message runs normally as the next turn. The setting forces sidecar/direct
-app-server execution. It does not override an existing chat's queue mode; use
-`/queue_mode_safe` to select queued follow-ups.
+app-server execution. Chats/topics without a saved mode default to `steer`;
+existing saved modes are preserved. `/steer` changes only the chat mode and does
+not submit a prompt or replay existing queued items. Use `/queue_mode_safe` for
+next-turn follow-ups. Set `CODEX_STEERING=false` to disable steering; an existing
+explicit `false` remains in effect until changed. Restart both bot and worker
+after upgrading. See [Telegram steering](docs/telegram-steering.md).
 
 Pending decision questions have priority. Accepted steering is removed from the
 queue; definite rejection leaves it queued. Unconfirmed delivery is held across

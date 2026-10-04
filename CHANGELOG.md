@@ -4,7 +4,9 @@ Released versions are listed below, newest first.
 
 ## Pending changes (unreleased)
 
-- Add optional `CODEX_STEERING`: queued follow-ups can be sent to the original active Codex turn using a Telegram button, preserving the current task and avoiding separate side sessions.
+- Default new or unset chat queue modes to `steer` and enable `CODEX_STEERING` by default. Preserve saved modes and explicit `CODEX_STEERING=false`; restart bot and worker after upgrading.
+- Add `/steer`, `/queue_mode_steer`, and a queue mode button to apply follow-ups to the running task automatically. Safe mode retains the explicit **Apply to current task** button.
+- Restore live replies and activity updates with app-server steering by normalizing events consistently in inline and worker execution, without duplicating streamed text or final delivery.
 - Add durable steering receipts, requester/topic validation, duplicate-click protection, question priority, and explicit holds for uncertain delivery across restarts.
 
 - Add optional sequential Telegram decision buttons, direct answers and cancellation.

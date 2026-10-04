@@ -144,7 +144,7 @@ export function registerCallbackRoutes({
     await ctx.answerCbQuery();
     await panels.send(ctx, panel, { edit: true });
   });
-  bot.action(/^q:(pause|resume|clear|mode)(?::(safe|interrupt|side))?$/, async (ctx) => {
+  bot.action(/^q:(pause|resume|clear|mode)(?::(safe|steer|interrupt|side))?$/, async (ctx) => {
     const [, action, value] = ctx.match;
     await ctx.answerCbQuery();
     await callbacks.handleQueue(ctx, action, value || "");

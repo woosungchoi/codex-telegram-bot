@@ -58,7 +58,7 @@ function createFixture({ queueChanged = 1 } = {}) {
       handleStandaloneReasoning: async () => {}
     },
     panels: { send: async () => {}, settingsHtml: () => "settings" },
-    callbacks: { handleQueue: async () => {}, handleSetting: async () => {}, handleTool: async (...args) => calls.push(["tool", ...args]) },
+    callbacks: { handleQueue: async (...args) => calls.push(["queue", ...args]), handleSetting: async () => {}, handleTool: async (...args) => calls.push(["tool", ...args]) },
     skills: { isView: () => true, replyStatus: async () => {} },
     commands: {
       handleNew: async () => {},
@@ -156,4 +156,15 @@ test("expired cleanup callback removes the stale plan and persists", async () =>
   await route(actions, "^cleanup:(quarantine|delete|both|ignore):([a-zA-Z0-9_-]+)$")(ctx);
   assert.equal(state.cleanup.plans.old, undefined);
   assert.equal(calls.some(([name]) => name === "save"), true);
+});
+
+
+test("steer mode button reaches the queue mode handler", async () => {
+  const { actions, calls } = createFixture();
+  const data = "q:mode:steer";
+  const action = actions.find(({ trigger }) => trigger instanceof RegExp && trigger.test(data));
+  assert.ok(action);
+  const ctx = { match: action.trigger.exec(data), answerCbQuery: async () => {} };
+  await action.handler(ctx);
+  assert.deepEqual(calls.at(-1), ["queue", ctx, "mode", "steer"]);
 });

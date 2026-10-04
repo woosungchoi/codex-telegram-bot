@@ -144,7 +144,8 @@ export function registerAdminCommands({
   bot.command("queue_pause", (ctx) => handleQueueCommand(ctx, "pause"));
   bot.command("queue_resume", (ctx) => handleQueueCommand(ctx, "resume"));
   bot.command("queue_mode", (ctx) => handleQueueCommand(ctx, "mode"));
-  for (const mode of ["safe", "interrupt", "side"]) {
+  bot.command("steer", (ctx) => handleQueueCommand(ctx, "mode steer"));
+  for (const mode of ["safe", "steer", "interrupt", "side"]) {
     bot.command(`queue_mode_${mode}`, (ctx) => handleQueueCommand(ctx, `mode ${mode}`));
   }
 
@@ -160,7 +161,7 @@ export function registerAdminCommands({
       if (!settings.validQueueModes.has(value)) {
         await telegram.replyHtml(
           ctx,
-          msg("ui.usageOrLine", { value1: code("/queue_mode"), value2: code("/queue_mode_safe|interrupt|side") })
+          msg("ui.usageOrLine", { value1: code("/queue_mode"), value2: code("/queue_mode_safe|steer|interrupt|side") })
         );
         return;
       }

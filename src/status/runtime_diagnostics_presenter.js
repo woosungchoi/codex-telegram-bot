@@ -118,10 +118,11 @@ export function createRuntimeDiagnosticsPresenter({
       msg("ui.currentLine", { value1: code(queue.mode(chatKey)) }),
       "",
       `${code(msg("ui.safe"))}: ${localization.text("queueModeSafeDescription")}`,
+      `${code(localization.text("queueModeSteerLabel"))}: ${localization.text("queueModeSteerDescription")}`,
       `${code(msg("ui.interrupt"))}: ${localization.text("queueModeInterruptDescription")}`,
       `${code(msg("ui.side"))}: ${localization.text("queueModeSideDescription")}`,
       "",
-      msg("ui.changeWithOrLine", { value1: code("/queue_mode_safe"), value2: code("/queue_mode_interrupt"), value3: code("/queue_mode_side") })
+      msg("ui.changeWithOrLine", { value1: code("/queue_mode_safe /steer"), value2: code("/queue_mode_interrupt"), value3: code("/queue_mode_side") })
     ].join("\n");
   }
 
