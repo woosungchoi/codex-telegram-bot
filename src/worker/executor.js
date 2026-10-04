@@ -1,3 +1,5 @@
+import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { localizedErrorDetails } from "../i18n.js";
 import { buildInput } from "../codex/input.js";
 import { applyCodexStreamEvent, codexStreamResult, createCodexStreamState } from "../codex/stream.js";
@@ -10,6 +12,7 @@ export async function runWorkerJob({
   store,
   signal,
   codexClients = new Map(),
+  onUserInput,
   createThread = createCodexThreadDefault,
   now = () => new Date()
 } = {}) {
@@ -31,7 +34,7 @@ export async function runWorkerJob({
   const input = Array.isArray(job.input)
     ? job.input
     : buildInput(job.inputText || job.text || "", job.imagePaths || []);
-  const turnOptions = { signal };
+  const turnOptions = { signal, onUserInput };
   if (job.outputSchema) turnOptions.outputSchema = job.outputSchema;
 
   try {
@@ -41,7 +44,7 @@ export async function runWorkerJob({
       accountId: job.accountId || "default",
       attemptState: job.accountAttemptState || {},
       effectiveOptions: job.effectiveOptions || {},
-      config,
+      config: config.codexInteractiveQuestions ? questionConfig(config, job.id) : config,
       codexClients
     });
     const { events } = await thread.runStreamed(input, turnOptions);
@@ -92,6 +95,8 @@ export async function runWorkerJob({
     return result;
   } catch (error) {
     const aborted = signal?.aborted === true;
+    const waiting = (await store.readJobState(job.id))?.userQuestion;
+    const failureReason = waiting && waiting.state !== "answered" ? "question_interrupted" : undefined;
     const type = aborted ? "worker.job.cancelled" : "worker.job.failed";
     const status = aborted ? "cancelled" : "failed";
     await store.appendJobEvent(job.id, {
@@ -99,6 +104,7 @@ export async function runWorkerJob({
       status,
       chatKey: job.chatKey,
       threadId: job.threadId || thread?.id || "",
+      reason: failureReason,
       ...localizedErrorDetails(error),
       message: error instanceof Error ? error.message : String(error)
     });
@@ -108,8 +114,20 @@ export async function runWorkerJob({
       threadId: job.threadId || thread?.id || "",
       completedAt: now().toISOString(),
       ...localizedErrorDetails(error),
+      failureReason,
       error: error instanceof Error ? error.message : String(error)
     });
     throw error;
   }
+}
+
+function questionConfig(config, jobId) {
+  return { ...config, codexConfig: { ...config.codexConfig,
+    "mcp_servers.telegram_questions": {
+      command: process.execPath,
+      args: [fileURLToPath(new URL("../../scripts/telegram-question-mcp.mjs", import.meta.url))],
+      env: { TELEGRAM_QUESTION_SOCKET: config.codexWorkerSocket, TELEGRAM_QUESTION_JOB: jobId },
+      tool_timeout_sec: 604800
+    }
+  } };
 }

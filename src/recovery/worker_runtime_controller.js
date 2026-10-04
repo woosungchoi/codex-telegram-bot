@@ -198,6 +198,7 @@ export function createWorkerRuntimeRecoveryController({
       const snapshotIdentifiesRestart = isWorkerRestartFailure(snapshot?.recoveryReason);
       if (
         !jobId
+        || job?.failureReason === "question_interrupted"
         || job?.status !== "failed"
         || (!isWorkerRestartFailure(job) && !snapshotIdentifiesRestart)
         || (snapshot?.recoveryEligible === false && !snapshotIdentifiesRestart)

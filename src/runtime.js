@@ -1182,6 +1182,7 @@ const {
 hydratePendingTurnsFromState();
 
 ({ adminCommandHandlers, workspaceMenus } = registerRuntimeRoutes({
+  questions: executionRuntime.questions,
   bot,
   config,
   getPendingTurns,

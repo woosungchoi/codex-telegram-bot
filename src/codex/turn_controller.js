@@ -281,6 +281,7 @@ export function createTurnRuntimeController({
       id: queue.createItemId(),
       ctx,
       chatKey: context.getChatKey(ctx),
+      requesterUserId: ctx.from?.id ? String(ctx.from.id) : null,
       chatId: ctx.chat?.id ?? ctx.from?.id,
       ...messageMeta,
       kind: "user",

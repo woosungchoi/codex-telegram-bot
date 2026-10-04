@@ -33,6 +33,7 @@ test("readConfig preserves the complete flat default contract", () => {
     allowedThreadIds: [],
     codexWorkdir: "/home/tester",
     codexPath: "codex",
+    codexInteractiveQuestions: false,
     codexTransport: "sdk",
     codexAppServerDirectTimeoutMs: 5000,
     codexWorkerMode: "sidecar",

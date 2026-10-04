@@ -1301,5 +1301,14 @@
   "ui.codexUpdateResult.succeeded": "✅ Codex 更新完成：{previous} → {version}\n服務驗證正常，保留模型與帳號設定。",
   "ui.codexUpdateResult.failed": "⚠️ Codex 更新失敗，保留舊版 {previous}。\n{error}",
   "ui.codexUpdateResult.rolled_back": "⚠️ Codex 更新失敗，已還原 {previous}。\n{error}",
-  "ui.codexUpdateResult.rollback_failed": "⚠️ Codex 更新還原失敗，新工作仍暫停。\n{error}\n{rollbackError}"
+  "ui.codexUpdateResult.rollback_failed": "⚠️ Codex 更新還原失敗，新工作仍暫停。\n{error}\n{rollbackError}",
+  "questionsTitle": "❓ 待決定事項",
+  "questionsType": "自行輸入",
+  "questionsCancel": "取消工作",
+  "questionsWaiting": "正在等待您的回答，不會自動選擇預設選項。",
+  "questionsReply": "請按按鈕、輸入字母或編號，或回覆問題訊息輸入自己的答案。",
+  "questionsStale": "此問題已變更或結束。",
+  "questionsOwner": "只有提出此工作的使用者可以回答。",
+  "questionsDone": "✅ 已傳送答案，將依您的選擇繼續。",
+  "questionsCancelled": "已取消工作。"
 }

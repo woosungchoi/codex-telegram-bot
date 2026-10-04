@@ -2,6 +2,16 @@
 
 Released versions are listed below, newest first.
 
+## Pending changes (unreleased)
+
+- Add optional sequential Telegram decision buttons, direct answers and cancellation.
+- Persist question/answer cursors in the worker and wait for all required answers
+  through a synchronous per-job MCP tool. Preserve normal concurrent chats.
+- Bind answers to the requesting user and chat/topic; reject stale or duplicate
+  buttons. Frontend reconnects preserve waiting; worker restarts stop for explicit
+  recovery instead of automatically replaying decisions.
+- Document setup and limitations in [Telegram questions](docs/telegram-questions.md).
+
 ## 1.4.1 - 2026-10-04
 
 ### Worker transport and concurrent admission

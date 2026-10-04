@@ -1,3 +1,4 @@
+import { createQuestionUi } from "../telegram/questions.js";
 import { createCodexRuntimeExecutor } from "../codex/runtime_executor.js";
 import { createTurnRuntimeController } from "../codex/turn_controller.js";
 import { createRuntimeRecoveryController } from "../recovery/runtime_controller.js";
@@ -9,6 +10,7 @@ import { accountThreadId } from "../accounts/context.js";
 import { updateAdmissionPaused } from "../maintenance/update_state.js";
 
 export function createExecutionComposition(r) {
+  const questions = createQuestionUi({ getClient: r.getWorkerClient, getChatKey: r.getChatKey, text: r.text });
   const journal = createTurnRecoveryJournal({
     settings: {
       enabled: r.config.botRestartRecoveryEnabled,
@@ -103,8 +105,10 @@ export function createExecutionComposition(r) {
   });
 
   const worker = createWorkerRuntimeController({
+    questions: r.config.codexInteractiveQuestions ? questions : null,
     settings: {
       recoveryEnabled: r.config.botRestartRecoveryEnabled,
+      interactiveQuestions: r.config.codexInteractiveQuestions,
       recoveryDir: r.config.botRecoveryDir,
       workerRestartRecoveryAttempts: r.config.botRecoverySuspendAfter,
       workingDirectory: r.config.codexWorkdir,
@@ -307,6 +311,7 @@ export function createExecutionComposition(r) {
   });
 
   return {
+    questions,
     cancelWorkerJobOnce: worker.cancelWorkerJobOnce,
     handleCodexMessage: turn.handleCodexMessage,
     handleManualDelivery: manualDelivery.handle,

@@ -91,7 +91,17 @@ async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
   let activeTurnId = "";
   let terminalError;
   const pending = [];
+  const questionControllers = new Map();
+  client.onServerRequest = async (request) => {
+    if (request.method !== "item/tool/requestUserInput" || !turnOptions.onUserInput) throw new Error("Unsupported server request");
+    if (request.params?.threadId !== thread.id) throw new Error("Question thread mismatch");
+    const controller = new AbortController();
+    questionControllers.set(request.id, controller);
+    try { return await turnOptions.onUserInput(request, controller.signal); }
+    finally { questionControllers.delete(request.id); }
+  };
   const unsubscribeError = client.onError((error) => {
+    for (const controller of questionControllers.values()) controller.abort();
     if (!client.closed) queue.fail(error);
   });
   const enqueue = (notification) => {
@@ -102,6 +112,7 @@ async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
   };
 
   const unsubscribe = client.onNotification((notification) => {
+    if (notification.method === "serverRequest/resolved") questionControllers.get(notification.params?.requestId)?.abort();
     if (!isRelevantNotification(notification, thread.id, activeTurnId)) {
       if (!activeTurnId && notification?.params?.threadId === thread.id) pending.push(notification);
       return;
@@ -147,12 +158,14 @@ async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
     unsubscribe();
     unsubscribeError();
     turnOptions.signal?.removeEventListener("abort", abort);
+    for (const controller of questionControllers.values()) controller.abort();
     await client.close();
     throw terminalError || error;
   }
 
   return {
     events: wrapQueue(queue, async () => {
+      for (const controller of questionControllers.values()) controller.abort();
       unsubscribe();
       unsubscribeError();
       turnOptions.signal?.removeEventListener("abort", abort);
@@ -303,6 +316,20 @@ class JsonRpcClient {
     try {
       message = JSON.parse(line);
     } catch {
+      return;
+    }
+    if (message.id != null && message.method) {
+      Promise.resolve().then(() => {
+        if (!this.onServerRequest) throw new Error("Unsupported server request");
+        return this.onServerRequest(message);
+      }).then((result) => this.write({ jsonrpc: "2.0", id: message.id, result }))
+        .catch((error) => {
+          if (!this.closed) {
+            this.write({ jsonrpc: "2.0", id: message.id, error: { code: -32603, message: error.message } });
+            this.fail(error);
+            this.close();
+          }
+        });
       return;
     }
     if (message.id != null) {

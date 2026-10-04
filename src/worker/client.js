@@ -6,6 +6,9 @@ export function createWorkerClient(config = {}) {
   const socketPath = config.codexWorkerSocket;
   const timeoutMs = config.codexWorkerConnectTimeoutMs ?? 5000;
   return {
+    askQuestions: (jobId, questions) => request(socketPath, 0, "question/ask", { jobId, questions }),
+    currentQuestion: (chatKey) => request(socketPath, timeoutMs, "question/current", { chatKey }),
+    answerQuestion: (params) => request(socketPath, timeoutMs, "question/answer", params),
     status: () => request(socketPath, timeoutMs, "worker/status"),
     startJob: (job) => request(socketPath, timeoutMs, "job/start", { job }),
     getJobStatus: (jobId) => request(socketPath, timeoutMs, "job/status", { jobId }),
@@ -30,7 +33,7 @@ function request(socketPath, timeoutMs, method, params = {}) {
       socket.destroy();
       fn(value);
     };
-    timer = setTimeout(() => {
+    if (timeoutMs > 0) timer = setTimeout(() => {
       finish(reject, new LocalizedError("errors.workerRequestTimeout", { method }));
     }, timeoutMs);
 

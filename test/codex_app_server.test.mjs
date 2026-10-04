@@ -57,3 +57,38 @@ test("appServerThreadReadEvents converts completed turns into stream notificatio
     }
   ]);
 });
+
+test("app-server routes server requests separately even when IDs collide with client requests", async (t) => {
+  const fs = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "question-rpc-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const script = path.join(dir, "fake.mjs");
+  await fs.writeFile(script, `#!/usr/bin/env node
+import {createInterface} from 'node:readline';
+const send=x=>process.stdout.write(JSON.stringify(x)+'\\n');
+createInterface({input:process.stdin}).on('line',line=>{
+ const x=JSON.parse(line);
+ if(x.method==='initialize')send({id:x.id,result:{}});
+ if(x.method==='thread/start')send({id:x.id,result:{thread:{id:'thread'}}});
+ if(x.method==='turn/start'){
+  send({id:x.id,method:'item/tool/requestUserInput',params:{threadId:'thread',turnId:'turn',isBlocking:true,questions:[{id:'q',question:'Choose',options:[{label:'A'}]}]}});
+  send({id:x.id,result:{turn:{id:'turn',status:'inProgress'}}});
+ }
+ if(x.result?.answers){
+  send({method:'item/completed',params:{threadId:'thread',turnId:'turn',item:{id:'answer',type:'agentMessage',text:x.result.answers.q.answers[0]}}});
+  send({method:'turn/completed',params:{threadId:'thread',turn:{id:'turn',status:'completed'}}});
+ }
+});`, { mode: 0o700 });
+  let requested = false;
+  const thread = createAppServerThread({ codexPath: script });
+  const result = await thread.run("hello", { onUserInput: async (request) => {
+    requested = true;
+    assert.equal(request.params.questions[0].id, "q");
+    await new Promise((r) => setTimeout(r, 20));
+    return { answers: { q: { answers: ["A"] } } };
+  } });
+  assert.equal(requested, true);
+  assert.equal(result.finalResponse, "A");
+});

@@ -34,6 +34,7 @@ const RETRYABLE_WORKER_TRANSPORT_CODES = new Set([
 
 export function createWorkerRuntimeController({
   settings,
+  questions = null,
   deliveryStore,
   chatStore,
   worker,
@@ -53,6 +54,7 @@ export function createWorkerRuntimeController({
       id,
       progressTurnId: progressTurnId(preparedTurn) || id,
       chatKey,
+      ...(preparedTurn.requesterUserId ? { requesterUserId: String(preparedTurn.requesterUserId) } : {}),
       chatId: preparedTurn.chatId ?? chatKey,
       chatType: preparedTurn.chatType,
       messageThreadId: preparedTurn.messageThreadId,
@@ -68,7 +70,7 @@ export function createWorkerRuntimeController({
       accountAttemptState: preparedTurn.accountAttemptState || preparedTurn.recovery?.accountAttemptState || {},
       effectiveOptions,
       outputSchema: chat.outputSchema || null,
-      transport: worker.transport(),
+      transport: settings.interactiveQuestions ? "app-server-direct" : worker.transport(),
       enqueuedAt: preparedTurn.enqueuedAt || now().toISOString(),
       recovery: preparedTurn.recovery || null
     };
@@ -89,6 +91,7 @@ export function createWorkerRuntimeController({
       Number(settings.workerRestartRecoveryAttempts ?? 3) || 0
     );
     const initialJob = createWorkerJobPayload(chatKey, preparedTurn);
+    initialJob.requesterUserId ||= ctx.from?.id ? String(ctx.from.id) : null;
     try {
       await turn.maybeNotifyContextPressure(ctx, chatKey, { id: initialJob.threadId }, liveProgress);
     } catch (error) {
@@ -232,6 +235,7 @@ export function createWorkerRuntimeController({
 
     try {
       while (!terminal) {
+        if (questions) await questions.poll(ctx).catch((error) => logger.warn("question presentation retry:", error.message));
         if (active.abortController?.signal?.aborted) {
           cancelWorkerJobOnce(active, jobId);
         }

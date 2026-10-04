@@ -48,6 +48,12 @@ export function buildAppServerDirectThreadOptions(config, effectiveOptions = {})
   const threadOptions = { ...effectiveOptions };
   for (const key of RUNTIME_ONLY_OPTION_KEYS) delete threadOptions[key];
   const codexConfig = { ...(config.codexConfig ?? {}), ...buildCodexCompactConfig(config) };
+  if (config.codexInteractiveQuestions) {
+    codexConfig["features.default_mode_request_user_input"] = false;
+    threadOptions.developerInstructions = [threadOptions.developerInstructions,
+      "When user decisions are required, use the telegram_questions MCP ask_decisions tool before dependent actions. Provide all known questions in order (Telegram displays them one at a time); collect every required decision before starting execution. Never treat silence, timeout, defaults or recommendations as an answer. Do not start background dependent actions before answers. Telegram renders choices and supports free text. Do not request secrets. If the decision tool is unavailable or fails, stop and report the issue; do not assume answers or proceed with dependent work."
+    ].filter(Boolean).join("\n");
+  }
   if (Object.keys(codexConfig).length > 0) threadOptions.codexConfig = codexConfig;
   return threadOptions;
 }

@@ -1301,5 +1301,14 @@
   "ui.codexUpdateResult.succeeded": "✅ Codex обновлён: {previous} → {version}\nСлужбы проверены. Модели и аккаунты сохранены.",
   "ui.codexUpdateResult.failed": "⚠️ Обновление Codex не удалось. Версия {previous} сохранена.\n{error}",
   "ui.codexUpdateResult.rolled_back": "⚠️ Обновление Codex не удалось; восстановлена версия {previous}.\n{error}",
-  "ui.codexUpdateResult.rollback_failed": "⚠️ Восстановление Codex не удалось. Новые задачи приостановлены.\n{error}\n{rollbackError}"
+  "ui.codexUpdateResult.rollback_failed": "⚠️ Восстановление Codex не удалось. Новые задачи приостановлены.\n{error}\n{rollbackError}",
+  "questionsTitle": "❓ Решение",
+  "questionsType": "Ввести ответ",
+  "questionsCancel": "Отменить задачу",
+  "questionsWaiting": "Ожидаем ваш ответ. Вариант по умолчанию не выбирается автоматически.",
+  "questionsReply": "Нажмите кнопку, введите букву/номер или ответьте на сообщение с вопросом своим текстом.",
+  "questionsStale": "Этот вопрос уже изменён или завершён.",
+  "questionsOwner": "Ответить может только пользователь, запустивший задачу.",
+  "questionsDone": "✅ Ответы переданы. Продолжаем с выбранными вариантами.",
+  "questionsCancelled": "Задача отменена."
 }

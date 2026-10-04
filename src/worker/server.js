@@ -1,3 +1,4 @@
+import { createQuestionBroker } from "./questions.js";
 import fs from "node:fs/promises";
 import net from "node:net";
 import { createHash } from "node:crypto";
@@ -21,6 +22,7 @@ export function createWorkerServer({
 } = {}) {
   if (!config) throw new Error("config is required.");
   const controllers = new Map();
+  const questions = createQuestionBroker({ store, controllers });
   const chatReservations = new Map();
   const codexClients = new Map();
   const jobTasks = new Map();
@@ -38,6 +40,15 @@ export function createWorkerServer({
   async function dispatch(request) {
     const method = request?.method || "";
     const params = request?.params || {};
+    if (method === "question/ask") {
+      const controller = controllers.get(params.jobId);
+      const job = await store.readJobState(params.jobId);
+      if (!controller || !job) throw new Error("Question job is not running");
+      try { return await questions.ask(job, { id: request.id, params: { isBlocking: true, questions: params.questions, threadId: job.threadId, turnId: job.id } }, controller.signal); }
+      catch (error) { controller.abort(error); throw error; }
+    }
+    if (method === "question/current") return questions.current(params.chatKey);
+    if (method === "question/answer") return questions.answer(params);
     if (method === "worker/archive") return maintenance.run(params);
     if (method === "job/delivered") return store.confirmDelivery(params.entry);
     if (method === "worker/status") {
@@ -52,7 +63,7 @@ export function createWorkerServer({
       if (updateAdmissionPaused(config)) throw new Error("Codex update is waiting for idle; new jobs are paused.");
       return store.withAdmissionLock(() => {
         if (admissionError) throw admissionError;
-        return startJob({ config, store, controllers, chatReservations, codexClients, jobTasks, executeJob, logger, heartbeatMs, job: params.job, onAdmissionFailure: (error) => { admissionError = error; } });
+        return startJob({ config, store, controllers, chatReservations, codexClients, jobTasks, executeJob, logger, heartbeatMs, questions, job: params.job, onAdmissionFailure: (error) => { admissionError = error; } });
       });
     }
     throw new Error(`Unknown worker method: ${method}`);
@@ -122,7 +133,7 @@ export function createWorkerServer({
   };
 }
 
-async function startJob({ config, store, controllers, chatReservations, codexClients, jobTasks, executeJob, logger, heartbeatMs, job, onAdmissionFailure }) {
+async function startJob({ config, store, controllers, chatReservations, codexClients, jobTasks, executeJob, logger, heartbeatMs, questions, job, onAdmissionFailure }) {
   if (!job?.id) throw new Error("job/start requires job.id.");
   if (typeof job.id !== "string" || !/^[a-zA-Z0-9._:-]{1,120}$/.test(job.id)) throw new Error("job/start requires a safe job ID of at most 120 characters.");
   if (!job.chatKey) throw new Error("job/start requires job.chatKey.");
@@ -196,7 +207,7 @@ async function startJob({ config, store, controllers, chatReservations, codexCli
     if (heartbeat) clearInterval(heartbeat);
   };
   controller.signal.addEventListener("abort", stopHeartbeat, { once: true });
-  const task = Promise.resolve().then(() => executeJob({ job: accepted, config, store, signal: controller.signal, codexClients }))
+  const task = Promise.resolve().then(() => executeJob({ job: accepted, config, store, signal: controller.signal, codexClients, onUserInput: (request, requestSignal) => questions.ask(accepted, request, requestSignal ? globalThis.AbortSignal.any([controller.signal, requestSignal]) : controller.signal) }))
     .catch((error) => {
       logger.warn?.("worker job failed:", error instanceof Error ? error.message : String(error));
     })
@@ -235,8 +246,8 @@ async function reconcileOrphanedJobs(store) {
         ...(job ?? {}),
         id: jobId,
         status: "failed",
-        failureReason: WORKER_RESTART_FAILURE_REASON,
-        error: WORKER_RESTART_FAILURE_MESSAGE,
+        failureReason: job?.userQuestion ? "question_interrupted" : WORKER_RESTART_FAILURE_REASON,
+        error: job?.userQuestion ? "Pending decision interrupted by worker restart; explicit recovery required." : WORKER_RESTART_FAILURE_MESSAGE,
         completedAt
       });
       await store.appendJobEvent(jobId, {
@@ -244,8 +255,8 @@ async function reconcileOrphanedJobs(store) {
         status: "failed",
         chatKey: job?.chatKey ?? entry?.chatKey,
         threadId: job?.threadId ?? entry?.threadId ?? "",
-        reason: WORKER_RESTART_FAILURE_REASON,
-        message: WORKER_RESTART_FAILURE_MESSAGE,
+        reason: job?.userQuestion ? "question_interrupted" : WORKER_RESTART_FAILURE_REASON,
+        message: job?.userQuestion ? "Pending decision interrupted by worker restart; explicit recovery required." : WORKER_RESTART_FAILURE_MESSAGE,
         at: completedAt
       });
     }
@@ -257,7 +268,7 @@ async function workerStatus(store, controllers) {
   const active = await store.readActiveJobs();
   return {
     status: "ok",
-    capabilities: ["accounts-v1", "log-archive-v1"],
+    capabilities: ["accounts-v1", "log-archive-v1", "questions-v1"],
     activeJobs: Object.values(active.jobs),
     runningJobIds: [...controllers.keys()]
   };

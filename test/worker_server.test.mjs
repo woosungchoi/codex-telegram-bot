@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { createWorkerClient } from "../src/worker/client.js";
 import { createWorkerServer } from "../src/worker/server.js";
+import { isWorkerRestartFailure } from "../src/worker/replay.js";
 import { createWorkerStore } from "../src/worker/store.js";
 
 function mode(stat) {
@@ -30,7 +31,7 @@ async function startServer(executeJob, options = {}) {
 test("worker server reports status", async () => {
   const { config, worker, client } = await startServer(async () => {});
   try {
-  assert.deepEqual(await client.status(), { status: "ok", capabilities: ["accounts-v1", "log-archive-v1"], activeJobs: [], runningJobIds: [] });
+  assert.deepEqual(await client.status(), { status: "ok", capabilities: ["accounts-v1", "log-archive-v1", "questions-v1"], activeJobs: [], runningJobIds: [] });
     assert.equal(mode(await fs.stat(config.codexWorkerSocket)), 0o600);
   } finally {
     await worker.close();
@@ -175,7 +176,7 @@ test("worker startup marks persisted orphaned jobs failed", async () => {
     }
   });
   try {
-  assert.deepEqual(await client.status(), { status: "ok", capabilities: ["accounts-v1", "log-archive-v1"], activeJobs: [], runningJobIds: [] });
+  assert.deepEqual(await client.status(), { status: "ok", capabilities: ["accounts-v1", "log-archive-v1", "questions-v1"], activeJobs: [], runningJobIds: [] });
     assert.equal((await store.readJobState("job-orphan")).status, "failed");
     assert.equal((await store.readJobState("job-orphan")).failureReason, "worker_restart");
     assert.equal(
@@ -407,5 +408,36 @@ test("live controller reservations survive an index replaced with empty valid JS
     await assert.rejects(client.startJob({ id: "duplicate-controller", chatKey: "chat" }), /Active worker job already exists/);
     await assert.rejects(client.startJob({ id: "unsafe/id", chatKey: "other" }), /safe job ID/);
     assert.equal(starts, 1);
+  } finally { await worker.close(); }
+});
+
+test("worker questions RPC waits for answers and survives frontend reconnection", async () => {
+  let finished = false;
+  const { config, worker, client } = await startServer(async ({ signal }) => {
+    await new Promise((r) => signal.addEventListener("abort", r, { once: true }));
+  });
+  try {
+    await client.startJob({ id: "questions", chatKey: "chat", requesterUserId: "42" });
+    const pending = client.askQuestions("questions", [{ id: "a", question: "Choose", options: [{ label: "Yes" }, { label: "No" }] }]).then((x) => { finished = true; return x; });
+    let q;
+    for (let i = 0; i < 100 && !q; i++) { q = await client.currentQuestion("chat"); await new Promise((r) => setTimeout(r, 5)); }
+    assert.ok(q);
+    assert.equal(finished, false);
+    const replacement = createWorkerClient(config);
+    assert.equal((await replacement.currentQuestion("chat")).id, q.id);
+    await replacement.answerQuestion({ jobId: q.jobId, questionId: q.id, index: 0, userId: "42", chatKey: "chat", option: 0 });
+    assert.deepEqual(await pending, { answers: { a: { answers: ["Yes"] } } });
+  } finally { await worker.close(); }
+});
+
+test("worker restart does not arm automatic execution for an interrupted question", async () => {
+  const { worker, client } = await startServer(async () => {}, { prepareStore: async (store) => {
+    await store.writeJobState({ id: "waiting", chatKey: "chat", status: "running", userQuestion: { state: "pending" } });
+    await store.upsertActiveJob({ id: "waiting", chatKey: "chat", status: "running" });
+  } });
+  try {
+    assert.equal((await client.getJobStatus("waiting")).job.failureReason, "question_interrupted");
+    assert.equal(isWorkerRestartFailure((await client.getJobStatus("waiting")).job), false);
+    assert.equal((await client.readJobEvents("waiting")).events.at(-1).reason, "question_interrupted");
   } finally { await worker.close(); }
 });

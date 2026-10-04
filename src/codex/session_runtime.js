@@ -29,7 +29,7 @@ export function createCodexSessionRuntime({
   }
 
   function codexWorkerMode() {
-    return settings.runtimeValue("codexWorkerMode");
+    return settings.config.codexInteractiveQuestions ? "sidecar" : settings.runtimeValue("codexWorkerMode");
   }
 
   function useWorkerSidecar() {

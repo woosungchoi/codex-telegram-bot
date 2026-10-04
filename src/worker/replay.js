@@ -73,6 +73,7 @@ export function isTerminalWorkerStatus(status) {
 
 export function isWorkerRestartFailure(value) {
   const reason = String(value?.reason ?? value?.failureReason ?? value?.code ?? "");
+  if (reason === "question_interrupted") return false;
   if (reason === WORKER_RESTART_FAILURE_REASON) return true;
   const message = value instanceof Error
     ? value.message

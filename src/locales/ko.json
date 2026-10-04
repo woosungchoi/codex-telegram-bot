@@ -1301,5 +1301,14 @@
   "ui.codexUpdateResult.succeeded": "✅ Codex 업데이트 완료: {previous} → {version}\n서비스 정상 확인 · 모델·계정 설정 보존",
   "ui.codexUpdateResult.failed": "⚠️ Codex 업데이트 실패 · 이전 버전 {previous} 유지\n{error}",
   "ui.codexUpdateResult.rolled_back": "⚠️ Codex 업데이트 실패 · {previous} 복구 완료\n{error}",
-  "ui.codexUpdateResult.rollback_failed": "⚠️ Codex 업데이트 복구 실패 · 새 작업 시작 보류 중\n{error}\n{rollbackError}"
+  "ui.codexUpdateResult.rollback_failed": "⚠️ Codex 업데이트 복구 실패 · 새 작업 시작 보류 중\n{error}\n{rollbackError}",
+  "questionsTitle": "❓ 결정할 사항",
+  "questionsType": "직접 입력",
+  "questionsCancel": "작업 취소",
+  "questionsWaiting": "답변을 기다리고 있습니다. 기본값은 자동 선택되지 않습니다.",
+  "questionsReply": "버튼·번호·알파벳으로 선택하거나, 질문 메시지에 답장으로 직접 입력해 주세요.",
+  "questionsStale": "이미 답변했거나 종료된 질문입니다.",
+  "questionsOwner": "이 작업을 요청한 사용자만 답변할 수 있습니다.",
+  "questionsDone": "✅ 답변을 전달했습니다. 선택한 내용으로 계속 진행합니다.",
+  "questionsCancelled": "작업을 취소했습니다."
 }

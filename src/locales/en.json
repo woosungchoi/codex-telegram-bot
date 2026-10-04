@@ -1301,5 +1301,14 @@
   "ui.codexUpdateResult.succeeded": "✅ Codex updated: {previous} → {version}\nServices verified. Models and account settings preserved.",
   "ui.codexUpdateResult.failed": "⚠️ Codex update failed. Previous version {previous} preserved.\n{error}",
   "ui.codexUpdateResult.rolled_back": "⚠️ Codex update failed; restored {previous}.\n{error}",
-  "ui.codexUpdateResult.rollback_failed": "⚠️ Codex update restoration failed. New jobs remain paused.\n{error}\n{rollbackError}"
+  "ui.codexUpdateResult.rollback_failed": "⚠️ Codex update restoration failed. New jobs remain paused.\n{error}\n{rollbackError}",
+  "questionsTitle": "❓ Decision",
+  "questionsType": "Write an answer",
+  "questionsCancel": "Cancel task",
+  "questionsWaiting": "Waiting for your answer. No default is selected automatically.",
+  "questionsReply": "Select a button, type its letter/number, or reply to the question message with your own answer.",
+  "questionsStale": "This question has already changed or ended.",
+  "questionsOwner": "Only the user who started this task can answer.",
+  "questionsDone": "✅ Answers delivered. Continuing with your choices.",
+  "questionsCancelled": "Task cancelled."
 }
