@@ -55,6 +55,22 @@ do not call `fsync`. This recovery covers process interruption and injected I/O
 failures with surviving filesystem data; it does not guarantee survival of OS or
 power loss. No storage engine migration is included.
 
+## Terminal state publication (1.4.2)
+
+Terminal `worker.job.completed`, `worker.job.failed` and `worker.job.cancelled`
+events are an exception to the ordinary log-first write path. Under the job lock,
+the store first atomically saves the terminal status, `completedAt`, final cursor
+and full `terminalEvent` in the job snapshot, then appends the JSONL record.
+Delivery readers therefore never observe a newly committed terminal state without
+its completion timestamp. Raw Codex turn events do not finish a worker job.
+
+If the terminal append is interrupted, readers replay the final event from the
+snapshot, including after a partial final line or an archive of the earlier log
+prefix. Only the matching one-event-ahead terminal snapshot is accepted; unrelated
+cursor/log divergence still requires explicit recovery. Late callbacks cannot
+append events to this terminal state. This is process-interruption recovery, not
+an `fsync` or power-loss guarantee. Drain work and delivery before worker upgrades.
+
 ## Read errors and quarantine
 
 Only ENOENT represents absence. Permission and I/O errors propagate and block
