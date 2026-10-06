@@ -1,3 +1,4 @@
+import path from "node:path";
 import {
   parseCodexAnswerFormat,
   parseLanguage,
@@ -39,7 +40,12 @@ export function readTelegramPreferencesConfig(env) {
 }
 
 export function readTelegramRuntimeConfig(env) {
+  const operationalStatusFile = env.OPERATIONAL_STATUS_FILE?.trim() || "";
+  if (operationalStatusFile && !path.isAbsolute(operationalStatusFile)) {
+    throw new Error("OPERATIONAL_STATUS_FILE must be an absolute path.");
+  }
   return {
+    operationalStatusFile,
     maxTelegramChars: parseNonnegativeInteger(env.MAX_TELEGRAM_CHARS, 3500, "MAX_TELEGRAM_CHARS"),
     progressEditIntervalMs: parseNonnegativeInteger(env.PROGRESS_EDIT_INTERVAL_MS, 8000, "PROGRESS_EDIT_INTERVAL_MS"),
     telegramReactionsEnabled: parseOptionalBoolean(env.TELEGRAM_REACTIONS_ENABLED) ?? true,

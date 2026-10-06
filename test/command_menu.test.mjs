@@ -23,3 +23,16 @@ test("command menu registers the default and localized Telegram scopes", async (
   assert.ok(calls.length >= 2);
   assert.equal(calls[0][0][0].command, "menu");
 });
+
+test("ops menu is opt-in in every registration scope", async () => {
+  assert.ok(!telegramCommands('en').some(({ command }) => command === 'ops'));
+  assert.ok(telegramCommands('ko', { operationalStatusEnabled: true }).some(({ command, description }) => command === 'ops' && description === '운영 현황'));
+  const calls = [];
+  await createTelegramCommandMenu({
+    bot: { telegram: { setMyCommands: async (commands) => calls.push(commands) } },
+    language: () => 'en', operationalStatusEnabled: true,
+    timing: { sleep: async () => {}, withTimeout: (promise) => promise }, summarizeError: String
+  }).registerTelegramCommands();
+  assert.ok(calls.length > 1);
+  assert.ok(calls.every((commands) => commands.some(({ command }) => command === 'ops')));
+});

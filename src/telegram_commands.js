@@ -58,6 +58,7 @@ export const REGISTERED_TELEGRAM_COMMANDS = new Set([
   "config",
   "doctor",
   "health",
+  "ops",
   "tools",
   "skills",
   "backup",

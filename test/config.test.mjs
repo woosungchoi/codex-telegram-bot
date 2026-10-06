@@ -34,6 +34,7 @@ test("steering is enabled by default but honors explicit opt-out", () => {
 
 test("readConfig preserves the complete flat default contract", () => {
   assert.deepEqual(normalizeConfig(readTestConfig()), {
+    operationalStatusFile: "",
     telegramBotToken: "123456789:telegram-token",
     allowedUserIds: ["42"],
     allowedChatIds: [],
@@ -336,4 +337,10 @@ test("readConfig rejects context compact percentages above 100", () => {
     () => readTestConfig({ CODEX_CONTEXT_COMPACT_THRESHOLD_PERCENT: "101" }),
     /CODEX_CONTEXT_COMPACT_THRESHOLD_PERCENT must be between 0 and 100/
   );
+});
+
+test("ops defaults off and requires an explicit absolute snapshot path", () => {
+  assert.equal(readTestConfig().operationalStatusFile, '');
+  assert.equal(readTestConfig({ OPERATIONAL_STATUS_FILE: ' /srv/status.json ' }).operationalStatusFile, '/srv/status.json');
+  assert.throws(() => readTestConfig({ OPERATIONAL_STATUS_FILE: 'status.json' }), /absolute path/);
 });

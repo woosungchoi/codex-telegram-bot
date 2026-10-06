@@ -1321,5 +1321,19 @@
   "steerAccepted": "✅ 已將指示加入目前回合，不會再以獨立回合重複執行。",
   "steerRejected": "原回合無法接受此指示，已保留在下一回合佇列中。",
   "steerUnknown": "⚠️ 無法確認傳送結果。此項目已暫停，不會自動重送。請在 /queue 查看傳送狀態，或確認工作後取消該項目。",
-  "steerHeld": "待確認指示傳送 · 暫停自動執行"
+  "steerHeld": "待確認指示傳送 · 暫停自動執行",
+  "opsCommand": "服務運作狀態",
+  "opsTitle": "🛠 服務運作狀態",
+  "opsFresh": "✅ 最新資料",
+  "opsStale": "⚠️ 資料過期或時間在未來",
+  "opsUnknown": "未確認",
+  "opsOk": "正常",
+  "opsWarning": "注意",
+  "opsError": "錯誤",
+  "opsPermissionMissing": "需要讀取權限",
+  "opsQueryFailed": "資料收集失敗",
+  "opsUnavailable": "⚠️ 無法讀取運作狀態。請檢查狀態檔案與收集程式。",
+  "opsDisabled": "運作狀態功能尚未啟用。請設定 OPERATIONAL_STATUS_FILE。",
+  "opsTruncated": "… 已省略其餘資料。請查看原始狀態檔案。",
+  "opsEmpty": "尚無服務資料。"
 }

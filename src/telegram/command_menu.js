@@ -1,10 +1,10 @@
 import { TELEGRAM_LANGUAGE_CODES, textFor } from "../i18n.js";
 
-export function createTelegramCommandMenu({ bot, language, timing, summarizeError }) {
+export function createTelegramCommandMenu({ bot, language, timing, summarizeError, operationalStatusEnabled = false }) {
   async function registerTelegramCommands() {
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
-        const commands = telegramCommands(language());
+        const commands = telegramCommands(language(), { operationalStatusEnabled });
         await timing.withTimeout(Promise.all([
           bot.telegram.setMyCommands(commands),
           ...TELEGRAM_LANGUAGE_CODES.map((languageCode) => (
@@ -28,7 +28,7 @@ export function createTelegramCommandMenu({ bot, language, timing, summarizeErro
   return { registerTelegramCommands };
 }
 
-export function telegramCommands(language = "en") {
+export function telegramCommands(language = "en", { operationalStatusEnabled = false } = {}) {
   const text = (key) => textFor(language, key);
   return [
     { command: "menu", description: text("commandMenu") },
@@ -41,6 +41,7 @@ export function telegramCommands(language = "en") {
     { command: "mcp", description: text("workspaceMcp") },
     { command: "new", description: text("commandNew") },
     { command: "resume", description: text("commandResume") },
+    ...(operationalStatusEnabled ? [{ command: "ops", description: text("opsCommand") }] : []),
     { command: "status", description: text("commandStatus") },
     { command: "usage", description: text("commandUsage") },
     { command: "queue", description: text("commandQueue") },

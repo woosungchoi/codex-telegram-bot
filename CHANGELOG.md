@@ -4,6 +4,8 @@ Released versions are listed below, newest first.
 
 ## Pending changes (unreleased)
 
+- Add opt-in `/ops` status snapshots with configurable service metrics, localized status labels and timestamps, freshness warnings, and bounded read-only JSON input. See [Operational status](docs/operational-status.md).
+
 - Default new or unset chat queue modes to `steer` and enable `CODEX_STEERING` by default. Preserve saved modes and explicit `CODEX_STEERING=false`; restart bot and worker after upgrading.
 - Add `/steer`, `/queue_mode_steer`, and a queue mode button to apply follow-ups to the running task automatically. Safe mode retains the explicit **Apply to current task** button.
 - Restore live replies and activity updates with app-server steering by normalizing events consistently in inline and worker execution, without duplicating streamed text or final delivery.

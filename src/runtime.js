@@ -143,6 +143,7 @@ const {
 const { registerTelegramCommands } = createTelegramCommandMenu({
   bot,
   language: uiLanguage,
+  operationalStatusEnabled: Boolean(config.operationalStatusFile),
   timing: {
     sleep,
     withTimeout

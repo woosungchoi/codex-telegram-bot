@@ -1321,5 +1321,19 @@
   "steerAccepted": "✅ 현재 턴에 추가 지시를 전달했습니다. 별도 턴으로 중복 실행하지 않습니다.",
   "steerRejected": "기존 턴에 지시를 전달할 수 없어 다음 턴 대기열에 유지했습니다.",
   "steerUnknown": "⚠️ 전달 여부를 확인하지 못했습니다. 이 항목은 보류되며 자동으로 재전송하지 않습니다. /queue에서 전달 상태를 확인하거나 작업 내용을 확인한 뒤 해당 항목을 취소해 주세요.",
-  "steerHeld": "지시 전달 확인 대기 · 자동 실행 보류"
+  "steerHeld": "지시 전달 확인 대기 · 자동 실행 보류",
+  "opsCommand": "운영 현황",
+  "opsTitle": "🛠 운영 현황",
+  "opsFresh": "✅ 최근 수집 자료",
+  "opsStale": "⚠️ 오래된 자료 또는 미래 시각",
+  "opsUnknown": "미확인",
+  "opsOk": "정상",
+  "opsWarning": "주의",
+  "opsError": "오류",
+  "opsPermissionMissing": "읽기 권한 필요",
+  "opsQueryFailed": "수집 실패",
+  "opsUnavailable": "⚠️ 운영 자료를 읽을 수 없습니다. 상태 파일과 수집기를 확인해주세요.",
+  "opsDisabled": "운영 현황이 비활성화되어 있습니다. OPERATIONAL_STATUS_FILE을 설정해주세요.",
+  "opsTruncated": "… 나머지 자료는 생략했습니다. 원본 상태 파일을 확인해주세요.",
+  "opsEmpty": "보고된 서비스가 없습니다."
 }

@@ -1321,5 +1321,19 @@
   "steerAccepted": "✅ Added to the current turn. This message will not run again as a separate turn.",
   "steerRejected": "The original turn cannot accept this input. It remains queued for the next turn.",
   "steerUnknown": "⚠️ Delivery is unconfirmed. This item is held and will not be resent automatically. Check its delivery from /queue, or cancel the held item after reviewing the task.",
-  "steerHeld": "Steering delivery review · automatic execution held"
+  "steerHeld": "Steering delivery review · automatic execution held",
+  "opsCommand": "Operational status",
+  "opsTitle": "🛠 Operational status",
+  "opsFresh": "✅ Recent snapshot",
+  "opsStale": "⚠️ Stale snapshot or future timestamp",
+  "opsUnknown": "Unknown",
+  "opsOk": "OK",
+  "opsWarning": "Warning",
+  "opsError": "Error",
+  "opsPermissionMissing": "Read permission required",
+  "opsQueryFailed": "Collection failed",
+  "opsUnavailable": "⚠️ Cannot read operational status. Check the snapshot file and collector.",
+  "opsDisabled": "Operational status is disabled. Configure OPERATIONAL_STATUS_FILE to enable it.",
+  "opsTruncated": "… More data omitted. See the source snapshot.",
+  "opsEmpty": "No services reported."
 }

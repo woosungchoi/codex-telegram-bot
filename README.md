@@ -636,3 +636,5 @@ journalctl --user -u codex-telegram-bot.service -f
 ## License
 
 MIT License. See [LICENSE](LICENSE).
+
+Optional read-only server metrics: [Operational status (`/ops`)](docs/operational-status.md).

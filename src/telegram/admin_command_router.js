@@ -1,3 +1,4 @@
+import { readOperationalStatus } from "../operational_status.js";
 import { createMessageFormatter } from "../i18n.js";
 import { b, code } from "./html.js";
 import { commandReplyKeyboard } from "../ui/keyboard_helpers.js";
@@ -30,6 +31,14 @@ export function registerAdminCommands({
     ctx,
     await diagnostics.formatDoctor(telegram.getChatKey(ctx))
   ));
+  bot.command("ops", async (ctx) => telegram.replyHtml(ctx, await readOperationalStatus(
+    settings.config.operationalStatusFile,
+    {
+      text: localization.text,
+      locale: state.ui?.locale || settings.config.telegramLocale || "en-US",
+      timeZone: state.ui?.timeZone || settings.config.telegramTimeZone || "UTC"
+    }
+  )));
   bot.command("health", async (ctx) => telegram.replyHtml(ctx, await diagnostics.formatHealth()));
   bot.command("tools", (ctx) => panels.send(ctx, "tools"));
   bot.command("skills", (ctx) => skills.replyStatus(

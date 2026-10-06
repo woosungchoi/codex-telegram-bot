@@ -1,4 +1,7 @@
 import test from "node:test";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import assert from "node:assert/strict";
 import { telegramChatKey } from "../src/telegram/context.js";
 import {
@@ -6,7 +9,7 @@ import {
   registerAdminCommands
 } from "../src/telegram/admin_command_router.js";
 
-function createFixture() {
+function createFixture(config = {}) {
   const commands = new Map();
   const calls = [];
   const state = {
@@ -21,7 +24,7 @@ function createFixture() {
   const handlers = registerAdminCommands({
     bot,
     settings: {
-      config: { botRecoveryDir: "/tmp/recovery" },
+      config: { botRecoveryDir: "/tmp/recovery", ...config },
       runtimeValue: () => true,
       validQueueModes: new Set(["safe", "steer", "interrupt", "side"])
     },
@@ -93,7 +96,7 @@ function createFixture() {
     },
     persistence: { save: async () => calls.push(["save"]) }
   });
-  return { activeTurns, calls, commands, handlers };
+  return { activeTurns, calls, commands, handlers, state };
 }
 
 test("stopping from a menu keeps previous navigation even when no turn is running", async () => {
@@ -150,4 +153,29 @@ test("steer commands select the mode in the requesting topic without stopping wo
     assert.equal(abortController.signal.aborted, false);
     assert.equal(f.calls.some(([name]) => name === "cancelWorker"), false);
   }
+});
+
+test("ops command returns localized disabled or read failure without executing an argument", async () => {
+  for (const [config, expected] of [[{}, 'opsDisabled'], [{ operationalStatusFile: '/nonexistent/ops.json' }, 'opsUnavailable']]) {
+    const { commands, calls } = createFixture(config);
+    await commands.get('ops')({ message: { text: '/ops /etc/passwd' } });
+    const reply = calls.find(([kind]) => kind === 'reply')[2];
+    assert.match(reply, new RegExp(expected));
+    assert.ok(!reply.includes('/etc/passwd'));
+  }
+});
+
+test("ops command reads configured data and follows changed UI timezones", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'ops-router-'));
+  try {
+    const file = path.join(dir, 'status.json');
+    await writeFile(file, JSON.stringify({ schema: 1, checkedAt: '2026-10-06T00:00:00Z', services: [{ name: 'Example service', status: 'ok' }] }));
+    const { commands, calls, state } = createFixture({ operationalStatusFile: file, telegramLocale: 'en-GB', telegramTimeZone: 'UTC' });
+    await commands.get('ops')({});
+    assert.match(calls.at(-1)[2], /00:00 \(UTC\)/);
+    state.ui = { timeZone: 'Asia/Seoul', locale: 'en-GB' };
+    await commands.get('ops')({});
+    assert.match(calls.at(-1)[2], /09:00 \(Asia\/Seoul\)/);
+    assert.match(calls.at(-1)[2], /Example service/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });
