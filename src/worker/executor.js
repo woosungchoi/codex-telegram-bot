@@ -1,3 +1,4 @@
+import { updateNativeProgress } from "../codex/native_progress.js";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { localizedErrorDetails } from "../i18n.js";
@@ -35,7 +36,16 @@ export async function runWorkerJob({
   const input = Array.isArray(job.input)
     ? job.input
     : buildInput(job.inputText || job.text || "", job.imagePaths || []);
-  const turnOptions = { signal, onUserInput, onSteerReady };
+  const turnOptions = { signal, onUserInput, onSteerReady, clientUserMessageId: `telegram:${job.id}` };
+  turnOptions.onThreadReady = async ({ threadId }) => {
+    job.threadId = threadId;
+    job.inputReceipt = { clientId: turnOptions.clientUserMessageId, threadId, accountId: job.accountId || "default", status: "sending" };
+    await store.writeJobState({ id: job.id, threadId, inputReceipt: job.inputReceipt });
+  };
+  turnOptions.onTurnStarted = async ({ turnId }) => {
+    job.inputReceipt = { ...job.inputReceipt, turnId, status: "accepted" };
+    await store.writeJobState({ id: job.id, inputReceipt: job.inputReceipt });
+  };
   if (job.outputSchema) turnOptions.outputSchema = job.outputSchema;
 
   let result;
@@ -64,6 +74,11 @@ export async function runWorkerJob({
         await store.writeJobState({ ...job, status: "running" });
       }
       const update = applyCodexStreamEvent(streamState, event);
+      if (update.type === "error") throw Object.assign(new Error(update.message), { code: update.code });
+      if (["progress", "usage"].includes(update.type)) {
+        job.nativeProgress = updateNativeProgress(job.nativeProgress, update.event || { type: "usage.updated", tokenUsage: update.tokenUsage });
+        await store.writeJobState({ id: job.id, nativeProgress: job.nativeProgress });
+      }
       if (update.type === "thread_started") {
         job.threadId = update.threadId || job.threadId || "";
         await store.writeJobState({ ...job, status: "running", threadId: job.threadId });
@@ -81,7 +96,7 @@ export async function runWorkerJob({
 
     result = codexStreamResult(streamState);
   } catch (error) {
-    const aborted = signal?.aborted === true;
+    const aborted = signal?.aborted === true || error?.code === "turn_interrupted";
     const waiting = (await store.readJobState(job.id))?.userQuestion;
     const failureReason = waiting && waiting.state !== "answered" ? "question_interrupted" : undefined;
     const type = aborted ? "worker.job.cancelled" : "worker.job.failed";

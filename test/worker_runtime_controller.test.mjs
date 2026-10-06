@@ -402,3 +402,59 @@ test("checkpoints cover each page and failed partial processing, never unhandled
   assert.equal(failed.deliveries["chat:job-1"].seq, 1);
   assert.equal(failed.calls.find(([name]) => name === "stream-closed")[2].outcome, "error");
 });
+
+test("worker polling restores accepted input evidence while events stream, without resubmitting", async () => {
+  const h = createHarness({ events: completedEvents(), eventLimit: 1 });
+  h.client.getJobStatus = async () => ({ job: { id: "job-1", chatKey: "chat:44", status: "running", inputReceipt: { status: "accepted" } } });
+  const active = { abortController: new AbortController() };
+  await h.controller.waitForWorkerJob({}, "chat:44", "job-1", active, {});
+  assert.deepEqual(active.workerInputReceipt, { jobId: "job-1", receipt: "accepted" });
+  assert.equal(h.calls.some(([name]) => name === "start" || name === "cancel"), false);
+});
+
+test("receipt lookups are bounded during continuous events and cannot break final delivery", async () => {
+  const h = createHarness({ events: completedEvents(), eventLimit: 1 });
+  let reads = 0;
+  h.client.getJobStatus = async () => { reads++; throw new Error("lookup unavailable"); };
+  const active = { abortController: new AbortController() };
+  const result = await h.controller.waitForWorkerJob({}, "chat:44", "job-1", active, {});
+  assert.equal(result.turn.finalResponse, "final answer");
+  assert.equal(reads, 2); // Initial lookup plus forced terminal refresh, not every event.
+  assert.deepEqual(active.workerInputReceipt, { jobId: "job-1", receipt: "uncertain" });
+});
+
+test("receipt snapshots must match the currently polled job and chat", async () => {
+  for (const mismatch of [{ id: "other", chatKey: "chat:44" }, { id: "job-1", chatKey: "other" }]) {
+    const h = createHarness({ events: completedEvents(), terminalJob: { ...mismatch, status: "running", inputReceipt: { status: "accepted" } } });
+    const active = { abortController: new AbortController() };
+    await h.controller.waitForWorkerJob({}, "chat:44", "job-1", active, {});
+    assert.equal(active.workerInputReceipt, undefined);
+  }
+});
+
+test("a failed receipt refresh preserves existing acknowledgement evidence", async () => {
+  const h = createHarness({ events: completedEvents(), eventLimit: 1 });
+  let reads = 0;
+  h.client.getJobStatus = async () => {
+    if (reads++) throw new Error("lookup unavailable");
+    return { job: { id: "job-1", chatKey: "chat:44", status: "running", inputReceipt: { status: "accepted" } } };
+  };
+  const active = { abortController: new AbortController() };
+  await h.controller.waitForWorkerJob({}, "chat:44", "job-1", active, {});
+  assert.equal(reads, 2);
+  assert.deepEqual(active.workerInputReceipt, { jobId: "job-1", receipt: "accepted" });
+});
+
+test("receipt acknowledgement is refreshed during a continuous event stream", async () => {
+  const h = createHarness({ events: completedEvents(), eventLimit: 1, clockStep: 1000 });
+  let reads = 0;
+  const seen = [];
+  const active = { abortController: new AbortController() };
+  h.client.getJobStatus = async () => ({ job: { id: "job-1", chatKey: "chat:44", status: "running", inputReceipt: { status: reads++ ? "accepted" : "sending" } } });
+  const read = h.client.readJobEvents;
+  h.client.readJobEvents = async (...args) => { seen.push(active.workerInputReceipt?.receipt); return read(...args); };
+  await h.controller.waitForWorkerJob({}, "chat:44", "job-1", active, {});
+  assert.ok(seen.includes("pending"));
+  assert.ok(seen.includes("accepted"));
+  assert.equal(h.calls.some(([name]) => name === "start"), false);
+});

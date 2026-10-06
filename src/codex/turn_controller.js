@@ -333,6 +333,7 @@ export function createTurnRuntimeController({
     const liveProgress = progress.createState(active, chatKey);
     liveProgress.chatKey = chatKey;
     let deliveryCompleted = false;
+    let nativeInterrupted = false;
     let completedThreadId = "";
     await recovery.restoreThreadForTurn(chatKey, preparedTurn);
     await recovery.recordActiveTurnStarted(chatKey, preparedTurn);
@@ -351,15 +352,17 @@ export function createTurnRuntimeController({
         await lifecycle.beforeDelivery?.(chatKey, preparedTurn);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        finalReaction = active.abortController?.signal?.aborted
+        nativeInterrupted = error?.code === "turn_interrupted";
+        finalReaction = nativeInterrupted || active.abortController?.signal?.aborted
           ? settings.stoppedReaction
           : settings.errorReaction;
         if (error?.suppressTelegramReply) {
           await recovery.recordActiveTurnFailed(chatKey, message);
-        } else if (active.interruptRequested && active.abortController?.signal?.aborted) {
+        } else if (nativeInterrupted || (active.interruptRequested && active.abortController?.signal?.aborted)) {
+          await recovery.recordActiveTurnFailed(chatKey, message);
           await telegram.replyHtml(
             ctx,
-            `${b(t("codexTurnInterruptedTitle"))}\n${t("codexTurnInterruptedDetail")}`
+            `${b(t("codexTurnInterruptedTitle"))}\n${t(nativeInterrupted && !active.interruptRequested ? "nativeInterruptedDetail" : "codexTurnInterruptedDetail")}`
           );
           active.interruptRequested = false;
         } else if (preparedTurn.kind === "recovery" && isStreamIdleTimeout(error)) {
@@ -413,7 +416,7 @@ export function createTurnRuntimeController({
       try {
         await lifecycle.onTurnFinished?.(chatKey, preparedTurn, {
           delivered: deliveryCompleted, threadId: completedThreadId,
-          cancelled: active.abortController?.signal?.aborted === true,
+          cancelled: nativeInterrupted || active.abortController?.signal?.aborted === true,
           deliveryPending: active.deliveryPending === true
         });
       } catch (error) { logger.warn("Turn completion observer failed:", error.message); }

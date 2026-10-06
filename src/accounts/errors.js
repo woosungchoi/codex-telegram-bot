@@ -1,4 +1,7 @@
 export function codexEventError(event) {
+  if (event?.type === "turn.interrupted" || (event?.method === "turn/completed" && event.params?.turn?.status === "interrupted")) {
+    return Object.assign(new Error("Codex turn interrupted."), { code: "turn_interrupted" });
+  }
   if (event?.type !== "error" && event?.type !== "turn.failed" && event?.method !== "error"
     && !(event?.method === "turn/completed" && event.params?.turn?.status === "failed")) return null;
   const source = event.params?.turn?.error || event.params?.error || event.error || event;

@@ -30,9 +30,15 @@ export function applyCodexStreamEvent(state, event) {
     };
   }
   if (event.type === "turn.completed") {
-    state.usage = event.usage;
-    return { type: "turn_completed", usage: event.usage ?? null };
+    state.usage = event.usage ?? state.usage;
+    return { type: "turn_completed", usage: state.usage };
   }
+  if (event.type === "usage.updated") {
+    state.usage = event.usage;
+    return { type: "usage", usage: event.usage, tokenUsage: event.tokenUsage };
+  }
+  if (["turn.plan", "turn.diff", "thread.status"].includes(event.type)) return { type: "progress", event };
+  if (event.type === "turn.interrupted") return { type: "error", code: "turn_interrupted", message: "Codex turn interrupted." };
   if (event.type === "turn.failed") {
     return { type: "error", message: errorMessage(event.error, "Codex turn failed.") };
   }
@@ -138,10 +144,23 @@ function normalizeAppServerNotification(state, notification) {
       }
     };
   }
+  if (method === "thread/tokenUsage/updated") {
+    const total = params.tokenUsage?.total;
+    return { type: "usage.updated", tokenUsage: params.tokenUsage, usage: total ? {
+      input_tokens: total.inputTokens, cached_input_tokens: total.cachedInputTokens,
+      output_tokens: total.outputTokens, reasoning_output_tokens: total.reasoningOutputTokens,
+      total_tokens: total.totalTokens
+    } : null };
+  }
+  if (method === "turn/plan/updated") return { type: "turn.plan", plan: params.plan, explanation: params.explanation };
+  if (method === "turn/diff/updated") return { type: "turn.diff", diff: params.diff };
+  if (method === "thread/status/changed") return { type: "thread.status", status: params.status };
   if (method === "turn/completed") {
+    if (params.turn?.status === "interrupted") return { type: "turn.interrupted" };
     if (params.turn?.status === "failed") {
       return { type: "turn.failed", error: params.turn?.error || { message: "Codex app-server turn failed." } };
     }
+    if (params.turn?.status !== "completed") return { type: "turn.failed", error: { message: "Unverified Codex terminal status." } };
     return { type: "turn.completed", usage: params.usage ?? null };
   }
   if (method === "error") return { type: "error", message: errorMessage(params.error || params, "Codex app-server error."), willRetry: params.willRetry === true, codexErrorInfo: params.error?.codexErrorInfo };

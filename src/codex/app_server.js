@@ -27,7 +27,7 @@ export function createAppServerThread({
       const streamState = createCodexStreamState();
       for await (const event of events) {
         const update = applyCodexStreamEvent(streamState, event);
-        if (update.type === "error") throw new Error(update.message);
+        if (update.type === "error") throw Object.assign(new Error(update.message), { code: update.code });
       }
       return codexStreamResult(streamState);
     },
@@ -146,8 +146,10 @@ async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
     thread.id = threadResponse?.thread?.id || thread.id;
     if (thread.id) queue.push({ type: "thread.started", thread_id: thread.id });
 
+    await turnOptions.onThreadReady?.({ threadId: thread.id });
     const turnResponse = await client.request("turn/start", appServerTurnParams(thread, input, turnOptions));
     activeTurnId = turnResponse?.turn?.id || "";
+    await turnOptions.onTurnStarted?.({ threadId: thread.id, turnId: activeTurnId });
     releaseSteering = turnOptions.onSteerReady?.({
       threadId: thread.id, turnId: activeTurnId,
       async steer(input) {
@@ -165,7 +167,7 @@ async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
     for (const notification of pending.splice(0)) {
       if (isRelevantNotification(notification, thread.id, activeTurnId)) enqueue(notification);
     }
-    if (turnResponse?.turn?.status === "completed" || turnResponse?.turn?.status === "failed") {
+    if (["completed", "failed", "interrupted"].includes(turnResponse?.turn?.status)) {
       for (const event of appServerThreadReadEvents({ thread: { id: thread.id, turns: [turnResponse.turn] } }, { threadId: thread.id, turnId: activeTurnId })) {
         queue.push(event);
       }
@@ -242,6 +244,7 @@ function appServerTurnParams(thread, input, turnOptions = {}) {
   return compactObject({
     threadId: thread.id,
     input: appServerInput(input),
+    clientUserMessageId: turnOptions.clientUserMessageId,
     cwd: thread.threadOptions?.workingDirectory || null,
     approvalPolicy: thread.threadOptions?.approvalPolicy || null,
     model: thread.threadOptions?.model || null,

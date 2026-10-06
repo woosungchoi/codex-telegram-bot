@@ -119,3 +119,37 @@ createInterface({input:process.stdin}).on('line',line=>{
   assert.equal(result.finalResponse,'changed');assert.equal((await delivery).status,'accepted');assert.equal(released,true);
   assert.equal((await control.steer('too late')).status,'rejected');
 });
+
+test("original input receipt hooks surround one native turn/start with a correlated client ID", async (t) => {
+  const fs = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "input-receipt-rpc-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const script = path.join(dir, "fake.mjs");
+  const intent = path.join(dir, "intent.json");
+  await fs.writeFile(script, `#!/usr/bin/env node
+import {createInterface} from 'node:readline';
+import {readFileSync} from 'node:fs';
+const send=x=>process.stdout.write(JSON.stringify(x)+'\\n');
+let starts=0;
+createInterface({input:process.stdin}).on('line',line=>{
+ const x=JSON.parse(line);
+ if(x.method==='initialize')send({id:x.id,result:{}});
+ if(x.method==='thread/start')send({id:x.id,result:{thread:{id:'thread'}}});
+ if(x.method==='turn/start'){
+  const saved=JSON.parse(readFileSync(${JSON.stringify(intent)},'utf8'));
+  if(++starts!==1 || saved.threadId!=='thread')throw Error('receipt ordering');
+  send({id:x.id,result:{turn:{id:'turn',status:'completed',items:[{id:'answer',type:'agentMessage',text:x.params.clientUserMessageId}]}}});
+ }
+});`, { mode: 0o700 });
+  const receipts = [];
+  const thread = createAppServerThread({ codexPath: script });
+  const result = await thread.run("hello", {
+    clientUserMessageId: "telegram:receipt-test",
+    onThreadReady: async (receipt) => { receipts.push(receipt); await fs.writeFile(intent, JSON.stringify(receipt)); },
+    onTurnStarted: async (receipt) => { receipts.push(receipt); }
+  });
+  assert.equal(result.finalResponse, "telegram:receipt-test");
+  assert.deepEqual(receipts, [{ threadId: "thread" }, { threadId: "thread", turnId: "turn" }]);
+});

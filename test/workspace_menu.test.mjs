@@ -177,7 +177,7 @@ test("MCP is restricted to account administrators", async (t) => {
   const f = await workspaceFixture(t); await f.send("/mcp", { userId: 2 });
   assert.match(f.messages.at(-1).text, /계정 관리자/); assert.equal(f.backendCalls.length, 0);
 });
-test("dashboard pins once, updates, and removes only its own pin when idle", async (t) => {
+test("dashboard unpins but retains an unverified outcome when a turn disappears", async (t) => {
   const f = await workspaceFixture(t);
   f.r.activeTurns.set("1", { currentText: "Task", currentTurnStartedAt: new Date(f.clock.now).toISOString(), currentPreparedTurn: { chatId: 1 } });
   await f.controller.dashboard.tick(); await f.controller.dashboard.tick();
@@ -185,7 +185,8 @@ test("dashboard pins once, updates, and removes only its own pin when idle", asy
   const panel = f.state.workspace.panels["1:0"];
   f.r.activeTurns.delete("1"); await f.controller.dashboard.tick();
   assert.equal(f.apiCalls.find((c) => c.method === "unpinChatMessage").payload.message_id, panel.messageId);
-  assert.equal(f.state.workspace.panels["1:0"], undefined);
+  assert.equal(f.state.workspace.panels["1:0"].finished, true);
+  assert.equal(f.apiCalls.filter((c) => c.method === "deleteMessage").length, 0);
 });
 
 test("switching to the account menu clears a workspace input flow before the account router", async (t) => {

@@ -120,3 +120,6 @@ Menu ideas were inspired by
 (MIT). The implementation uses this repository's Telegraf menus, account homes,
 queue and recovery architecture. Codex operations use the
 [official App Server interface](https://learn.chatgpt.com/docs/app-server#api-overview).
+
+See [Task dashboard and input receipts](task-dashboard.md) for the unified card,
+owner-bound inspection buttons, and delivery-confirmed cleanup.

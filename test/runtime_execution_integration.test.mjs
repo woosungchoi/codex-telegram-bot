@@ -14,6 +14,7 @@ async function fixture(t, { sidecar, transport, rejectDelivery = false, streamEv
     run: async () => ({ finalResponse: "answer" }),
     runStreamed: async () => ({ events: streamEvents }) };
   const worker = { startJob: async (job) => { jobs.push(job); return { jobId: job.id }; },
+    getJobStatus: async (jobId) => ({ job: { ...jobs.find((job) => job.id === jobId), status: "completed", inputReceipt: { status: "accepted" } } }),
     readJobEvents: async () => ({ events: streamEvents ? [
       ...streamEvents.map((event, index) => ({ ...event, seq: index + 1 })),
       { seq: streamEvents.length + 1, type: "worker.job.completed" }
@@ -96,6 +97,7 @@ for (const transport of ["sdk", "app-server-direct"]) {
       assert.equal(f.jobs.length, sidecar ? 1 : 0);
       if (sidecar) {
         assert.equal(f.jobs[0].transport, transport);
+        assert.deepEqual(active.workerInputReceipt, { jobId: "job-test", receipt: "recovered" });
         assert.equal(Object.values(f.runtime.state.worker.deliveries)[0].deliveryStatus, "delivery_sent");
       }
     });

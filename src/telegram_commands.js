@@ -20,6 +20,8 @@ export const REGISTERED_TELEGRAM_COMMANDS = new Set([
   "resume_last",
   "threads",
   "status",
+  "progress",
+  "recovery",
   "options",
   "settings",
   "model",

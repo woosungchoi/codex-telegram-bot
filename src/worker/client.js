@@ -6,6 +6,7 @@ export function createWorkerClient(config = {}) {
   const socketPath = config.codexWorkerSocket;
   const timeoutMs = config.codexWorkerConnectTimeoutMs ?? 5000;
   return {
+    inspectJob: (params) => request(socketPath, Math.max(timeoutMs, 40_000), "job/inspect", params),
     steerJob: (params) => request(socketPath, Math.max(timeoutMs, 40_000), "job/steer", params),
     askQuestions: (jobId, questions) => request(socketPath, 0, "question/ask", { jobId, questions }),
     currentQuestion: (chatKey) => request(socketPath, timeoutMs, "question/current", { chatKey }),

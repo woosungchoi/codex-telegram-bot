@@ -1,3 +1,5 @@
+import { inspectWorkerJob } from "./inspection.js";
+import { recoverCompletedInput } from "./input_recovery.js";
 import { createSteeringBroker } from "./steering.js";
 import { createQuestionBroker } from "./questions.js";
 import fs from "node:fs/promises";
@@ -42,6 +44,7 @@ export function createWorkerServer({
   async function dispatch(request) {
     const method = request?.method || "";
     const params = request?.params || {};
+    if (method === "job/inspect") return inspectWorkerJob(params, { store, config });
     if (method === "job/steer") return steering.submit(params);
     if (method === "question/ask") {
       const controller = controllers.get(params.jobId);
@@ -100,7 +103,7 @@ export function createWorkerServer({
     async listen() {
       await store.ensure();
       await store.recoverActiveJobs();
-      await reconcileOrphanedJobs(store);
+      await reconcileOrphanedJobs(store, config);
       await fs.rm(config.codexWorkerSocket, { force: true }).catch(() => {});
       await new Promise((resolve, reject) => {
         server.once("error", reject);
@@ -247,15 +250,20 @@ function canonicalJob(value) {
   return value;
 }
 
-async function reconcileOrphanedJobs(store) {
+async function reconcileOrphanedJobs(store, config) {
   const active = await store.readActiveJobs();
   for (const [indexId, entry] of Object.entries(active.jobs)) {
     const jobId = String(entry?.id || indexId);
     const job = await store.readJobState(jobId);
     if (!isTerminalWorkerStatus(job?.status)) {
+      if (!job?.userQuestion && !Object.keys(job?.steers || {}).length && job?.inputReceipt
+        && await recoverCompletedInput(job, { config, store })) {
+        await store.removeActiveJob(indexId);
+        continue;
+      }
       const completedAt = new Date().toISOString();
-      const failureReason = job?.userQuestion ? "question_interrupted" : Object.keys(job?.steers || {}).length ? "steer_interrupted" : WORKER_RESTART_FAILURE_REASON;
-      const error = job?.userQuestion ? "Pending decision interrupted by worker restart; explicit recovery required." : Object.keys(job?.steers || {}).length ? "Steered job interrupted; inspect prior input before recovery." : WORKER_RESTART_FAILURE_MESSAGE;
+      const failureReason = job?.userQuestion ? "question_interrupted" : Object.keys(job?.steers || {}).length ? "steer_interrupted" : job?.inputReceipt ? "input_interrupted" : WORKER_RESTART_FAILURE_REASON;
+      const error = job?.userQuestion ? "Pending decision interrupted by worker restart; explicit recovery required." : Object.keys(job?.steers || {}).length ? "Steered job interrupted; inspect prior input before recovery." : job?.inputReceipt ? "Input delivery may have completed before worker restart; automatic replay held. Inspect the saved session before retrying." : WORKER_RESTART_FAILURE_MESSAGE;
       await store.appendJobEvent(jobId, {
         type: "worker.job.failed",
         status: "failed",
