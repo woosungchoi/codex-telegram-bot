@@ -1096,10 +1096,17 @@ const {
 let workspaceMenus = null;
 executionRuntime = createExecutionComposition({
   onTurnFinished: async (...args) => {
+    await workspaceMenus?.dashboard.recordResult(...args).catch((error) => console.warn("Dashboard completion:", error.message));
     await workspaceMenus?.scheduler.recordResult(...args);
     await workspaceMenus?.forum.jobs.recordResult(...args);
   },
-  beforeTurn: (...args) => workspaceMenus?.forum.jobs.beforeTurn(...args),
+  resolveTaskStatusJob: (...args) => workspaceMenus?.dashboard.resolveJob(...args),
+  refreshTaskStatus: (...args) => workspaceMenus?.dashboard.refresh(...args),
+  updateTaskProgress: (...args) => workspaceMenus?.dashboard.updateProgress(...args),
+  beforeTurn: async (...args) => {
+    await workspaceMenus?.forum.jobs.beforeTurn(...args);
+    await workspaceMenus?.dashboard.tick().catch((error) => console.warn("Dashboard start:", error.message));
+  },
   beforeDelivery: (...args) => workspaceMenus?.forum.jobs.validateDelivery(...args),
   config,
   state,
@@ -1184,6 +1191,7 @@ const {
 hydratePendingTurnsFromState();
 
 ({ adminCommandHandlers, workspaceMenus } = registerRuntimeRoutes({
+  nativeControls: executionRuntime.nativeControls,
   questions: executionRuntime.questions,
   steering: executionRuntime.steering,
   bot,

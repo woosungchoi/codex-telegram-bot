@@ -1,3 +1,4 @@
+import { createNativeControls } from "../telegram/native_controls.js";
 import { createSteeringUi } from "../telegram/steering.js";
 import { createQuestionUi } from "../telegram/questions.js";
 import { createCodexRuntimeExecutor } from "../codex/runtime_executor.js";
@@ -15,6 +16,7 @@ export function createExecutionComposition(r) {
     admissionPaused: () => updateAdmissionPaused(r.config),
     queue: { get: r.getPendingTurns, persist: r.persistPendingTurns, remove: r.removePendingTurn, startDrain: r.startQueueDrainIfIdle }
   });
+  const nativeControls = createNativeControls({ getClient: r.getWorkerClient, getChatKey: r.getChatKey, activeTurns: r.activeTurns, deliveries: () => r.state.worker?.deliveries || {}, refreshStatus: r.refreshTaskStatus, resolveStatusJob: r.resolveTaskStatusJob, queue: r.getPendingTurns, steering, text: r.text });
   const questions = createQuestionUi({ getClient: r.getWorkerClient, getChatKey: r.getChatKey, text: r.text });
   const journal = createTurnRecoveryJournal({
     settings: {
@@ -41,7 +43,8 @@ export function createExecutionComposition(r) {
     options: { get: r.getEffectiveOptions, defaults: r.defaultChatOptions },
     telegram: {
       getChatKey: r.getChatKey,
-      replyTracked: r.replyTrackedProgressHtml
+      replyTracked: r.replyTrackedProgressHtml,
+      updateStatus: r.updateTaskProgress
     },
     recovery: { recordProgressFailed: journal.recordTelegramProgressFailed },
     localization: {
@@ -317,6 +320,7 @@ export function createExecutionComposition(r) {
   });
 
   return {
+    nativeControls,
     questions,
     steering,
     cancelWorkerJobOnce: worker.cancelWorkerJobOnce,

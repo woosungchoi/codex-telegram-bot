@@ -2,6 +2,11 @@
 
 Released versions are listed below, newest first.
 
+## Pending
+
+- Show one pinned task dashboard with receipt, file and result controls from the first message. Keep detail views inside that card and remove the card/buttons after confirmed final-answer delivery; retry failed cleanup and retain uncertain delivery.
+- Reflect durable input acknowledgements automatically, distinguish pending/unchecked receipts from uncertainty, and provide owner-bound `/progress` and `/recovery` inspection. Native input IDs allow read-only recovery of already completed inputs; uncertain inputs are never automatically resubmitted.
+
 ## 1.4.2 - 2026-10-06
 
 ### Worker terminal delivery and recovery

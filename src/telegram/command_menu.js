@@ -45,6 +45,8 @@ export function telegramCommands(language = "en", { operationalStatusEnabled = f
     { command: "status", description: text("commandStatus") },
     { command: "usage", description: text("commandUsage") },
     { command: "queue", description: text("commandQueue") },
+    { command: "progress", description: text("nativeProgress") },
+    { command: "recovery", description: text("nativeInspect") },
     { command: "steer", description: text("commandSteer") },
     { command: "settings", description: text("commandSettings") },
     { command: "accounts", description: text("commandAccounts") },

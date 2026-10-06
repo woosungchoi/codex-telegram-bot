@@ -1,3 +1,4 @@
+import { updateNativeProgress } from "../codex/native_progress.js";
 import { createMessageFormatter } from "../i18n.js";
 import { code, stripHtml } from "../telegram/html.js";
 import { runTelegramProgressBestEffort } from "../telegram/api.js";
@@ -41,6 +42,12 @@ export function createLiveProgressController({
   }
 
   function createLiveProgressState(active = null, chatKey = "") {
+    if (active) {
+      if (active.dashboardPreparedId && active.dashboardPreparedId !== active.currentPreparedTurn?.id) delete active.workerJobId;
+      active.dashboardPreparedId = active.currentPreparedTurn?.id;
+      active.nativeProgress = {};
+      delete active.dashboardResult;
+    }
     const progressState = {
       lastSentAt: 0,
       lastKey: "",
@@ -64,11 +71,18 @@ export function createLiveProgressController({
 
   async function maybeSendLiveProgress(ctx, progressState, event, items) {
     if (!progressState) return false;
+    const native = updateNativeProgress(progressState.native, event);
+    if (native !== progressState.native) {
+      progressState.native = native;
+      if (progressState.active) progressState.active.nativeProgress = native;
+      await runTelegramProgressBestEffort(
+        () => telegram.updateStatus?.(progressState, event),
+        { logger, onError: (error) => recovery.recordProgressFailed(progressState, event, error) }
+      );
+    }
     const effective = options.get(progressState.chatKey || telegram.getChatKey(ctx));
     if (!effective.liveProgressEnabled) return false;
-    if (!["brief", "korean-brief"].includes(settings.runtimeValue("telegramLiveProgressMode"))) {
-      return false;
-    }
+    if (!["brief", "korean-brief"].includes(settings.runtimeValue("telegramLiveProgressMode"))) return false;
     const progress = buildLiveProgressMessage(
       event,
       items,

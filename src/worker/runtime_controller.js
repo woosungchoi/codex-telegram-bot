@@ -1,3 +1,4 @@
+import { nativeUsageSample } from "../codex/native_usage.js";
 import { LocalizedError, localizedErrorDetails, restoreLocalizedError } from "../i18n.js";
 import { progressTurnId } from "../telegram/progress_store.js";
 import {
@@ -24,6 +25,7 @@ import {
 
 import { accountThreadId, applyAccountEvent, rememberAccountThread, selectedAccountId } from "../accounts/context.js";
 import { hasAttemptActivity } from "../accounts/errors.js";
+import { workerInputReceipt } from "./input_receipt.js";
 
 const RETRYABLE_WORKER_TRANSPORT_CODES = new Set([
   "ECONNREFUSED",
@@ -224,6 +226,7 @@ export function createWorkerRuntimeController({
     let threadId = chatStore.get(chatKey).threadId || "";
     let streamOutcome = "completed";
     let pollFailureCount = 0;
+    let receiptCheckedAt = -Infinity;
     let cursorDirty = false;
     let checkpointAt = nowMs();
     const checkpoint = async () => {
@@ -258,9 +261,24 @@ export function createWorkerRuntimeController({
           continue;
         }
         const events = response.events || [];
+        let job = null;
+        // Read the durable receipt even while events keep arriving. This also
+        // restores receipt evidence when a frontend attaches after a restart.
+        if (!events.length || nowMs() - receiptCheckedAt >= 3000 || events.some(isTerminalWorkerEvent)) {
+          const status = await client.getJobStatus(jobId).catch(() => {
+            const prior = active.workerInputReceipt;
+            if (prior?.jobId !== jobId || !["accepted", "recovered"].includes(prior.receipt)) {
+              active.workerInputReceipt = { jobId, receipt: "uncertain" };
+            }
+            return null;
+          });
+          job = status?.job || null;
+          receiptCheckedAt = nowMs();
+          if (job?.id === jobId && job.chatKey === chatKey) {
+            active.workerInputReceipt = { jobId, receipt: workerInputReceipt(job) };
+          }
+        }
         if (events.length === 0) {
-          const status = await client.getJobStatus(jobId).catch(() => null);
-          const job = status?.job || null;
           if (isTerminalWorkerStatus(job?.status)) {
             if (cursor > 0 && codexStreamItems(streamState).length === 0) {
               cursor = 0;
@@ -308,6 +326,7 @@ export function createWorkerRuntimeController({
             if (eventType.startsWith("worker.job.")) {
               if (isTerminalWorkerEvent(event)) {
                 terminal = event;
+                await turn.maybeSendLiveProgress(ctx, progressState, { type: `turn.${event.status === "cancelled" ? "interrupted" : event.status}` }, codexStreamItems(streamState));
                 await checkpoint();
               }
               continue;
@@ -320,6 +339,9 @@ export function createWorkerRuntimeController({
               chat.updatedAt = now().toISOString();
               await checkpoint();
               await turn.recordThreadStarted(chatKey, threadId);
+            } else if (update.type === "usage") {
+              accountChat.nativeUsage = nativeUsageSample(update.tokenUsage, { threadId, accountId: event.accountId || "default", sampledAt: event.at || now().toISOString() });
+              await checkpoint();
             } else if (update.type === "item") {
               if (accountChat.accountAttemptState && !accountChat.accountAttemptState.hadActivity) {
                 accountChat.accountAttemptState.hadActivity = true;
@@ -346,7 +368,7 @@ export function createWorkerRuntimeController({
               streamOutcome = "error";
               await checkpoint();
               await turn.recordActiveTurnFailed(chatKey, update.message);
-              throw new Error(update.message);
+              throw Object.assign(new Error(update.message), { code: update.code });
             } else if (update.type === "turn_completed") {
               await checkpoint();
               await recovery.appendEvent({ type: "turn_completed", chatKey, threadId });
@@ -380,7 +402,7 @@ export function createWorkerRuntimeController({
       }
       if (terminal?.type === "worker.job.cancelled") {
         streamOutcome = "cancelled";
-        throw restoreLocalizedError(terminal, "errors.workerCancelled");
+        throw Object.assign(restoreLocalizedError(terminal, "errors.workerCancelled"), { code: "turn_interrupted" });
       }
       return { turn: codexStreamResult(streamState), threadId, workerLastSeq: cursor };
     } catch (error) {

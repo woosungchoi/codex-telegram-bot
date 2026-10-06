@@ -38,6 +38,7 @@ export function registerRuntimeRoutes(r, { accounts, workspace } = {}) {
 
   registerForumContext(r);
   if (r.config.codexInteractiveQuestions) r.bot.use(r.questions.handle);
+  if (r.nativeControls) r.bot.use(r.nativeControls.handle);
   registerWorkspaceFlowBoundary(r);
   if (r.config.codexSteering) r.bot.use(r.steering.handle);
   r.bot.command("delivery", (ctx) => r.handleManualDelivery(
