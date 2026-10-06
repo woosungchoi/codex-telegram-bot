@@ -4,6 +4,8 @@ Released versions are listed below, newest first.
 
 ## Pending changes (unreleased)
 
+- Commit worker terminal status, completion time, and final event cursor together before delivery; replay interrupted terminal appends, including a missing final newline. Keep raw turn completion and late heartbeat/control events from exposing or reopening a finished job. Preserve failure evidence during admission rollback and orphan recovery.
+
 - Add opt-in `/ops` status snapshots with configurable service metrics, localized status labels and timestamps, freshness warnings, and bounded read-only JSON input. See [Operational status](docs/operational-status.md).
 
 - Default new or unset chat queue modes to `steer` and enable `CODEX_STEERING` by default. Preserve saved modes and explicit `CODEX_STEERING=false`; restart bot and worker after upgrading.

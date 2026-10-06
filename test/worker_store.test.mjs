@@ -50,6 +50,91 @@ test("worker store serializes concurrent event appends", async () => {
   assert.equal((await store.readJobEvents("job-1", { afterSeq: 0, limit: 50 })).length, 20);
 });
 
+test("terminal event publication reserves a timestamp and recovers an interrupted append", async () => {
+  const { store } = await tempStore();
+  for (const [status, type] of [
+    ["completed", "worker.job.completed"],
+    ["failed", "worker.job.failed"],
+    ["cancelled", "worker.job.cancelled"]
+  ]) {
+    const id = `terminal-${status}`;
+    const event = await store.appendJobEvent(id, { type, status, chatKey: "chat" });
+    const job = await store.readJobState(id);
+    assert.equal(job.status, status);
+    assert.ok(Number.isFinite(Date.parse(job.completedAt)));
+    assert.equal(job.completedAt, event.completedAt);
+    assert.equal(job.lastSeq, event.seq);
+    assert.equal((await store.readJobEvents(id)).at(-1).seq, job.lastSeq);
+  }
+
+  const completedAt = "2026-10-06T04:47:05.000Z";
+  await store.writeJobState({
+    id: "interrupted-terminal",
+    status: "completed",
+    completedAt,
+    lastSeq: 1,
+    terminalEvent: {
+      seq: 1,
+      type: "worker.job.completed",
+      status: "completed",
+      completedAt,
+      at: completedAt
+    }
+  });
+  assert.deepEqual(await store.readJobEvents("interrupted-terminal"), [
+    {
+      seq: 1,
+      type: "worker.job.completed",
+      status: "completed",
+      completedAt,
+      at: completedAt
+    }
+  ]);
+});
+
+test("terminal replay includes valid JSON without its final newline exactly once", async (t) => {
+  const { dir, store } = await tempStore();
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  for (const status of ["completed", "failed", "cancelled"]) {
+    const id = `tail-${status}`;
+    await store.appendJobEvent(id, { type: "worker.job.started", status: "running" });
+    const terminal = await store.appendJobEvent(id, { type: `worker.job.${status}`, status });
+    const file = path.join(store.paths.eventsDir, `${id}.jsonl`);
+    const complete = await fs.readFile(file, "utf8");
+    // Simulate a crash after the terminal JSON bytes but before its delimiter.
+    await fs.writeFile(file, complete.slice(0, -1));
+    const restarted = createWorkerStore({ codexWorkerStateDir: dir });
+    assert.equal((await restarted.readJobState(id)).lastSeq, terminal.seq);
+    assert.deepEqual((await restarted.readJobEvents(id)).map((event) => event.seq), [1, 2]);
+    assert.deepEqual(await restarted.readJobEvents(id, { afterSeq: 1, limit: 1 }), [terminal]);
+    assert.deepEqual(await restarted.readJobEvents(id, { afterSeq: 2 }), []);
+    assert.deepEqual(await restarted.readJobEvents(id, { limit: 0 }), []);
+    assert.deepEqual((await restarted.readJobEvents(id, { limit: 1 })).map((event) => event.seq), [1]);
+    await fs.appendFile(file, "\n");
+    assert.deepEqual(await restarted.readJobEvents(id, { afterSeq: 1 }), [terminal]);
+  }
+});
+
+test("late events cannot reopen a terminal job or change its final cursor", async (t) => {
+  const { dir, store } = await tempStore();
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  for (const interrupted of [false, true]) {
+    const id = `late-${interrupted}`;
+    await store.writeJobState({ id, chatKey: "chat", acceptedAt: "2020-01-01T00:00:00.000Z", status: "running" });
+    const terminal = await store.appendJobEvent(id, { type: "worker.job.completed", status: "completed" });
+    const file = path.join(store.paths.eventsDir, `${id}.jsonl`);
+    if (interrupted) await fs.truncate(file, 0);
+    const before = await fs.readFile(file, "utf8");
+    const job = await store.readJobState(id);
+    for (const type of ["worker.heartbeat", "worker.job.cancel.requested", "worker.steer", "worker.job.failed"]) {
+      await assert.rejects(store.appendJobEvent(id, { type, status: "running" }), /Terminal worker jobs/);
+    }
+    assert.deepEqual(await store.readJobState(id), job);
+    assert.equal(await fs.readFile(file, "utf8"), before);
+    assert.deepEqual(await store.readJobEvents(id), [terminal]);
+  }
+});
+
 test("worker store ignores only an incomplete trailing event until it is complete", async () => {
   const { store } = await tempStore();
   const first = JSON.stringify({ seq: 1, type: "worker.job.started" });

@@ -38,6 +38,7 @@ export async function runWorkerJob({
   const turnOptions = { signal, onUserInput, onSteerReady };
   if (job.outputSchema) turnOptions.outputSchema = job.outputSchema;
 
+  let result;
   try {
     thread = createThread({
       transport: job.transport || config.codexTransport,
@@ -72,54 +73,51 @@ export async function runWorkerJob({
         accountId: event.accountId || job.accountId || "default",
         chatKey: job.chatKey,
         threadId: job.threadId || thread?.id || "",
-        status: update.type === "turn_completed" ? "completed" : ""
+        // The stream can still fail or be interrupted after a raw turn event.
+        // Only worker.job.* publication commits the terminal job state.
+        status: ""
       });
     }
 
-    const result = codexStreamResult(streamState);
-    await store.appendJobEvent(job.id, {
-      type: "worker.job.completed",
-      status: "completed",
-      chatKey: job.chatKey,
-      threadId: job.threadId || thread?.id || "",
-      accountId: thread.accountId || job.accountId || "default",
-      finalResponseLength: result.finalResponse.length,
-      itemCount: result.items.length,
-      usage: result.usage ?? null
-    });
-    await store.writeJobState({
-      ...job,
-      status: "completed",
-      threadId: job.threadId || thread?.id || "",
-      completedAt: now().toISOString()
-    });
-    return result;
+    result = codexStreamResult(streamState);
   } catch (error) {
     const aborted = signal?.aborted === true;
     const waiting = (await store.readJobState(job.id))?.userQuestion;
     const failureReason = waiting && waiting.state !== "answered" ? "question_interrupted" : undefined;
     const type = aborted ? "worker.job.cancelled" : "worker.job.failed";
-    const status = aborted ? "cancelled" : "failed";
+    const completedAt = now().toISOString();
     await store.appendJobEvent(job.id, {
       type,
-      status,
+      status: aborted ? "cancelled" : "failed",
       chatKey: job.chatKey,
       threadId: job.threadId || thread?.id || "",
       reason: failureReason,
+      completedAt,
       ...localizedErrorDetails(error),
       message: error instanceof Error ? error.message : String(error)
     });
     await store.writeJobState({
-      ...job,
-      status,
-      threadId: job.threadId || thread?.id || "",
-      completedAt: now().toISOString(),
+      id: job.id,
       ...localizedErrorDetails(error),
       failureReason,
       error: error instanceof Error ? error.message : String(error)
     });
     throw error;
   }
+
+  const completedAt = now().toISOString();
+  await store.appendJobEvent(job.id, {
+    type: "worker.job.completed",
+    status: "completed",
+    chatKey: job.chatKey,
+    threadId: job.threadId || thread?.id || "",
+    accountId: thread.accountId || job.accountId || "default",
+    completedAt,
+    finalResponseLength: result.finalResponse.length,
+    itemCount: result.items.length,
+    usage: result.usage ?? null
+  });
+  return result;
 }
 
 function questionConfig(config, jobId) {

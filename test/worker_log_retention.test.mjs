@@ -7,6 +7,7 @@ import { createWorkerClient } from "../src/worker/client.js";
 import { createWorkerServer } from "../src/worker/server.js";
 import { createWorkerStore } from "../src/worker/store.js";
 import { createWorkerLogMaintenance } from "../src/worker/log_retention.js";
+import { reconstructCompletedWorkerJob } from "../src/worker/replay.js";
 
 const old = "2025-01-01T00:00:00.000Z";
 async function fixture(t) {
@@ -85,6 +86,62 @@ test("preview changes nothing; confirmed archives preserve replay and integrity"
   bytes[Math.floor(bytes.length / 2)] ^= 1;
   await fs.writeFile(file, bytes);
   await assert.rejects(f.store.readJobEvents("done"));
+});
+
+test("archival preserves state-backed terminal replay after interrupted appends", async (t) => {
+  const f = await fixture(t);
+  for (const tail of ["missing", "partial", "no-newline"]) {
+    const id = `interrupted-${tail}`;
+    await f.job(id);
+    const file = path.join(f.store.paths.eventsDir, `${id}.jsonl`);
+    const bytes = await fs.readFile(file, "utf8");
+    const prefixEnd = bytes.indexOf("\n") + 1;
+    const terminal = bytes.slice(prefixEnd, -1);
+    await fs.writeFile(
+      file,
+      bytes.slice(0, prefixEnd) +
+        (tail === "missing"
+          ? ""
+          : tail === "partial"
+            ? terminal.slice(0, 20)
+            : terminal),
+    );
+    const before = await f.store.readJobEvents(id);
+    assert.deepEqual(
+      before.map((event) => event.seq),
+      [1, 2],
+    );
+    assert.equal(
+      (await f.store.confirmDelivery(f.state.worker.deliveries[`chat:${id}`]))
+        .recorded,
+      true,
+    );
+    assert.equal((await f.maintenance.run({ apply: true })).archived, 1);
+    assert.deepEqual(await f.store.readJobEvents(id), before);
+    assert.deepEqual(
+      await f.store.readJobEvents(id, { afterSeq: 1, limit: 1 }),
+      before.slice(1),
+    );
+    assert.deepEqual(await f.store.readJobEvents(id, { afterSeq: 2 }), []);
+    assert.deepEqual(await f.store.readJobEvents(id, { limit: 0 }), []);
+    assert.deepEqual(
+      await f.store.readJobEvents(id, { limit: 1 }),
+      before.slice(0, 1),
+    );
+    const result = await reconstructCompletedWorkerJob(
+      {
+        readJobEvents: async (jobId, afterSeq, limit) => ({
+          events: await f.store.readJobEvents(jobId, { afterSeq, limit }),
+        }),
+        getJobStatus: async (jobId) => ({
+          job: await f.store.readJobState(jobId),
+        }),
+      },
+      id,
+    );
+    assert.equal(result.workerLastSeq, 2);
+    assert.equal(result.turn.finalResponse, before[0].item.text);
+  }
 });
 
 test("age never overrides missing confirmation, active, queued, snapshot or ambiguous protection", async (t) => {

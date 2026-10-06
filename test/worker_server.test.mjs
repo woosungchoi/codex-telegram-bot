@@ -28,6 +28,25 @@ async function startServer(executeJob, options = {}) {
   return { config, worker, client: createWorkerClient(config), store };
 }
 
+async function readRawJob(store, jobId) {
+  return JSON.parse(await fs.readFile(path.join(store.paths.jobsDir, `${jobId}.json`), "utf8"));
+}
+
+async function assertRawTerminalFailure(store, jobId, reason) {
+  const raw = await readRawJob(store, jobId);
+  assert.equal(raw.status, "failed");
+  assert.ok(Number.isFinite(Date.parse(raw.completedAt)));
+  assert.equal(raw.terminalEvent?.type, "worker.job.failed");
+  assert.equal(raw.terminalEvent?.status, "failed");
+  assert.equal(raw.lastSeq, raw.terminalEvent.seq);
+  assert.equal(raw.failureReason, reason);
+  const events = await store.readJobEvents(jobId, { afterSeq: 0 });
+  assert.ok(events.some((event) => event.seq === raw.terminalEvent.seq && event.type === "worker.job.failed" && event.reason === reason));
+  const log = await fs.readFile(path.join(store.paths.eventsDir, `${jobId}.jsonl`), "utf8");
+  assert.ok(log.split("\n").filter(Boolean).map((line) => JSON.parse(line)).some((event) => event.seq === raw.terminalEvent.seq && event.type === "worker.job.failed" && event.reason === reason));
+  return raw;
+}
+
 test("worker server reports status", async () => {
   const { config, worker, client } = await startServer(async () => {});
   try {
@@ -169,7 +188,8 @@ test("worker close waits for active job cleanup", async (t) => {
 });
 
 test("worker startup marks persisted orphaned jobs failed", async () => {
-  const { worker, client, store } = await startServer(async () => {}, {
+  let starts = 0;
+  const { worker, client, store } = await startServer(async () => { starts += 1; }, {
     prepareStore: async (preparedStore) => {
       await preparedStore.writeJobState({ id: "job-orphan", chatKey: "chat-orphan", status: "running" });
       await preparedStore.upsertActiveJob({ id: "job-orphan", chatKey: "chat-orphan", status: "running" });
@@ -186,10 +206,39 @@ test("worker startup marks persisted orphaned jobs failed", async () => {
     const events = await store.readJobEvents("job-orphan", { afterSeq: 0 });
     assert.equal(events.at(-1).type, "worker.job.failed");
     assert.equal(events.at(-1).reason, "worker_restart");
+    const raw = await assertRawTerminalFailure(store, "job-orphan", "worker_restart");
+    assert.equal(raw.error, "worker restarted before job completed");
+    assert.deepEqual((await store.readActiveJobs()).jobs, {});
+    assert.equal(starts, 0);
   } finally {
     await worker.close();
   }
 });
+
+for (const [reason, interruptedState] of [
+  ["question_interrupted", { userQuestion: { state: "pending" } }],
+  ["steer_interrupted", { steers: { steer1: { state: "pending" } } }]
+]) {
+  test(`worker startup preserves ${reason} terminal evidence`, async () => {
+    let starts = 0;
+    const jobId = `job-${reason}`;
+    const { worker, client, store } = await startServer(async () => { starts += 1; }, {
+      prepareStore: async (preparedStore) => {
+        await preparedStore.writeJobState({ id: jobId, chatKey: `chat-${reason}`, status: "running", ...interruptedState });
+        await preparedStore.upsertActiveJob({ id: jobId, chatKey: `chat-${reason}`, status: "running" });
+      }
+    });
+    try {
+      const raw = await assertRawTerminalFailure(store, jobId, reason);
+      assert.ok(raw.error);
+      assert.deepEqual((await client.status()).activeJobs, []);
+      assert.deepEqual((await store.readActiveJobs()).jobs, {});
+      assert.equal(starts, 0);
+    } finally {
+      await worker.close();
+    }
+  });
+}
 
 test("worker cancel finalizes a persisted orphan without a controller", async () => {
   const { worker, client, store } = await startServer(async () => {});
@@ -329,11 +378,52 @@ test("admission failures rollback without executing and allow a new ID", async (
       await assert.rejects(client.startJob(job), /injected/);
       assert.equal(starts, 0);
       assert.deepEqual((await store.readActiveJobs()).jobs, {});
-      assert.equal((await store.readJobState(job.id)).failureReason, "worker_admission");
+      const raw = await assertRawTerminalFailure(store, job.id, "worker_admission");
+      assert.equal(raw.chatKey, "chat");
       assert.equal((await client.startJob(job)).status, "failed");
       await client.startJob({ id: `recovered-${operation}`, chatKey: "chat" });
       assert.equal(starts, 1);
     } finally { await worker.close(); }
+  }
+});
+
+test("failed terminal publication keeps the admission reservation and blocks further work", async () => {
+  let starts = 0;
+  const { config, worker, client, store } = await startServer(async () => { starts += 1; });
+  const append = store.appendJobEvent;
+  store.appendJobEvent = async (jobId, event) => {
+    if (event.type === "worker.job.accepted") {
+      await append(jobId, event);
+      throw new Error("injected committed acceptance response failure");
+    }
+    if (event.type === "worker.job.failed") throw new Error("injected terminal publication failure");
+    return append(jobId, event);
+  };
+  try {
+    await assert.rejects(client.startJob({ id: "terminal-publication-failure", chatKey: "chat" }), /recovery is required/);
+    assert.equal(starts, 0);
+    const raw = await readRawJob(store, "terminal-publication-failure");
+    assert.equal(raw.status, "accepted");
+    assert.equal(raw.terminalEvent, undefined);
+    assert.deepEqual(Object.keys((await store.readActiveJobs()).jobs), ["terminal-publication-failure"]);
+    await assert.rejects(client.startJob({ id: "blocked-after-terminal-failure", chatKey: "another" }), /recovery is required/);
+    await assert.rejects(client.status(), /recovery is required/);
+  } finally {
+    await worker.close();
+    store.appendJobEvent = append;
+  }
+  const recovered = createWorkerServer({ config, store, executeJob: async () => { starts += 1; }, logger: { warn() {} } });
+  await recovered.listen();
+  try {
+    const raw = await assertRawTerminalFailure(store, "terminal-publication-failure", "worker_restart");
+    assert.equal(raw.error, "worker restarted before job completed");
+    assert.deepEqual((await store.readActiveJobs()).jobs, {});
+    assert.equal((await client.startJob({ id: "terminal-publication-failure", chatKey: "chat" })).status, "failed");
+    assert.equal(starts, 0);
+    await client.startJob({ id: "after-recovery", chatKey: "another" });
+    assert.equal(starts, 1);
+  } finally {
+    await recovered.close();
   }
 });
 
@@ -393,7 +483,12 @@ test("failed rollback blocks subsequent admission until healthy startup recovery
   const restarted = createWorkerServer({ config, executeJob: async () => { starts += 1; }, logger: { warn() {} } });
   await restarted.listen();
   try {
-    assert.equal((await store.readJobState("uncertain")).failureReason, "worker_restart");
+    const uncertain = await store.readJobState("uncertain");
+    assert.equal(uncertain.status, "failed");
+    assert.equal(uncertain.terminalEvent?.reason, "worker_admission");
+    assert.equal(uncertain.failureReason, undefined);
+    assert.deepEqual((await store.readActiveJobs()).jobs, {});
+    assert.equal(starts, 0);
     await client.startJob({ id: "healthy", chatKey: "chat" });
     assert.equal(starts, 1);
   } finally { await restarted.close(); }

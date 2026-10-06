@@ -55,6 +55,11 @@ export async function appendJobEvent(paths, jobId, event) {
     await ensureWorkerStateDir(paths);
     const job = await readJobStateUnlocked(paths, jobId);
     if (job?.eventArchive) throw new Error("Archived worker jobs are immutable; use a new job ID.");
+    // An already queued heartbeat/control callback may outlive execution.
+    // Preserve the terminal cursor, including a state-only interrupted commit.
+    if (terminalStatusFromJob(job?.status) && terminalStatusFromEvent(job?.terminalEvent)) {
+      throw new Error("Terminal worker jobs cannot accept new events; use a new job ID.");
+    }
     const ledger = await inspectJobEvents(paths, jobId);
     if (!ledger.monotonic) throw stateError(jobEventsPath(paths, jobId), "Event sequences are not unique and increasing.");
     if (ledger.size !== ledger.completeBytes) {
@@ -64,12 +69,35 @@ export async function appendJobEvent(paths, jobId, event) {
     }
     const seq = ledger.lastSeq + 1;
     if (!Number.isSafeInteger(seq)) throw new Error("Worker event sequence exhausted.");
+    const terminalStatus = terminalStatusFromEvent(event);
     const payload = {
       ...event,
       seq,
       at: event.at || new Date().toISOString()
     };
+    if (terminalStatus) {
+      payload.completedAt = validTimestamp(event.completedAt)
+        ? event.completedAt
+        : validTimestamp(payload.at)
+          ? payload.at
+          : new Date().toISOString();
+      // Publish status, timestamp, and final sequence before the terminal event.
+      const terminalJob = {
+        ...(job ?? {}),
+        id: jobId,
+        status: terminalStatus,
+        completedAt: payload.completedAt,
+        terminalEvent: payload,
+        lastSeq: seq,
+        updatedAt: payload.at
+      };
+      for (const key of ["chatKey", "threadId", "accountId", "kind", "transport"]) {
+        if (event[key] !== undefined) terminalJob[key] = event[key];
+      }
+      await writeJobStateLocked(paths, terminalJob);
+    }
     await appendPrivateFile(jobEventsPath(paths, jobId), `${JSON.stringify(payload)}\n`, "utf8");
+    if (terminalStatus) return payload;
     try {
       await writeJobStateLocked(paths, {
         ...(job ?? {}),
@@ -90,16 +118,32 @@ export async function appendJobEvent(paths, jobId, event) {
 
 export async function readJobEvents(paths, jobId, options = {}) {
   return withFileLock(jobPath(paths, jobId), async () => {
+    const job = await readJobStateUnlocked(paths, jobId);
+    let events;
     try {
       const ledger = await readEventLog.inspect(jobEventsPath(paths, jobId));
       if (!ledger.monotonic) throw stateError(jobEventsPath(paths, jobId), "Event sequences are not unique and increasing.");
-      return await readEventLog(jobEventsPath(paths, jobId), { ...options, includeIncomplete: false });
+      events = await readEventLog(jobEventsPath(paths, jobId), { ...options, includeIncomplete: false });
     }
     catch (error) {
       if (error.code !== "ENOENT") throw error;
-      const job = await readJobStateUnlocked(paths, jobId);
-      return readArchivedEvents(paths.archivesDir, job?.eventArchive, options);
+      events = await readArchivedEvents(paths.archivesDir, job?.eventArchive, options);
     }
+    const terminalEvent = job?.terminalEvent;
+    const afterSeq = Number(options.afterSeq || 0);
+    if (!terminalEvent || Number(terminalEvent.seq) <= afterSeq) return events;
+
+    // A stop between state publication and the event append remains replayable.
+    // Archives can also contain only the prefix preceding that interrupted append.
+    const committed = job.eventArchive ? events : await readEventLog(jobEventsPath(paths, jobId), {
+      afterSeq: Number(terminalEvent.seq) - 1,
+      limit: 1,
+      includeIncomplete: false
+    }).catch((error) => error.code === "ENOENT" ? [] : Promise.reject(error));
+    if (committed.some((event) => Number(event.seq) === Number(terminalEvent.seq))) return events;
+    return [...events, terminalEvent]
+      .sort((left, right) => Number(left.seq) - Number(right.seq))
+      .slice(0, options.limit === undefined ? 500 : Math.max(0, Math.trunc(Number(options.limit) || 0)));
   });
 }
 
@@ -113,13 +157,17 @@ async function writeJobStateLocked(paths, job) {
   if (existing?.eventArchive && job.acceptedAt && job.acceptedAt !== existing.acceptedAt) {
     throw new Error("Archived worker jobs are immutable; use a new job ID.");
   }
-  await writeJsonFileAtomic(jobPath(paths, job.id), {
+  const next = {
     version: STATE_VERSION,
     ...(existing ?? {}),
     ...job,
     lastSeq: job.lastSeq ?? existing?.lastSeq,
     updatedAt: job.updatedAt || new Date().toISOString()
-  });
+  };
+  if (terminalStatusFromJob(next.status) && !validTimestamp(next.completedAt)) {
+    next.completedAt = new Date().toISOString();
+  }
+  await writeJsonFileAtomic(jobPath(paths, job.id), next);
 }
 
 export async function readJobState(paths, jobId) {
@@ -142,8 +190,15 @@ async function readJobStateUnlocked(paths, jobId) {
   if (!job || job.eventArchive) return job;
   const ledger = await inspectJobEvents(paths, jobId);
   if (!ledger.monotonic) throw stateError(jobEventsPath(paths, jobId), "Event sequences are not unique and increasing.");
-  if (Number(job.lastSeq || 0) > ledger.lastSeq) throw stateError(jobEventsPath(paths, jobId), "Event log is behind the persisted cursor; explicit recovery is required.");
-  const recovered = { ...job, lastSeq: ledger.lastSeq };
+  const pendingTerminal = terminalStatusFromEvent(job.terminalEvent) === job.status
+    && Number(job.lastSeq) === Number(job.terminalEvent?.seq)
+    && Number(job.lastSeq) === ledger.lastSeq + 1
+    && job.completedAt === job.terminalEvent?.completedAt
+    && validTimestamp(job.completedAt);
+  if (Number(job.lastSeq || 0) > ledger.lastSeq && !pendingTerminal) {
+    throw stateError(jobEventsPath(paths, jobId), "Event log is behind the persisted cursor; explicit recovery is required.");
+  }
+  const recovered = { ...job, lastSeq: pendingTerminal ? Number(job.lastSeq) : ledger.lastSeq };
   if (ledger.lastSeq > Number(job.lastSeq || 0)) {
     recovered.status = ledger.lastEvent?.status || statusFromEvent(ledger.lastEvent?.type) || job.status;
     recovered.updatedAt = ledger.lastEvent?.at || job.updatedAt;
@@ -246,6 +301,21 @@ function statusFromEvent(type) {
   if (type === "worker.job.started") return "running";
   if (type === "worker.job.accepted") return "accepted";
   return "";
+}
+
+function terminalStatusFromEvent(event) {
+  if (event?.type === "worker.job.completed") return "completed";
+  if (event?.type === "worker.job.failed") return "failed";
+  if (event?.type === "worker.job.cancelled") return "cancelled";
+  return "";
+}
+
+function terminalStatusFromJob(status) {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+function validTimestamp(value) {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
 }
 
 function safeName(value) {
