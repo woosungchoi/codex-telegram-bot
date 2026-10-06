@@ -2,24 +2,52 @@
 
 Released versions are listed below, newest first.
 
-## Pending changes (unreleased)
+## 1.4.2 - 2026-10-06
 
-- Commit worker terminal status, completion time, and final event cursor together before delivery; replay interrupted terminal appends, including a missing final newline. Keep raw turn completion and late heartbeat/control events from exposing or reopening a finished job. Preserve failure evidence during admission rollback and orphan recovery.
+### Worker terminal delivery and recovery
 
-- Add opt-in `/ops` status snapshots with configurable service metrics, localized status labels and timestamps, freshness warnings, and bounded read-only JSON input. See [Operational status](docs/operational-status.md).
+- Publish terminal status, completion time, final event and cursor together in
+  the job snapshot before exposing completion to delivery consumers. This fixes
+  the terminal-delivery receipt race addressed by
+  [PR #106](https://github.com/woosungchoi/codex-telegram-bot/pull/106).
+- Replay a terminal event from the committed snapshot when its log append was
+  interrupted, including a final JSON record without a newline. Preserve event
+  ordering, pagination and archive replay without duplicating the final event.
+- Keep raw Codex turn completion from prematurely finishing a worker job. Late
+  heartbeat/control callbacks cannot reopen a completed job or move its cursor.
+- Preserve failure evidence during failed admission and orphan recovery. Retain
+  the existing one-worker-per-state-directory and no-power-loss-durability limits.
 
-- Default new or unset chat queue modes to `steer` and enable `CODEX_STEERING` by default. Preserve saved modes and explicit `CODEX_STEERING=false`; restart bot and worker after upgrading.
-- Add `/steer`, `/queue_mode_steer`, and a queue mode button to apply follow-ups to the running task automatically. Safe mode retains the explicit **Apply to current task** button.
-- Restore live replies and activity updates with app-server steering by normalizing events consistently in inline and worker execution, without duplicating streamed text or final delivery.
-- Add durable steering receipts, requester/topic validation, duplicate-click protection, question priority, and explicit holds for uncertain delivery across restarts.
+### Telegram steering and decisions
 
-- Add optional sequential Telegram decision buttons, direct answers and cancellation.
-- Persist question/answer cursors in the worker and wait for all required answers
-  through a synchronous per-job MCP tool. Preserve normal concurrent chats.
-- Bind answers to the requesting user and chat/topic; reject stale or duplicate
-  buttons. Frontend reconnects preserve waiting; worker restarts stop for explicit
-  recovery instead of automatically replaying decisions.
-- Document setup and limitations in [Telegram questions](docs/telegram-questions.md).
+- Default new or unset queue modes to `steer`; enable `CODEX_STEERING` by default.
+  Existing saved modes and explicit `CODEX_STEERING=false` remain respected.
+- Add `/steer`, `/queue_mode_steer` and a queue-mode button. Safe mode retains an
+  explicit **Apply to current task** action. Restore live replies/activity updates
+  with app-server steering, without duplicate streamed text or final delivery.
+- Preserve durable steering receipts, requester/chat/topic validation, duplicate
+  protection and explicit holds for uncertain delivery across restarts.
+- Add optional sequential Telegram decision buttons, typed answers and cancellation.
+  The per-job MCP tool waits for required answers; independent chats remain concurrent.
+  Frontend reconnects retain waiting questions. Interrupted worker decisions require
+  explicit recovery and are never silently replayed. See
+  [Telegram questions](docs/telegram-questions.md).
+
+### Operational status
+
+- Add opt-in `/ops` snapshots with configurable service metrics, localized labels
+  and timestamps, freshness warnings and bounded read-only JSON input. No shell
+  execution or provider credentials are required by this command. See
+  [Operational status](docs/operational-status.md).
+
+### Upgrade and validation
+
+- Drain active jobs and final-message delivery before restarting the worker, then
+  restart both worker and bot to load steering and terminal-state fixes. A package
+  version bump alone does not update an already-running process.
+- Add regression coverage for terminal publication, interrupted writes, archives,
+  late callbacks, steering and decision recovery, and operational status inputs.
+  Verify each distribution against its own pinned dependencies and CI gates.
 
 ## 1.4.1 - 2026-10-04
 
