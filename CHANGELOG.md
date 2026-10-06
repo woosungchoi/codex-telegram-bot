@@ -2,10 +2,40 @@
 
 Released versions are listed below, newest first.
 
-## Pending
+## 1.4.3 - 2026-10-06
 
-- Show one pinned task dashboard with receipt, file and result controls from the first message. Keep detail views inside that card and remove the card/buttons after confirmed final-answer delivery; retry failed cleanup and retain uncertain delivery.
-- Reflect durable input acknowledgements automatically, distinguish pending/unchecked receipts from uncertainty, and provide owner-bound `/progress` and `/recovery` inspection. Native input IDs allow read-only recovery of already completed inputs; uncertain inputs are never automatically resubmitted.
+### Unified task dashboard
+
+- Start each task with one pinned dashboard containing receipt, file and result
+  buttons. Keep detail previews in the same card, with bounded output and a Back
+  button; fall back to an ordinary card if pinning is unavailable.
+- Remove the whole card and its buttons only after confirmed final-answer
+  delivery. Preserve uncertain or failed delivery, retry failed deletion across
+  restarts, and prevent stale callbacks from recreating completed cards.
+- Show native plan, aggregate diff and token snapshots. Execution completion,
+  input receipt and Telegram delivery remain separate states.
+
+### Input confirmation and safe inspection
+
+- Reflect durable worker input acknowledgements automatically. Distinguish
+  unchecked and pending input from genuinely uncertain delivery; temporary
+  lookup failures cannot erase a confirmed receipt.
+- Add owner-bound `/progress` and `/recovery` inspection in the current
+  chat/topic, plus changed-file, bounded diff and verified result views.
+- Persist native client IDs before app-server submission and acknowledgements
+  afterwards. Recover only already completed matching inputs from read-only
+  history; uncertain input is never automatically resubmitted.
+- Preserve distinct completed, failed and interrupted outcomes, with English,
+  Korean, Russian and Traditional Chinese UI text. See
+  [Task dashboard and input receipts](docs/task-dashboard.md).
+
+### Dependencies and upgrade
+
+- Update the Codex CLI and SDK packages to `0.160.1`.
+- Restart both the bot and worker after upgrading, once active tasks and pending
+  final deliveries finish, so the new receipt/inspection protocol is available.
+- Transports without native receipt support can remain unchecked until a
+  completed result is available. Telegram API acceptance is not a human read receipt.
 
 ## 1.4.2 - 2026-10-06
 
