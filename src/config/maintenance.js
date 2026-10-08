@@ -97,6 +97,7 @@ export function readCleanupConfig(env, paths, allowedUserIds) {
       24,
       "CLEANUP_PLAN_TTL_HOURS"
     ),
+    backupAdminUserIds: new Set(parseTelegramIdCsv(env.BACKUP_ADMIN_USER_IDS, "BACKUP_ADMIN_USER_IDS")),
     backupDir: env.BACKUP_DIR?.trim() || path.join(paths.stateRoot, "backups"),
     snapshotEnabled: parseOptionalBoolean(env.SNAPSHOT_ENABLED) ?? true,
     snapshotNotifyTime: env.SNAPSHOT_NOTIFY_TIME?.trim() || "03:30",

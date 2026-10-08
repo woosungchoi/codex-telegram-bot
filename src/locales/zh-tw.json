@@ -1383,5 +1383,8 @@
   "panelPreparing": "正在準備提交此工作。",
   "panelNoFiles": "尚無變更檔案。",
   "panelUnavailable": "此狀態板已失效或不屬於您。",
-  "panelPreviewLimited": "預覽已縮短；完整最終回覆會另行傳送。"
+  "panelPreviewLimited": "預覽已縮短；完整最終回覆會另行傳送。",
+  "ui.backupPrivateAdminOnly": "完整備份僅供指定備份管理員在私人對話中取得。",
+  "ui.sideTurnCapacity": "已達平行回覆上限，請等待目前回覆完成。",
+  "photoRejection.too_large": "圖片超過大小限制"
 }

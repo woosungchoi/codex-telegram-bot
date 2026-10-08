@@ -178,13 +178,21 @@ Edit `.env`:
 - `UPLOAD_RETENTION_DAYS`: image uploads older than this become upload cleanup candidates, default `7`
 - `UPLOAD_MAX_BYTES`: upload directory size target and per-file download cap in bytes, default `1073741824`, `0` disables the size target and download cap
 - `UPLOAD_CLEANUP_ENABLED`: include upload cleanup dry-run plans in the daily cleanup scheduler, default `true`
+- `BACKUP_ADMIN_USER_IDS`: comma-separated Telegram user IDs allowed to request full backups in private chats; empty denies everyone.
 - `BACKUP_DIR`: manual backup, chat export, and daily snapshot directory, default `./state/backups`
 - `SNAPSHOT_ENABLED`: enable daily state snapshots, default `true`
 - `SNAPSHOT_NOTIFY_TIME`: daily snapshot time in `TELEGRAM_TIME_ZONE`, default `03:30`
 - `SNAPSHOT_RETENTION_DAYS`: backup/snapshot retention in days, default `14`
 - `LOGS_MAX_LINES`: maximum `/logs` lines returned to Telegram, default `80`
 
-Then run both processes in sidecar mode:
+The example env files select sandboxed inline execution. Run `npm start` and keep
+any worker service stopped. Leave `CODEX_STEERING=false` and
+`CODEX_INTERACTIVE_QUESTIONS=false`, since either option forces sidecar execution.
+Full `/backup` requires your user ID in `BACKUP_ADMIN_USER_IDS` and a private chat.
+
+Only for explicitly trusted full-access sidecar deployments, run both processes.
+Read the [security migration notes](docs/security-hardening-20261008.md) first:
+
 
 ```bash
 npm run start:worker
@@ -302,7 +310,7 @@ auto-merge.
 
 - `CI`: runs the deterministic Node matrix with `npm ci --audit=false`, `npm run verify`, `actionlint`, `npm pack --dry-run --json`, and `npm run build --if-present`. A separate Node 24 `Security audit` job retries npm registry timeouts and `429`/`5xx` failures without masking real vulnerability reports.
 - `Codex PR Review`: runs `codex review` on pull requests and updates one PR comment when Codex OAuth login is available. It is intentionally optional and should not be a required merge check.
-- `Codex CI Diagnosis`: when `CI` fails, always posts deterministic diagnostics from GitHub Actions metadata, failed jobs, failed steps, and failed log excerpts. When Codex OAuth login is available, it appends an optional AI diagnosis. If the failed run is not attached to a PR, the diagnosis is written to the workflow step summary instead.
+- `Codex CI Diagnosis`: when `CI` fails, always posts deterministic diagnostics from GitHub Actions metadata, failed jobs, failed steps, and failed log excerpts. Untrusted logs are never passed to a credentialed agent. If the failed run is not attached to a PR, the diagnosis is written to the workflow step summary instead.
 - `Codex Dependency Update`: checks the latest `@openai/codex-sdk` and
   `@openai/codex`, installs them, runs `npm run check`, `npm test`, and
   `codex --version`, then opens or updates a PR only when the update passes.
@@ -324,7 +332,7 @@ The normal pull-request flow is:
 2. `CI` runs the Node 18/20/22 verification matrix.
 3. If CI succeeds, the PR can merge after branch-protection checks pass.
 4. If CI fails, `Codex CI Diagnosis` posts an authless diagnosis comment on the PR.
-5. Optional Codex AI review/diagnosis runs only when `CODEX_ACCESS_TOKEN` is available.
+5. Optional Codex AI PR review runs only when `CODEX_ACCESS_TOKEN` is available.
 
 The automated dependency flow is:
 
@@ -335,8 +343,8 @@ The automated dependency flow is:
 4. A `main` push then runs `CI` again as the final verification.
 
 The Codex workflows do not use `OPENAI_API_KEY`. `CODEX_ACCESS_TOKEN` is optional:
-`Codex PR Review` and the AI add-on in `Codex CI Diagnosis` only run when the
-repository secret is configured for Codex OAuth login:
+`Codex PR Review` runs when the repository secret is configured for Codex OAuth
+login; deterministic CI diagnosis does not use this secret:
 
 ```bash
 gh secret set CODEX_ACCESS_TOKEN --body "$CODEX_ACCESS_TOKEN"

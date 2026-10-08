@@ -141,6 +141,7 @@ test("readConfig preserves the complete flat default contract", () => {
     cleanupLogFile: "/app/state/cleanup-log.jsonl",
     cleanupArtifactDir: "/app/state/cleanup-artifacts",
     cleanupPlanTtlHours: 24,
+    backupAdminUserIds: [],
     backupDir: "/app/state/backups",
     snapshotEnabled: true,
     snapshotNotifyTime: "03:30",

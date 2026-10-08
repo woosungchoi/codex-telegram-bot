@@ -1,3 +1,4 @@
+import net from "node:net";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -563,4 +564,25 @@ test('orphaned steered jobs are not replayed with the uncorrected original promp
     const {job}=await client.getJobStatus('steered-orphan');
     assert.equal(job.failureReason,'steer_interrupted');assert.equal(isWorkerRestartFailure(job),false);
   }finally{await worker.close();}
+});
+
+test("unauthenticated socket requests cannot read jobs or start execution", async (t) => {
+  let executed = 0;
+  const f = await startServer(async () => { executed++; });
+  t.after(() => f.worker.close());
+  for (const method of ["worker/status", "job/start", "job/events"]) {
+    const response = await new Promise((resolve, reject) => {
+      const socket = net.createConnection(f.config.codexWorkerSocket);
+      let body = "";
+      socket.on("error", reject);
+      socket.on("data", (chunk) => { body += chunk; });
+      socket.on("end", () => resolve(JSON.parse(body)));
+      socket.on("connect", () => socket.write(JSON.stringify({ id: "test", method, params: { job: { id: "forbidden", chatKey: "other" }, jobId: "forbidden" } }) + "\n"));
+    });
+    assert.equal(response.ok, false);
+    assert.match(response.error.message, /not authorized/);
+  }
+  assert.equal(executed, 0);
+  assert.equal(await f.store.readJobState("forbidden"), null);
+  assert.equal((await f.client.status()).status, "ok");
 });

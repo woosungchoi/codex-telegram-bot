@@ -1383,5 +1383,8 @@
   "panelPreparing": "Preparing to submit this task.",
   "panelNoFiles": "No changed files yet.",
   "panelUnavailable": "This panel is no longer available or belongs to another user.",
-  "panelPreviewLimited": "Preview shortened; the complete final answer is delivered separately."
+  "panelPreviewLimited": "Preview shortened; the complete final answer is delivered separately.",
+  "ui.backupPrivateAdminOnly": "Full backups are available only to designated backup administrators in a private chat.",
+  "ui.sideTurnCapacity": "Side reply capacity reached. Please wait for an active reply to finish.",
+  "photoRejection.too_large": "image exceeds the size limit"
 }

@@ -24,7 +24,7 @@ function createFixture(config = {}) {
   const handlers = registerAdminCommands({
     bot,
     settings: {
-      config: { botRecoveryDir: "/tmp/recovery", ...config },
+      config: { botRecoveryDir: "/tmp/recovery", backupAdminUserIds: new Set(["7"]), ...config },
       runtimeValue: () => true,
       validQueueModes: new Set(["safe", "steer", "interrupt", "side"])
     },
@@ -48,7 +48,7 @@ function createFixture(config = {}) {
     skills: { replyStatus: async () => {} },
     backup: {
       createChatExport: async () => ({ path: "/tmp/chat", bytes: 1 }),
-      createState: async () => ({ path: "/tmp/state", bytes: 1, chatCount: 1 })
+      createState: async () => { calls.push(["backup-create"]); return { path: "/tmp/state", bytes: 1, chatCount: 1 }; }
     },
     recovery: {
       cancelWorkerJobOnce: () => calls.push(["cancelWorker"]),
@@ -85,7 +85,7 @@ function createFixture(config = {}) {
       editOrReplyHtml: async () => {},
       getChatKey: (ctx) => ctx.chat ? telegramChatKey(ctx) : "chat",
       getCommandArgs: (ctx) => ctx.args ?? "",
-      replyDocument: async () => {},
+      replyDocument: async (...args) => calls.push(["document", ...args]),
       replyHtml: async (...args) => calls.push(["reply", ...args])
     },
     localization: { text: (key) => key },
@@ -178,4 +178,20 @@ test("ops command reads configured data and follows changed UI timezones", async
     assert.match(calls.at(-1)[2], /09:00 \(Asia\/Seoul\)/);
     assert.match(calls.at(-1)[2], /Example service/);
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+for (const [type, user, permitted] of [["group", "7", false], ["supergroup", "7", false], ["private", "8", false], ["private", "7", true]]) {
+  test(`full backup guard: ${type} user ${user}`, async () => {
+    const { commands, calls } = createFixture();
+    await commands.get("backup")({ chat: { id: 7, type }, from: { id: user } });
+    assert.equal(calls.some(([name]) => name === "backup-create"), permitted);
+    assert.equal(calls.some(([name]) => name === "document"), permitted);
+    if (!permitted) assert.equal(calls.some((entry) => String(entry[2]).includes("/tmp/state")), false);
+  });
+}
+
+test("full backup defaults to no administrators", async () => {
+  const { commands, calls } = createFixture({ backupAdminUserIds: new Set() });
+  await commands.get("backup")({ chat: { id: 7, type: "private" }, from: { id: 7 } });
+  assert.equal(calls.some(([name]) => name === "backup-create" || name === "document"), false);
 });

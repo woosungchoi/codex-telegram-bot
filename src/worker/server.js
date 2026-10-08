@@ -1,3 +1,4 @@
+import { authorizeWorkerRequest, createWorkerCredential, questionCapability } from "./auth.js";
 import { inspectWorkerJob } from "./inspection.js";
 import { recoverCompletedInput } from "./input_recovery.js";
 import { createSteeringBroker } from "./steering.js";
@@ -24,6 +25,7 @@ export function createWorkerServer({
   heartbeatMs = 30_000
 } = {}) {
   if (!config) throw new Error("config is required.");
+  let credential;
   const controllers = new Map();
   const questions = createQuestionBroker({ store, controllers });
   const steering = createSteeringBroker({ store, controllers });
@@ -42,6 +44,7 @@ export function createWorkerServer({
   };
 
   async function dispatch(request) {
+    authorizeWorkerRequest(credential, request);
     const method = request?.method || "";
     const params = request?.params || {};
     if (method === "job/inspect") return inspectWorkerJob(params, { store, config });
@@ -69,21 +72,26 @@ export function createWorkerServer({
       if (updateAdmissionPaused(config)) throw new Error("Codex update is waiting for idle; new jobs are paused.");
       return store.withAdmissionLock(() => {
         if (admissionError) throw admissionError;
-        return startJob({ config, store, controllers, chatReservations, codexClients, jobTasks, executeJob, logger, heartbeatMs, questions, steering, job: params.job, onAdmissionFailure: (error) => { admissionError = error; } });
+        return startJob({ config: { ...config, codexWorkerQuestionCapability: questionCapability(credential, params.job?.id) }, store, controllers, chatReservations, codexClients, jobTasks, executeJob, logger, heartbeatMs, questions, steering, job: params.job, onAdmissionFailure: (error) => { admissionError = error; } });
       });
     }
     throw new Error(`Unknown worker method: ${method}`);
   }
 
   const server = net.createServer((socket) => {
+    let received = false;
+    socket.setTimeout(30_000, () => socket.destroy());
     socket.on("error", (error) => {
       if (error?.code === "ECONNRESET" || error?.code === "EPIPE") return;
       logger.warn?.("worker client socket failed:", error instanceof Error ? error.message : String(error));
     });
     const writeResponse = (response) => {
-      if (!socket.destroyed && socket.writable) socket.write(encodeFrame(response));
+      if (!socket.destroyed && socket.writable) socket.end(encodeFrame(response));
     };
     createFrameReader(socket, async (request) => {
+      if (received) { socket.destroy(); return; }
+      received = true;
+      socket.setTimeout(0);
       const id = request?.id || null;
       try {
         const result = await dispatch(request);
@@ -98,10 +106,13 @@ export function createWorkerServer({
     });
   });
 
+  server.maxConnections = 64;
+
   return {
     server,
     async listen() {
       await store.ensure();
+      credential = await createWorkerCredential(config.codexWorkerSocket);
       await store.recoverActiveJobs();
       await reconcileOrphanedJobs(store, config);
       await fs.rm(config.codexWorkerSocket, { force: true }).catch(() => {});

@@ -54,6 +54,10 @@ export function registerAdminCommands({
   ));
 
   bot.command("backup", async (ctx) => {
+    if (ctx.chat?.type !== "private" || !settings.config.backupAdminUserIds?.has(String(ctx.from?.id))) {
+      await telegram.replyHtml(ctx, msg("ui.backupPrivateAdminOnly"));
+      return;
+    }
     const result = await backup.createState("manual");
     await telegram.replyHtml(ctx, formatting.keyValue(msg("ui.backupCreated"), [
       [msg("ui.file"), result.path],

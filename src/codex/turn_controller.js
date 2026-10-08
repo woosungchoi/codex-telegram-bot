@@ -176,11 +176,19 @@ export function createTurnRuntimeController({
     );
   }
 
+  const sideReservations = new Set();
   async function handleSideMessage(ctx, chatKey, text, loadImages) {
+    // Acquire synchronously before input preparation can yield.
+    if (sideReservations.has(chatKey) || sideReservations.size >= 4) {
+      await telegram.replyHtml(ctx, msg("ui.sideTurnCapacity"));
+      return;
+    }
+    sideReservations.add(chatKey);
     let preparedTurn;
     try {
       preparedTurn = await prepareCodexTurn(ctx, text, loadImages);
     } catch (error) {
+      sideReservations.delete(chatKey);
       await telegram.replyHtml(
         ctx,
         msg("ui.prepareSideInputFailed", { value1: code(errorText(error, t)) })
@@ -188,7 +196,7 @@ export function createTurnRuntimeController({
       return;
     }
 
-    processSideTurn(chatKey, preparedTurn).catch(async (error) => {
+    processSideTurn(chatKey, preparedTurn).finally(() => sideReservations.delete(chatKey)).catch(async (error) => {
       await telegram.replyHtml(
         ctx,
         msg("ui.sideTurnFailed", { value1: code(errorText(error, t)) })
@@ -222,12 +230,14 @@ export function createTurnRuntimeController({
     const abortController = new AbortController();
     sideTurns.track(chatKey, abortController);
     let finalReaction = "";
-    await telegram.reactQuietly(ctx, settings.thinkingReaction);
-    const typingInterval = timers.setInterval(() => {
-      ctx.sendChatAction("typing").catch(() => {});
-    }, 4500);
-
+    let typingInterval;
+    const deadline = setTimeout(() => abortController.abort(new Error("Side reply timed out.")), 30 * 60_000);
+    deadline.unref?.();
     try {
+      await telegram.reactQuietly(ctx, settings.thinkingReaction);
+      typingInterval = timers.setInterval(() => {
+        ctx.sendChatAction("typing").catch(() => {});
+      }, 4500);
       const input = buildInput(
         applySideThreadPrompt(preparedTurn.inputText),
         preparedTurn.imagePaths
@@ -258,6 +268,7 @@ export function createTurnRuntimeController({
       await telegram.replyHtml(ctx, formatCodexFailure(msg("ui.sideCodexFailed"), message));
     } finally {
       timers.clearInterval(typingInterval);
+      clearTimeout(deadline);
       sideTurns.untrack(chatKey, abortController);
       await telegram.reactQuietly(
         ctx,

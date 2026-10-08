@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { setImmediate as waitForImmediate } from "node:timers/promises";
 import { createTurnRuntimeController } from "../src/codex/turn_controller.js";
 
-function createHarness({ queueMode = "safe", workerEnabled = false, runTurnError = null, replyError = null, beforeTurn, isAdmissionPaused = () => false, steering = null, paused = false, pendingDelivery = false } = {}) {
+function createHarness({ queueMode = "safe", workerEnabled = false, runTurnError = null, replyError = null, beforeTurn, isAdmissionPaused = () => false, steering = null, paused = false, pendingDelivery = false, sideRun = null } = {}) {
   const activeTurns = new Map();
   const pending = new Map();
   const calls = [];
@@ -62,7 +62,7 @@ function createHarness({ queueMode = "safe", workerEnabled = false, runTurnError
       applyPersonaPrompt: (text) => `persona:${text}`,
       buildReplyContext: async () => ({ text: "quoted", imagePaths: ["reply.png"] }),
       ensureTurnContext: (turn) => turn.ctx,
-      getChatKey: () => "chat:42",
+      getChatKey: (context) => `chat:${context.chat.id}`,
       telegramMessageMeta: () => ({
         chatType: "private",
         replyToMessageId: 10,
@@ -78,6 +78,7 @@ function createHarness({ queueMode = "safe", workerEnabled = false, runTurnError
       rememberThread: record("remember-thread"),
       runTurn: async (...args) => {
         calls.push(["run-turn", ...args]);
+        if (sideRun) return sideRun(...args);
         if (runTurnError) throw runTurnError;
         return { finalResponse: "answer" };
       },
@@ -397,4 +398,24 @@ test("steer mode without an active task starts a normal turn", async () => {
   await f.controller.handleCodexMessage(f.ctx, "new task", async () => []);
   await waitForImmediate();
   assert.equal(f.calls.filter(([name]) => name === "run-turn").length, 1);
+});
+
+test("side admission bounds preparation per chat and globally, then releases slots", async () => {
+  const pending = [];
+  const { controller, activeTurns, ctx, replies } = createHarness({ queueMode: "side", sideRun: () => new Promise((resolve) => pending.push(resolve)) });
+  for (let id = 1; id <= 6; id++) activeTurns.set(`chat:${id}`, {});
+  let prepared = 0;
+  const submit = (id) => controller.handleCodexMessage({ ...ctx, chat: { id } }, "side", async () => { prepared++; return []; });
+  await Promise.all(Array.from({ length: 12 }, () => submit(1)));
+  assert.equal(prepared, 1);
+  await Promise.all([2, 3, 4, 5, 6].map(submit));
+  assert.equal(prepared, 4);
+  assert.equal(pending.length, 4);
+  assert.ok(replies.some((text) => text.includes("capacity")));
+  pending.splice(0).forEach((resolve) => resolve({ finalResponse: "done" }));
+  await waitForImmediate();
+  await submit(1);
+  assert.equal(prepared, 5);
+  pending.splice(0).forEach((resolve) => resolve({ finalResponse: "done" }));
+  await waitForImmediate();
 });

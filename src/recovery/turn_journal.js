@@ -360,7 +360,8 @@ export function createTurnRecoveryJournal({
     pendingSnapshots.set(chatKey, pending);
     if (defer && timestamp.getTime() - (snapshotTimes.get(chatKey) ?? -Infinity) < 250) return;
     await upsertActiveTurnSnapshot(settings.recoveryDir, chatKey, {
-      lastEventAt: timestamp.toISOString(), ...pending
+      lastEventAt: timestamp.toISOString(), ...pending,
+      ...(activeTurns.get(chatKey)?.currentQueueItemId ? { queueItemId: activeTurns.get(chatKey).currentQueueItemId } : {})
     });
     if (pendingSnapshots.get(chatKey) === pending) pendingSnapshots.delete(chatKey);
     snapshotTimes.set(chatKey, timestamp.getTime());

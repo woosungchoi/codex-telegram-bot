@@ -166,13 +166,21 @@ chat/thread metadata, queue, upload, recovery 기록, backup이 포함될 수 �
 - `UPLOAD_RETENTION_DAYS`: 이 일수보다 오래된 이미지 upload를 upload cleanup 후보로 표시, 기본값 `7`
 - `UPLOAD_MAX_BYTES`: upload directory 용량 목표이자 파일별 다운로드 상한 byte, 기본값 `1073741824`, `0`이면 용량 목표와 다운로드 상한 비활성화
 - `UPLOAD_CLEANUP_ENABLED`: daily cleanup scheduler에서 upload cleanup dry-run plan 기록 여부, 기본값 `true`
+- `BACKUP_ADMIN_USER_IDS`: 개인 채팅에서 전체 backup을 요청할 수 있는 Telegram 사용자 ID 목록입니다. 비어 있으면 모두 거부합니다.
 - `BACKUP_DIR`: 수동 backup, chat export, daily snapshot 저장 위치, 기본값 `./state/backups`
 - `SNAPSHOT_ENABLED`: daily state snapshot 사용 여부, 기본값 `true`
 - `SNAPSHOT_NOTIFY_TIME`: `TELEGRAM_TIME_ZONE` 기준 daily snapshot 시간, 기본값 `03:30`
 - `SNAPSHOT_RETENTION_DAYS`: backup/snapshot 보관 일수, 기본값 `14`
 - `LOGS_MAX_LINES`: `/logs`로 보낼 최대 줄 수, 기본값 `80`
 
-sidecar 모드에서는 두 프로세스를 실행합니다.
+예제 env 파일은 샌드박스를 사용하는 inline 실행을 선택합니다. `npm start`로
+봇만 실행하고 worker 서비스는 중지하세요. `CODEX_STEERING=false`와
+`CODEX_INTERACTIVE_QUESTIONS=false`를 유지해야 sidecar가 강제로 선택되지 않습니다.
+전체 `/backup`은 `BACKUP_ADMIN_USER_IDS`에 등록된 사용자가 개인 채팅에서만 요청할 수 있습니다.
+
+명시적으로 신뢰하는 전체 권한 sidecar 환경에서만 두 프로세스를 실행하세요.
+먼저 [보안 패치와 전환 안내](docs/security-hardening-20261008.md)를 확인하세요.
+
 
 ```bash
 npm run start:worker
@@ -282,14 +290,14 @@ Telegram 조작 경로:
 
 - `CI`: Node 매트릭스에서 `npm ci --audit=false`, `npm run verify`, `actionlint`, `npm pack --dry-run --json`, `npm run build --if-present`를 실행합니다. 별도의 Node 24 `Security audit` job은 실제 취약점 보고서는 실패시키되 npm 레지스트리의 타임아웃과 `429`/`5xx` 오류는 제한적으로 재시도합니다.
 - `Codex PR Review`: Codex OAuth login이 가능할 때 pull request에서 `codex review`를 실행하고 PR comment 하나를 생성/수정합니다.
-- `Codex CI Diagnosis`: `CI`가 실패하면 GitHub Actions metadata, 실패 job/step, 실패 log excerpt 기반의 deterministic 기본 진단을 항상 남깁니다. Codex OAuth login이 가능할 때만 optional AI 추가 진단을 append합니다.
+- `Codex CI Diagnosis`: `CI`가 실패하면 GitHub Actions metadata, 실패 job/step, 실패 log excerpt 기반의 deterministic 기본 진단을 항상 남깁니다. 신뢰할 수 없는 로그를 인증된 에이전트에 전달하지 않습니다.
 - `Codex Dependency Update`: 최신 `@openai/codex-sdk`와 `@openai/codex`를
   확인하고 설치한 뒤 `npm run check`, `npm test`, `codex --version`을 통과할
   때만 PR을 생성하거나 갱신합니다.
 
 Codex workflow는 `OPENAI_API_KEY`를 사용하지 않습니다. `CODEX_ACCESS_TOKEN`은 선택 사항입니다.
-`Codex PR Review`와 `Codex CI Diagnosis`의 AI 추가 진단만 Codex OAuth login용
-repository secret이 설정된 경우에 실행됩니다.
+`Codex PR Review`만 Codex OAuth login용 repository secret이 설정된 경우에 실행됩니다.
+결정적 CI 진단은 이 인증키를 사용하지 않습니다.
 
 ```bash
 gh secret set CODEX_ACCESS_TOKEN --body "$CODEX_ACCESS_TOKEN"

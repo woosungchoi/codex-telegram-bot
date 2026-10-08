@@ -2,7 +2,7 @@
 import { createInterface } from "node:readline";
 import { createWorkerClient } from "../src/worker/client.js";
 
-const client = createWorkerClient({ codexWorkerSocket: process.env.TELEGRAM_QUESTION_SOCKET });
+const client = createWorkerClient({ codexWorkerSocket: process.env.TELEGRAM_QUESTION_SOCKET, codexWorkerCapability: process.env.TELEGRAM_QUESTION_CAPABILITY || "" });
 const spec = {
   name: "ask_decisions",
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },

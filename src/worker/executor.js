@@ -1,3 +1,4 @@
+import { assertWorkerExecutionBoundary } from "./auth.js";
 import { updateNativeProgress } from "../codex/native_progress.js";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -50,6 +51,7 @@ export async function runWorkerJob({
 
   let result;
   try {
+    if (createThread === createCodexThreadDefault) assertWorkerExecutionBoundary(config, job.effectiveOptions || {});
     thread = createThread({
       transport: job.transport || config.codexTransport,
       threadId: job.threadId || "",
@@ -140,7 +142,7 @@ function questionConfig(config, jobId) {
     "mcp_servers.telegram_questions": {
       command: process.execPath,
       args: [fileURLToPath(new URL("../../scripts/telegram-question-mcp.mjs", import.meta.url))],
-      env: { TELEGRAM_QUESTION_SOCKET: config.codexWorkerSocket, TELEGRAM_QUESTION_JOB: jobId },
+      env: { TELEGRAM_QUESTION_SOCKET: config.codexWorkerSocket, TELEGRAM_QUESTION_JOB: jobId, TELEGRAM_QUESTION_CAPABILITY: config.codexWorkerQuestionCapability },
       tool_timeout_sec: 604800
     }
   } };

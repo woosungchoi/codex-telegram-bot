@@ -7,6 +7,25 @@ import {
 } from "../fs/private.js";
 
 const STATE_VERSION = 1;
+// The bot is the sole snapshot writer (the sidecar owns its separate job store).
+// Serialize the entire read/modify/rename, not just the final write.
+const snapshotWrites = new Map();
+function mutateSnapshots(recoveryDir, mutate) {
+  const key = path.resolve(recoveryDir);
+  const previous = snapshotWrites.get(key) ?? Promise.resolve();
+  const operation = previous.catch(() => {}).then(async () => {
+    const payload = await readActiveTurnSnapshots(key);
+    const result = mutate(payload);
+    payload.updatedAt = new Date().toISOString();
+    await writeActiveTurnSnapshotsAtomic(key, payload);
+    return result;
+  });
+  snapshotWrites.set(key, operation);
+  operation.finally(() => {
+    if (snapshotWrites.get(key) === operation) snapshotWrites.delete(key);
+  }).catch(() => {});
+  return operation;
+}
 
 export function recoveryPaths(recoveryDir) {
   return {
@@ -50,35 +69,32 @@ export async function writeActiveTurnSnapshotsAtomic(recoveryDir, payload) {
 }
 
 export async function upsertActiveTurnSnapshot(recoveryDir, chatKey, snapshotPatch) {
-  const payload = await readActiveTurnSnapshots(recoveryDir);
-  payload.turns[chatKey] = {
-    ...(payload.turns[chatKey] ?? {}),
-    ...snapshotPatch,
-    chatKey,
-    updatedAt: new Date().toISOString()
-  };
-  payload.updatedAt = new Date().toISOString();
-  await writeActiveTurnSnapshotsAtomic(recoveryDir, payload);
-  return payload.turns[chatKey];
+  return mutateSnapshots(recoveryDir, (payload) => {
+    // Updates cannot recreate a completed turn; only replace starts a generation.
+    if (payload.completed?.[chatKey]) return null;
+    const current = payload.turns[chatKey];
+    for (const key of ["queueItemId", "workerJobId"]) {
+      if (current?.[key] && snapshotPatch[key] && current[key] !== snapshotPatch[key]) return null;
+    }
+    return payload.turns[chatKey] = {
+      ...payload.turns[chatKey], ...snapshotPatch, chatKey,
+      updatedAt: new Date().toISOString()
+    };
+  });
 }
 
 export async function replaceActiveTurnSnapshot(recoveryDir, chatKey, snapshot, { now = new Date() } = {}) {
-  const payload = await readActiveTurnSnapshots(recoveryDir);
-  payload.turns[chatKey] = {
-    ...snapshot,
-    chatKey,
-    updatedAt: now.toISOString()
-  };
-  payload.updatedAt = now.toISOString();
-  await writeActiveTurnSnapshotsAtomic(recoveryDir, payload);
-  return payload.turns[chatKey];
+  return mutateSnapshots(recoveryDir, (payload) => {
+    if (payload.completed) delete payload.completed[chatKey];
+    return payload.turns[chatKey] = { ...snapshot, chatKey, updatedAt: now.toISOString() };
+  });
 }
 
 export async function removeActiveTurnSnapshot(recoveryDir, chatKey) {
-  const payload = await readActiveTurnSnapshots(recoveryDir);
-  delete payload.turns[chatKey];
-  payload.updatedAt = new Date().toISOString();
-  await writeActiveTurnSnapshotsAtomic(recoveryDir, payload);
+  return mutateSnapshots(recoveryDir, (payload) => {
+    delete payload.turns[chatKey];
+    (payload.completed ??= {})[chatKey] = true;
+  });
 }
 
 export async function readRestartMarker(recoveryDir) {
@@ -186,6 +202,7 @@ function normalizeActiveTurns(payload) {
   return {
     version: STATE_VERSION,
     updatedAt: payload?.updatedAt || new Date().toISOString(),
+    completed: payload?.completed ?? {},
     turns: payload?.turns && typeof payload.turns === "object" ? payload.turns : {}
   };
 }
