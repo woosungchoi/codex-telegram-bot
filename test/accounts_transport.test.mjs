@@ -86,9 +86,10 @@ for (const transport of ["sdk", "app-server-direct"]) {
     const account = await store.create("Backup");
     await store.update(account.id, { status: "ready" });
     await store.setAutoRotate(true);
+    config.codexSandboxMode = "danger-full-access";
     const workerStore = createWorkerStore({ codexWorkerStateDir: path.join(root, "worker") });
     await workerStore.ensure();
-    const result = await runWorkerJob({ job: { id: "job", chatKey: "chat", inputText: "test", transport }, config, store: workerStore, signal: new AbortController().signal });
+    const result = await runWorkerJob({ job: { id: "job", chatKey: "chat", inputText: "test", transport, effectiveOptions: { sandboxMode: "danger-full-access" } }, config, store: workerStore, signal: new AbortController().signal });
     assert.equal(result.finalResponse, "completed");
     const final = await workerStore.readJobState("job");
     assert.equal(final.status, "completed");

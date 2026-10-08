@@ -18,12 +18,12 @@ public anonymous access.
 
 ## Codex OAuth in GitHub Actions
 
-The public workflows use `CODEX_ACCESS_TOKEN` only when configured as a
-repository secret. They do not call OpenAI APIs directly and do not require
-`OPENAI_API_KEY`.
+The optional PR review uses `CODEX_ACCESS_TOKEN` only when configured as a
+repository secret. Failed-CI diagnosis uses deterministic classification and
+redaction, without a Codex login or agent execution.
 
 Pull requests from forks normally cannot access repository secrets. In that
-case, Codex review and diagnosis steps skip while normal CI still runs.
+case, Codex review skips while normal CI and deterministic diagnosis still run.
 
 ## Telegram Safety
 
@@ -63,3 +63,19 @@ Use `/cleanup_uploads` to preview downloaded image deletion candidates, then
 press the inline `Confirm upload cleanup` button to delete. The typed
 `/cleanup_uploads_confirm` command does not delete files. Confirmed upload
 cleanup refuses candidates outside the configured upload directory.
+
+## Worker and artifact boundaries
+
+Same-user processes are not isolated by socket permissions or bearer credentials.
+Sidecar execution requires explicit operator and per-job `danger-full-access`;
+unsupported sandboxed sidecar jobs fail closed. For sandboxed inline work, disable
+steering and interactive questions and stop the worker service. The example env
+files select this inline configuration. Existing unspecified runtime defaults are
+retained; existing sidecar configurations must be reviewed before upgrading.
+
+Worker credentials rotate on restart; question tools receive expiring job-scoped
+capabilities. Restart both processes after draining current work when upgrading
+this protocol. Full backups require a private chat and an explicitly allowed
+backup administrator. Attachment paths use Linux descriptor checks and validated
+byte copies; unsupported platforms fail closed. See the
+[hardening and migration notes](security-hardening-20261008.md).

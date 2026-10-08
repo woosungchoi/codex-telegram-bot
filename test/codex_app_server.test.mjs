@@ -153,3 +153,39 @@ createInterface({input:process.stdin}).on('line',line=>{
   assert.equal(result.finalResponse, "telegram:receipt-test");
   assert.deepEqual(receipts, [{ threadId: "thread" }, { threadId: "thread", turnId: "turn" }]);
 });
+
+for (const resume of [false, true]) {
+  test(`direct ${resume ? "resume" : "start"} sends explicit network/search/write-root controls to the native server`, async (t) => {
+    const fs = await import("node:fs/promises");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "native-policy-"));
+    t.after(() => fs.rm(dir, { recursive: true, force: true }));
+    const capture = path.join(dir, "requests.jsonl");
+    const script = path.join(dir, "fake.mjs");
+    await fs.writeFile(script, `#!/usr/bin/env node
+import {createInterface} from 'node:readline';
+import {appendFileSync} from 'node:fs';
+const send=x=>process.stdout.write(JSON.stringify(x)+'\\n');
+createInterface({input:process.stdin}).on('line',line=>{
+ const x=JSON.parse(line);
+ appendFileSync(${JSON.stringify(capture)},line+'\\n');
+ if(x.method==='initialize')send({id:x.id,result:{}});
+ if(x.method==='thread/start'||x.method==='thread/resume')send({id:x.id,result:{thread:{id:'thread'},sandbox:{type:'workspaceWrite',writableRoots:['/stale'],networkAccess:true,excludeTmpdirEnvVar:true,excludeSlashTmp:true}}});
+ if(x.method==='turn/start')send({id:x.id,result:{turn:{id:'turn',status:'completed',items:[]}}});
+});`, { mode: 0o700 });
+    await createAppServerThread({ codexPath: script, threadId: resume ? "thread" : "", threadOptions: {
+      workingDirectory: dir, skipGitRepoCheck: true, sandboxMode: "workspace-write",
+      networkAccessEnabled: false, webSearchEnabled: false, webSearchMode: "live",
+      additionalDirectories: ["/new"], codexConfig: { fixture: "preserved" }
+    } }).run("fixture");
+    const requests = (await fs.readFile(capture, "utf8")).trim().split("\n").map(JSON.parse);
+    const session = requests.find((r) => r.method === (resume ? "thread/resume" : "thread/start"));
+    assert.deepEqual(session.params.config, { fixture: "preserved", web_search: "disabled",
+      "sandbox_workspace_write.network_access": false, "sandbox_workspace_write.writable_roots": ["/new"] });
+    assert.deepEqual(requests.find((r) => r.method === "turn/start").params.sandboxPolicy, {
+      type: "workspaceWrite", writableRoots: [dir, "/new"], networkAccess: false,
+      excludeTmpdirEnvVar: true, excludeSlashTmp: true
+    });
+  });
+}

@@ -1383,5 +1383,8 @@
   "panelPreparing": "아직 작업 접수 준비 중입니다.",
   "panelNoFiles": "아직 변경된 파일이 없습니다.",
   "panelUnavailable": "종료된 상태판이거나 조회 권한이 없습니다.",
-  "panelPreviewLimited": "미리보기를 줄여 표시합니다. 최종 답변은 별도 메시지로 전달됩니다."
+  "panelPreviewLimited": "미리보기를 줄여 표시합니다. 최종 답변은 별도 메시지로 전달됩니다.",
+  "ui.backupPrivateAdminOnly": "전체 백업은 지정된 백업 관리자만 개인 채팅에서 받을 수 있습니다.",
+  "ui.sideTurnCapacity": "동시 보조 답변 한도에 도달했습니다. 진행 중인 답변이 끝난 뒤 다시 요청해 주세요.",
+  "photoRejection.too_large": "이미지 크기 제한 초과"
 }

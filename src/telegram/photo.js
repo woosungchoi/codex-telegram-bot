@@ -1,4 +1,5 @@
 import path from "node:path";
+import { validatedPhotoContents } from "./attachments.js";
 import { cleanUndefinedPayloadFields, telegramThreadIdFromContext } from "./rich.js";
 
 export async function replyTelegramPhotos(ctx, photos, options = {}) {
@@ -6,7 +7,7 @@ export async function replyTelegramPhotos(ctx, photos, options = {}) {
   for (const photo of photos ?? []) {
     try {
       const message = await ctx.replyWithPhoto(
-        { source: photo.path, filename: path.basename(photo.path) },
+        { source: validatedPhotoContents(photo), filename: path.basename(photo.path) },
         cleanUndefinedPayloadFields({
           caption: photo.caption,
           message_thread_id: options.message_thread_id ?? telegramThreadIdFromContext(ctx)

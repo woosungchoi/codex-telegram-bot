@@ -2,6 +2,25 @@
 
 Released versions are listed below, newest first.
 
+## Pending changes
+
+### Security hardening
+
+- Remove credentialed AI diagnosis of untrusted CI logs; retain deterministic
+  diagnostics and redacted artifacts.
+- Authenticate worker RPC, scope question capabilities to a job, bound frames and
+  connections, and fail closed on unsupported same-user sandbox isolation.
+- Enforce direct-transport network, search, write-root and Git-workspace controls.
+- Serialize recovery snapshot updates and prevent completed turns from returning.
+- Stream and limit uploads, reject symlink escapes, send validated photo bytes,
+  and bound concurrent side replies.
+- Restrict full backups to private chats and explicit `BACKUP_ADMIN_USER_IDS`.
+- Upgrade notes: drain jobs and deliveries, then restart both bot and worker.
+  Sandboxed operators must use inline execution with the sidecar stopped;
+  do not enable full access merely to bypass the new refusal. Attachment path
+  checks currently require Linux `/proc/self/fd` and fail closed elsewhere.
+  See [security hardening](docs/security-hardening-20261008.md).
+
 ## 1.4.3 - 2026-10-06
 
 ### Unified task dashboard

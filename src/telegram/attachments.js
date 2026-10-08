@@ -1,9 +1,16 @@
 import { createMessageFormatter } from "../i18n.js";
 import fs from "node:fs/promises";
+import { constants } from "node:fs";
 import path from "node:path";
 
 export const DEFAULT_PHOTO_ARTIFACT_EXTENSIONS = new Set([".gif", ".jpeg", ".jpg", ".png", ".webp"]);
 export const DEFAULT_PHOTO_ARTIFACT_MAX = 5;
+const photoContents = new WeakMap();
+export function validatedPhotoContents(photo) {
+  const contents = photoContents.get(photo);
+  if (!contents) throw new Error("Photo artifact was not validated.");
+  return contents;
+}
 export const DEFAULT_PHOTO_ARTIFACT_ROOTS = [
   "/home/openclaw/.openclaw/workspace/reports/codex",
   "/home/openclaw/.openclaw/workspace"
@@ -78,8 +85,8 @@ export function parseStandaloneMarkdownImage(line) {
 }
 
 export async function resolvePhotoArtifactCandidates(candidates, options = {}) {
-  const maxPhotos = options.maxPhotos ?? DEFAULT_PHOTO_ARTIFACT_MAX;
-  const allowedRoots = normalizeAllowedRoots(options.allowedRoots ?? DEFAULT_PHOTO_ARTIFACT_ROOTS);
+  const maxPhotos = Math.min(options.maxPhotos ?? DEFAULT_PHOTO_ARTIFACT_MAX, DEFAULT_PHOTO_ARTIFACT_MAX);
+  const allowedRoots = (await Promise.all(normalizeAllowedRoots(options.allowedRoots ?? DEFAULT_PHOTO_ARTIFACT_ROOTS).map((root) => fs.realpath(root).catch(() => null)))).filter(Boolean);
   const allowedExtensions = options.allowedExtensions ?? DEFAULT_PHOTO_ARTIFACT_EXTENSIONS;
   const photos = [];
   const rejected = [];
@@ -107,22 +114,51 @@ export async function resolvePhotoArtifactCandidates(candidates, options = {}) {
       continue;
     }
 
+    let handle;
     try {
-      const stat = await fs.stat(resolved);
+      const canonical = await fs.realpath(resolved);
+      if (!isPathInsideAllowedRoots(canonical, allowedRoots)) {
+        rejected.push({ ...candidate, path: resolved, reason: "outside_allowed_roots" });
+        continue;
+      }
+      handle = await fs.open(canonical, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      // Validate the opened object, including parent-directory replacement races.
+      const openedPath = await fs.realpath(`/proc/self/fd/${handle.fd}`);
+      if (!isPathInsideAllowedRoots(openedPath, allowedRoots)) {
+        rejected.push({ ...candidate, path: resolved, reason: "outside_allowed_roots" });
+        continue;
+      }
+      const stat = await handle.stat();
       if (!stat.isFile()) {
         rejected.push({ ...candidate, path: resolved, reason: "not_a_file" });
         continue;
       }
+      const limit = Math.min(options.maxBytes ?? 10 * 1024 * 1024, 10 * 1024 * 1024);
+      if (stat.size > limit) {
+        rejected.push({ ...candidate, path: resolved, reason: "too_large" });
+        continue;
+      }
+      // A bounded copy binds later uploads to these exact bytes, not a reopened path.
+      const bytes = Buffer.alloc(stat.size + 1);
+      let count = 0;
+      while (count < bytes.length) {
+        const read = await handle.read(bytes, count, bytes.length - count, count);
+        if (!read.bytesRead) break;
+        count += read.bytesRead;
+      }
+      if (count > stat.size) {
+        rejected.push({ ...candidate, path: resolved, reason: "too_large" });
+        continue;
+      }
+      const photo = { path: resolved, caption: candidate.caption };
+      photoContents.set(photo, bytes.subarray(0, count));
+      seen.add(resolved);
+      photos.push(photo);
     } catch {
       rejected.push({ ...candidate, path: resolved, reason: "missing_file" });
-      continue;
+    } finally {
+      await handle?.close();
     }
-
-    seen.add(resolved);
-    photos.push({
-      path: resolved,
-      caption: candidate.caption
-    });
   }
 
   return { photos, rejected };

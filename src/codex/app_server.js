@@ -1,4 +1,6 @@
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { nativeSessionConfig, nativeTurnSandbox } from "./session_settings.js";
 import { createInterface } from "node:readline";
 import { applyCodexStreamEvent, codexStreamResult, createCodexStreamState } from "./stream.js";
 import { codexEventError } from "../accounts/errors.js";
@@ -84,6 +86,12 @@ export function appServerThreadReadEvents(response, { threadId = "", turnId = ""
 }
 
 async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
+  if (thread.threadOptions?.skipGitRepoCheck === false) {
+    try {
+      const result = await promisify(execFile)("git", ["-C", thread.threadOptions.workingDirectory || process.cwd(), "rev-parse", "--is-inside-work-tree"], { timeout: 5000 });
+      if (result.stdout.trim() !== "true") throw new Error("Not a Git worktree.");
+    } catch { throw new Error("Direct app-server requires a trusted Git worktree unless skipGitRepoCheck is enabled."); }
+  }
   const client = await connectAppServer(thread);
   const queue = createAsyncQueue((error) => {
     if (error) { client.fail(error); client.close(); }
@@ -144,6 +152,7 @@ async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
       ? await client.request("thread/resume", appServerThreadParams({ ...thread.threadOptions, threadId: thread.id }))
       : await client.request("thread/start", appServerThreadParams(thread.threadOptions));
     thread.id = threadResponse?.thread?.id || thread.id;
+    thread.resolvedSandbox = threadResponse?.sandbox;
     if (thread.id) queue.push({ type: "thread.started", thread_id: thread.id });
 
     await turnOptions.onThreadReady?.({ threadId: thread.id });
@@ -235,7 +244,7 @@ function appServerThreadParams(options = {}) {
     cwd: options.workingDirectory || null,
     approvalPolicy: options.approvalPolicy || null,
     sandbox: options.sandboxMode || null,
-    config: options.codexConfig || null,
+    config: nativeSessionConfig(options),
     developerInstructions: options.developerInstructions || null
   });
 }
@@ -250,6 +259,7 @@ function appServerTurnParams(thread, input, turnOptions = {}) {
     model: thread.threadOptions?.model || null,
     serviceTier: thread.threadOptions?.serviceTier || null,
     effort: thread.threadOptions?.modelReasoningEffort || null,
+    sandboxPolicy: nativeTurnSandbox(thread.threadOptions, thread.resolvedSandbox),
     outputSchema: turnOptions.outputSchema || null
   });
 }

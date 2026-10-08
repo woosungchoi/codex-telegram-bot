@@ -68,15 +68,11 @@ test("optional Codex workflows degrade gracefully", async () => {
   assert.match(ciDiagnosis, /Publish CI diagnosis/);
   assert.match(ciDiagnosis, /Upload diagnosis artifacts/);
   assert.match(ciDiagnosis, /failed-tail\.redacted\.log/);
-  assert.match(ciDiagnosis, /codex-ai-diagnosis\.redacted\.md/);
+  assert.doesNotMatch(ciDiagnosis, /CODEX_ACCESS_TOKEN|codex exec|codex login|CODEX_HOME/);
   assert.doesNotMatch(ciDiagnosis, /cp ci-logs\/failed-tail\.log ci-logs\/failed-tail\.redacted\.log/);
   assert.doesNotMatch(ciDiagnosis, /cp codex-ai-diagnosis\.md codex-ai-diagnosis\.redacted\.md/);
   assert.match(ciDiagnosis, /PR comment upsert failed; writing diagnosis to step summary instead/);
-  assert.match(ciDiagnosis, /Authless CI diagnosis above is still available/);
-  assert.ok(ciDiagnosis.indexOf("Generate authless CI diagnosis") < ciDiagnosis.indexOf("Check Codex OAuth token"));
-  assert.ok(ciDiagnosis.indexOf("Append Codex AI diagnosis") > ciDiagnosis.indexOf("Login with Codex OAuth token"));
-
-  for (const workflow of [prReview, ciDiagnosis]) {
+  for (const workflow of [prReview]) {
     assert.match(workflow, /id: codex-cli/);
     assert.match(workflow, /available=false/);
     assert.match(workflow, /id: codex-login/);

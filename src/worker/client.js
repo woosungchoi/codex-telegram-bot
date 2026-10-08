@@ -1,10 +1,16 @@
 import { LocalizedError, restoreLocalizedError } from "../i18n.js";
 import net from "node:net";
+import { readWorkerCredential } from "./auth.js";
 import { createFrameReader, createRequestId, encodeFrame } from "./protocol.js";
 
 export function createWorkerClient(config = {}) {
   const socketPath = config.codexWorkerSocket;
   const timeoutMs = config.codexWorkerConnectTimeoutMs ?? 5000;
+  const request = async (socket, timeout, method, params) => {
+    if (!socket) throw new LocalizedError("errors.workerSocketRequired");
+    const auth = config.codexWorkerCapability ?? await readWorkerCredential(socket);
+    return requestAuthenticated(socket, timeout, method, params, auth);
+  };
   return {
     inspectJob: (params) => request(socketPath, Math.max(timeoutMs, 40_000), "job/inspect", params),
     steerJob: (params) => request(socketPath, Math.max(timeoutMs, 40_000), "job/steer", params),
@@ -21,7 +27,7 @@ export function createWorkerClient(config = {}) {
   };
 }
 
-function request(socketPath, timeoutMs, method, params = {}) {
+function requestAuthenticated(socketPath, timeoutMs, method, params = {}, auth) {
   if (!socketPath) return Promise.reject(new LocalizedError("errors.workerSocketRequired"));
   const id = createRequestId("worker");
   return new Promise((resolve, reject) => {
@@ -48,7 +54,7 @@ function request(socketPath, timeoutMs, method, params = {}) {
     });
 
     socket.on("connect", () => {
-      socket.write(encodeFrame({ id, method, params }));
+      socket.write(encodeFrame({ id, method, params, auth }));
     });
     socket.on("error", (error) => finish(reject, error));
     socket.on("end", () => {

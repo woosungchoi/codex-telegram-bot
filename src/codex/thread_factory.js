@@ -31,6 +31,8 @@ export function buildCodexClientOptions(config, serviceTier = "") {
 }
 
 export function getCodexClient(codexClients, config, serviceTier = "") {
+  // Question capabilities are job-scoped; never reuse another job's MCP config.
+  if (config.codexWorkerQuestionCapability) return new Codex(buildCodexClientOptions(config, serviceTier));
   const cacheKey = `${config.codexAccountId || "default"}:${config.codexHome || ""}:${serviceTier || "default"}`;
   if (!codexClients.has(cacheKey)) {
     codexClients.set(cacheKey, new Codex(buildCodexClientOptions(config, serviceTier)));

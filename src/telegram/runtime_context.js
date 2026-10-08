@@ -1,8 +1,7 @@
-import { LocalizedError } from "../i18n.js";
 import path from "node:path";
 import fetch from "node-fetch";
 import { buildStyleInstructionPrompt } from "../codex/prompts.js";
-import { ensurePrivateDirectory, writePrivateFile } from "../fs/private.js";
+import { downloadAttachment } from "./download.js";
 import {
   createUploadedPdfRecord,
   formatPdfReferenceText,
@@ -128,18 +127,11 @@ export function createTelegramRuntimeContext({
   }
 
   async function downloadTelegramFileRecord(ctx, fileId, ext) {
-    const link = await ctx.telegram.getFileLink(fileId);
-    const response = await fetchImpl(link.href, { agent });
-    if (!response.ok) throw new LocalizedError("errors.telegramDownload", { status: response.status });
-    const bytes = Buffer.from(await response.arrayBuffer());
-    if (settings.uploadMaxBytes > 0 && bytes.length > settings.uploadMaxBytes) {
-      throw new LocalizedError("errors.telegramUploadLimit", { size: formatting.bytes(bytes.length), limit: formatting.bytes(settings.uploadMaxBytes) });
-    }
-    await ensurePrivateDirectory(settings.uploadDir);
-    const filename = `${now()}-${fileId.replace(/[^a-zA-Z0-9_-]/g, "")}${ext}`;
-    const filePath = path.join(settings.uploadDir, filename);
-    await writePrivateFile(filePath, bytes);
-    return { path: filePath, bytes: bytes.length };
+    return downloadAttachment({
+      getLink: () => ctx.telegram.getFileLink(fileId), fetchImpl, agent,
+      uploadDir: settings.uploadDir, maxBytes: settings.uploadMaxBytes,
+      ext, formatBytes: formatting.bytes
+    });
   }
 
   async function downloadTelegramFile(ctx, fileId, ext) {
