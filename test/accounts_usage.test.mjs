@@ -51,7 +51,7 @@ test("live usage reads use the selected account environment and never start a mo
   });
   assert.equal(scoped.codexEnv.CODEX_HOME, accountHome(f.config, managed.id));
   assert.equal(scoped.codexEnv.OPENAI_API_KEY, undefined);
-  assert.equal(scoped.codexEnv.KEEP, "yes");
+  assert.equal(scoped.codexEnv.KEEP, undefined);
   assert.equal(scoped.codexAuthFileStore, true);
   assert.deepEqual(calls, [
     { method: "account/read", params: { refreshToken: false } },

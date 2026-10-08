@@ -72,15 +72,12 @@ test("optional Codex workflows degrade gracefully", async () => {
   assert.doesNotMatch(ciDiagnosis, /cp ci-logs\/failed-tail\.log ci-logs\/failed-tail\.redacted\.log/);
   assert.doesNotMatch(ciDiagnosis, /cp codex-ai-diagnosis\.md codex-ai-diagnosis\.redacted\.md/);
   assert.match(ciDiagnosis, /PR comment upsert failed; writing diagnosis to step summary instead/);
-  for (const workflow of [prReview]) {
-    assert.match(workflow, /id: codex-cli/);
-    assert.match(workflow, /available=false/);
-    assert.match(workflow, /id: codex-login/);
-    assert.match(workflow, /authenticated=false/);
-    assert.match(workflow, /Codex OAuth login failed/);
-    assert.match(workflow, /Codex access token rejected/);
-    assert.match(workflow, /malformed, expired, or revoked/);
-  }
+  assert.match(prReview, /OAuth is not configured/);
+  assert.match(prReview, /head.repo.full_name == github.repository/);
+  assert.match(prReview, /ref: \$\{\{ github.event.pull_request.base.sha \}\}/);
+  assert.match(prReview, /needs: review/);
+  assert.match(prReview, /Codex access token rejected/);
+  assert.match(prReview, /malformed, expired, or revoked/);
 
   assert.match(dependencyUpdate, /npm view @openai\/codex version 2>\/dev\/null \|\| true/);
   assert.match(dependencyUpdate, /sdk_available/);

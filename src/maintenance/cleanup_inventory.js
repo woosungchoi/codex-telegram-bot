@@ -1,3 +1,4 @@
+import { fileIdentity } from "../fs/anchored.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -28,11 +29,11 @@ export function createCleanupInventory({
     for (const file of files.filter((entry) => entry.endsWith(".jsonl"))) {
       const meta = await sessions.readMeta(file);
       if (!meta?.id) continue;
-      const stat = await fs.stat(file).catch((error) => {
+      const stat = await fs.lstat(file).catch((error) => {
         if (error?.code === "ENOENT") return null;
         throw error;
       });
-      if (!stat) continue;
+      if (!stat?.isFile()) continue;
       if (protectedThreadIds.has(meta.id)) continue;
       if (stat.mtimeMs >= cutoff) {
         recentCount += 1;
@@ -41,6 +42,7 @@ export function createCleanupInventory({
       candidates.push({
         threadId: meta.id,
         path: file,
+        identity: fileIdentity(stat),
         modifiedAt: stat.mtime.toISOString(),
         ageDays: Math.floor((currentTime - stat.mtimeMs) / 86_400_000),
         bytes: stat.size
@@ -63,11 +65,11 @@ export function createCleanupInventory({
       - settings.runtimeValue("cleanupQuarantineDays") * 24 * 60 * 60 * 1000;
     const candidates = [];
     for (const file of files.filter((entry) => entry.endsWith(".jsonl"))) {
-      const stat = await fs.stat(file).catch((error) => {
+      const stat = await fs.lstat(file).catch((error) => {
         if (error?.code === "ENOENT") return null;
         throw error;
       });
-      if (!stat) continue;
+      if (!stat?.isFile()) continue;
       const metadata = await readCleanupMetadata(file);
       const quarantinedAt = metadata?.quarantinedAt
         ? Date.parse(metadata.quarantinedAt)
@@ -77,6 +79,7 @@ export function createCleanupInventory({
       candidates.push({
         threadId: metadata?.threadId || meta?.id || path.basename(file, ".jsonl"),
         path: file,
+        identity: fileIdentity(stat),
         originalPath: metadata?.originalPath || "",
         quarantinedAt: new Date(quarantinedAt).toISOString(),
         quarantineAgeDays: Math.floor((currentTime - quarantinedAt) / 86_400_000),

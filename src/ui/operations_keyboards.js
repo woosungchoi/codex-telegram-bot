@@ -91,7 +91,6 @@ export function createOperationsKeyboardViews({
         { text: t("skills"), callback_data: "tool:skills" }
       ],
       [
-        { text: msg("ui.backup"), callback_data: "tool:backup" },
         { text: msg("ui.export"), callback_data: "tool:export" }
       ],
       [

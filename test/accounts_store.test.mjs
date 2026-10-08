@@ -77,7 +77,8 @@ test("managed SDK environments exclude ambient credentials and preserve executio
   const a = await store.create("A");
   const scoped = accountConfig({ ...config, codexApiKey: "secret", codexEnv: { PATH: "/bin", CODEX_API_KEY: "secret", OPENAI_API_KEY: "secret", CODEX_ACCESS_TOKEN: "secret", CUSTOM: "kept" } }, a.id);
   assert.equal(scoped.codexApiKey, "");
-  assert.deepEqual(Object.keys(scoped.codexEnv).sort(), ["CODEX_HOME", "CUSTOM", "PATH"]);
+  assert.equal(scoped.codexEnv.CUSTOM, undefined);
+  assert.equal(scoped.codexEnv.PATH, "/bin");
   assert.equal(scoped.codexConfig.cli_auth_credentials_store, "file");
   assert.equal(scoped.codexSessionsDir, path.join(accountHome(config, a.id), "sessions"));
 });

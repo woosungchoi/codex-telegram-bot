@@ -1,3 +1,4 @@
+import { anchoredMove, anchoredUnlink, fileIdentity } from "../fs/anchored.js";
 import { createMessageFormatter } from "../i18n.js";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -5,11 +6,6 @@ import {
   createCleanupArtifact,
   finalizeCleanupArtifact
 } from "./cleanup.js";
-import {
-  ensurePrivateDirectory,
-  hardenPrivateTree,
-  writePrivateFile
-} from "../fs/private.js";
 import { b, code } from "../telegram/html.js";
 import { parseCleanupExecutionMode } from "./cleanup_mode.js";
 import { createNavigationKeyboardViews } from "../ui/keyboard_helpers.js";
@@ -289,18 +285,9 @@ export function createCleanupController({
             "sessions",
             relativePath
           );
-          await ensurePrivateDirectory(path.dirname(targetPath));
-          await fs.rename(sourcePath, targetPath);
-          await hardenPrivateTree(targetPath);
-          await writePrivateFile(
-            `${targetPath}.cleanup.json`,
-            `${JSON.stringify({
-              threadId: candidate.threadId,
-              originalPath: candidate.path,
-              quarantinedAt: now().toISOString()
-            }, null, 2)}\n`,
-            "utf8"
-          );
+          await anchoredMove(sessionsRoot, sourcePath, candidate.identity, policy.quarantineDir, targetPath,
+            `${JSON.stringify({ threadId: candidate.threadId, originalPath: candidate.path,
+              quarantinedAt: now().toISOString() }, null, 2)}\n`);
           operations.push({
             type: "quarantine",
             threadId: candidate.threadId,
@@ -347,7 +334,7 @@ export function createCleanupController({
             continue;
           }
           // Permanent deletion retains only the small operation receipt, never a payload copy.
-          await fs.unlink(deletePath);
+          await anchoredUnlink(quarantineRoot, deletePath, candidate.identity);
           operations.push({
             type: "delete",
             threadId: candidate.threadId,
@@ -355,7 +342,9 @@ export function createCleanupController({
             irreversible: true
           });
           result.deleted += 1;
-          await fs.rm(`${deletePath}.cleanup.json`, { force: true });
+          const metadataPath = `${deletePath}.cleanup.json`;
+          const metadataStat = await fs.lstat(metadataPath).catch(() => null);
+          if (metadataStat?.isFile()) await anchoredUnlink(quarantineRoot, metadataPath, fileIdentity(metadataStat));
         } catch (error) {
           if (error?.code === "ENOENT" && await sourceIsMissing(candidate.path)) {
             result.skipped += 1;

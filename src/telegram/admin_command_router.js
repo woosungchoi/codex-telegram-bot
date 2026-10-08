@@ -1,3 +1,4 @@
+import { fullBackupAuthorized, requireFullBackup, verifyBackupDestination } from "../maintenance/backup_authorization.js";
 import { readOperationalStatus } from "../operational_status.js";
 import { createMessageFormatter } from "../i18n.js";
 import { b, code } from "./html.js";
@@ -54,16 +55,18 @@ export function registerAdminCommands({
   ));
 
   bot.command("backup", async (ctx) => {
-    if (ctx.chat?.type !== "private" || !settings.config.backupAdminUserIds?.has(String(ctx.from?.id))) {
+    if (!fullBackupAuthorized(ctx, settings.config)) {
       await telegram.replyHtml(ctx, msg("ui.backupPrivateAdminOnly"));
       return;
     }
-    const result = await backup.createState("manual");
+    const authorization = requireFullBackup(ctx, settings.config);
+    const result = await backup.createState("manual", ctx);
     await telegram.replyHtml(ctx, formatting.keyValue(msg("ui.backupCreated"), [
       [msg("ui.file"), result.path],
       [msg("ui.size"), formatting.bytes(result.bytes)],
       [msg("ui.chats"), result.chatCount]
     ]));
+    verifyBackupDestination(ctx, settings.config, authorization);
     await telegram.replyDocument(ctx, result.path, msg("ui.codexTelegramBotBackup"));
   });
 

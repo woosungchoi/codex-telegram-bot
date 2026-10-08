@@ -1,3 +1,4 @@
+import { buildCodexChildEnv } from "./child_env.js";
 import { Codex } from "@openai/codex-sdk";
 import { createAppServerThread } from "./app_server.js";
 import { buildCodexCompactConfig } from "./compact.js";
@@ -26,7 +27,7 @@ export function buildCodexClientOptions(config, serviceTier = "") {
   const codexConfig = { ...(config.codexConfig ?? {}), ...buildCodexCompactConfig(config) };
   if (serviceTier) codexConfig.service_tier = serviceTier;
   if (Object.keys(codexConfig).length > 0) options.config = codexConfig;
-  if (config.codexEnv) options.env = config.codexEnv;
+  options.env = buildCodexChildEnv(config.codexEnv, { managed: config.codexAuthFileStore, home: config.codexHome });
   return options;
 }
 
@@ -86,7 +87,7 @@ export function createCodexThread({
       threadId,
       threadOptions: buildAppServerDirectThreadOptions(config, effectiveOptions),
       codexPath: config.codexPath,
-      codexEnv: config.codexEnv,
+      codexEnv: buildCodexChildEnv(config.codexEnv, { managed: config.codexAuthFileStore, home: config.codexHome }),
       codexAuthFileStore: config.codexAuthFileStore,
       connectTimeoutMs: config.codexAppServerDirectTimeoutMs
     });

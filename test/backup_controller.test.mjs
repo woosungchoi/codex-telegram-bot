@@ -18,6 +18,7 @@ async function createFixture(t) {
     settings: {
       config: {
         backupDir: path.join(root, "backups"),
+        backupAdminUserIds: new Set(["7"]), allowedUserIds: new Set(["7"]),
         cleanupLogFile: path.join(root, "missing.log")
       },
       runtimeValue(key) {
@@ -48,12 +49,12 @@ async function createFixture(t) {
     timers: { setTimeout() {}, setInterval() {} },
     now: () => new Date("2026-07-21T00:00:00Z")
   });
-  return { controller, saves, state };
+  return { controller, saves, state, root };
 }
 
 test("backup controller writes a private state snapshot with runtime statistics", async (t) => {
   const { controller } = await createFixture(t);
-  const result = await controller.createStateBackup("manual");
+  const result = await controller.createStateBackup("manual", { from: { id: 7 }, chat: { id: 7, type: "private" } });
   const parsed = JSON.parse(await fs.readFile(result.path, "utf8"));
   const stat = await fs.stat(result.path);
   assert.equal(parsed.source, "manual");
@@ -68,4 +69,10 @@ test("daily snapshot runs once after the configured local time", async (t) => {
   assert.deepEqual(saves, ["save"]);
   await controller.runDailyStateSnapshotCheck();
   assert.deepEqual(saves, ["save"]);
+});
+
+test("backup service itself rejects missing identity even with forged daily source", async (t) => {
+  const { controller, root } = await createFixture(t);
+  for (const source of ["manual", "daily"]) await assert.rejects(controller.createStateBackup(source), /authorized administrator/);
+  await assert.rejects(fs.access(path.join(root, "backups")), { code: "ENOENT" });
 });

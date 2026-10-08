@@ -11,6 +11,8 @@ import { codexInstallation, latestCodexVersion, newerVersion, stageCodexRelease 
 import { runCodexUpdate } from "../src/maintenance/update_runner.js";
 import { claimUpdate, readUpdateState, releaseUpdate, updateAdmissionPaused, updateLockPath, writeUpdateState } from "../src/maintenance/update_state.js";
 
+import { tarFixture } from "./helpers/tar_fixture.mjs";
+
 async function fixture(t) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-update-test-"));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
@@ -101,29 +103,24 @@ test("a bounded deployment pause works without an update run and expires safely"
   assert.equal(updateAdmissionPaused(f.config), false);
 });
 
-test("staging installer gets isolated home and pinned version without selecting live CLI", async (t) => {
-  const f = await fixture(t);
-  const calls = [];
+test("staging verifies the approved artifact before execution without changing the live CLI", async (t) => {
+  const f = await fixture(t), calls = [];
+  const { archive, entry } = tarFixture();
+  f.config.codexUpdateTrustFile = path.join(f.dir, "trust.json");
+  await fs.writeFile(f.config.codexUpdateTrustFile, JSON.stringify({ artifacts: [entry] }), { mode: 0o600 });
   const before = await fs.readlink(f.config.codexPath);
-  const target = "0.160.0";
-  const release = await stageCodexRelease(f.config, { ...f.state, target }, async (command, args, options) => {
+  const release = await stageCodexRelease(f.config, { ...f.state, target: entry.version }, async (command, args, options) => {
     calls.push({ command, args, options });
-    if (command === "sh" && args.includes("--release")) {
-      const stageRoot = path.join(options.env.CODEX_HOME, "packages", "standalone");
-      const releaseDir = path.join(stageRoot, "releases", "0.160.0-linux");
-      await fs.mkdir(path.join(releaseDir, "bin"), { recursive: true });
-      await fs.writeFile(path.join(releaseDir, "bin", "codex"), "test");
-      await fs.symlink("bin/codex", path.join(releaseDir, "codex"));
-      await fs.symlink(releaseDir, path.join(stageRoot, "current"));
-    }
-    return { stdout: `codex-cli ${target}` };
+    if (command === "curl") await fs.writeFile(args.at(-1), archive);
+    else assert.equal(await fs.readFile(command, "utf8"), "verified executable");
+    return { stdout: `codex-cli ${entry.version}` };
   });
-  const install = calls.find((entry) => entry.command === "sh" && entry.args.includes("--release"));
-  assert.equal(install.args.at(-1), target);
-  assert.notEqual(install.options.env.CODEX_HOME, f.config.codexUpdateHome);
-  assert.equal(install.options.env.CODEX_HOME, install.options.env.HOME);
-  assert.equal(install.options.env.CODEX_API_KEY, undefined);
-  assert.equal(await fs.readlink(path.join(release, "codex")), "bin/codex");
+  const execute = calls.find((c) => c.command !== "curl");
+  assert.equal(calls.length, 2);
+  assert.notEqual(execute.options.env.CODEX_HOME, f.config.codexUpdateHome);
+  assert.equal(execute.options.env.CODEX_HOME, execute.options.env.HOME);
+  assert.equal(execute.options.env.CODEX_API_KEY, undefined);
+  assert.equal(await fs.readFile(path.join(release, "bin", "codex"), "utf8"), "verified executable");
   assert.equal(await fs.readlink(f.config.codexPath), before);
 });
 
@@ -259,6 +256,9 @@ test("wrapper updates select the real CLI and reject a mismatching runtime versi
 
 async function controllerFixture(t, { latest = "0.159.0" } = {}) {
   const f = await fixture(t);
+  const { entry } = tarFixture();
+  f.config.codexUpdateTrustFile = path.join(f.dir, "trust.json");
+  await fs.writeFile(f.config.codexUpdateTrustFile, JSON.stringify({ artifacts: [{ ...entry, version: latest }] }), { mode: 0o600 });
   const edits = [], launches = [];
   let active = false, clock = 1000;
   const controller = createCodexUpdateController({
@@ -316,4 +316,12 @@ test("latest version and expired preview never launch an updater", async (t) => 
   expired.expire();
   await expired.controller.handle(expired.ctx, "codex_update_start", id);
   assert.equal(expired.launches.length, 0);
+});
+
+test("update panel without approved trust shows no executable update button", async (t) => {
+  const f = await controllerFixture(t);
+  await fs.unlink(f.config.codexUpdateTrustFile);
+  await f.controller.handle(f.ctx, "codex_update");
+  assert.ok(f.edits.at(-1)[2].every((row) => !row[0].callback_data.includes("start")));
+  assert.equal(f.launches.length, 0);
 });

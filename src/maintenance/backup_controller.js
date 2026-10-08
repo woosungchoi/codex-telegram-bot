@@ -1,3 +1,4 @@
+import { requireFullBackup } from "./backup_authorization.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ensurePrivateDirectory, writePrivateFile } from "../fs/private.js";
@@ -37,12 +38,17 @@ export function createBackupController({
     if (state.snapshots.lastDailyDate === localClock.dateKey) return;
     if (localClock.time < settings.runtimeValue("snapshotNotifyTime")) return;
 
-    await createStateBackup("daily-snapshot");
+    await writeStateBackup("daily-snapshot");
     state.snapshots.lastDailyDate = localClock.dateKey;
     await persistence.save();
   }
 
-  async function createStateBackup(source) {
+  async function createStateBackup(source, ctx) {
+    requireFullBackup(ctx, settings.config);
+    return writeStateBackup(source);
+  }
+
+  async function writeStateBackup(source) {
     const config = settings.config;
     await ensurePrivateDirectory(config.backupDir);
     const createdAt = now().toISOString();

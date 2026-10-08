@@ -6,29 +6,25 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   update:
     name: Test Latest Codex Packages
     runs-on: ubuntu-latest
-
+    outputs:
+      changed: ${{ steps.version.outputs.changed }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 0
-          token: ${{ secrets.CODEX_AUTOMATION_TOKEN || github.token }}
-
+          persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 20
-          cache: npm
-
-      - name: Install
-        run: npm ci
+          node-version: 24
+      - name: Install without lifecycle scripts
+        run: npm ci --ignore-scripts
 
       - name: Check latest versions
         id: version
@@ -49,6 +45,8 @@ jobs:
           else
             cli_available=true
           fi
+          [[ "$current_sdk" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$current_cli" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$latest_sdk" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$latest_cli" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           {
             echo "current_sdk=$current_sdk"
             echo "latest_sdk=$latest_sdk"
@@ -81,10 +79,10 @@ jobs:
         if: ${{ steps.version.outputs.changed == 'true' }}
         run: |
           if [ "${{ steps.version.outputs.sdk_available }}" = true ]; then
-            npm install "@openai/codex-sdk@${{ steps.version.outputs.latest_sdk }}" --save-exact
+            npm install --ignore-scripts "@openai/codex-sdk@${{ steps.version.outputs.latest_sdk }}" --save-exact
           fi
           if [ "${{ steps.version.outputs.cli_available }}" = true ]; then
-            npm install "@openai/codex@${{ steps.version.outputs.latest_cli }}" --save-dev --save-exact
+            npm install --ignore-scripts "@openai/codex@${{ steps.version.outputs.latest_cli }}" --save-dev --save-exact
           fi
 
       - name: Verify updated packages
@@ -93,66 +91,41 @@ jobs:
           npm run check
           npm test
           if [ "${{ steps.version.outputs.cli_available }}" = true ]; then
-            npm install -g "@openai/codex@${{ steps.version.outputs.latest_cli }}"
+            npm install -g --ignore-scripts "@openai/codex@${{ steps.version.outputs.latest_cli }}"
             codex --version
           else
             echo "Skipping Codex CLI smoke test because @openai/codex is unavailable."
           fi
 
-      - name: Create or update pull request
-        if: ${{ steps.version.outputs.changed == 'true' }}
+      - name: Upload package data only
+        if: steps.version.outputs.changed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: package-update
+          path: |
+            package.json
+            package-lock.json
+          if-no-files-found: error
+          retention-days: 1
+  publish:
+    name: Validate data and create update PR
+    needs: update
+    if: needs.update.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: package-update
+          path: ${{ runner.temp }}/package-update
+      - name: Publish validated JSON with trusted helper (no package execution)
         env:
           GH_TOKEN: ${{ secrets.CODEX_AUTOMATION_TOKEN || github.token }}
-          BRANCH: automation/update-codex-packages
-          LATEST_SDK: ${{ steps.version.outputs.latest_sdk }}
-          CURRENT_SDK: ${{ steps.version.outputs.current_sdk }}
-          LATEST_CLI: ${{ steps.version.outputs.latest_cli }}
-          CURRENT_CLI: ${{ steps.version.outputs.current_cli }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -B "$BRANCH"
-          git add package.json package-lock.json
-          if git diff --cached --quiet; then
-            echo "No package file changes after update."
-            exit 0
-          fi
-          git commit -m "Update Codex packages"
-          git push --force origin "$BRANCH"
-          cat > pr-body.md <<BODY
-          Automated Codex package update.
-
-          - \`@openai/codex-sdk\`: \`$CURRENT_SDK\` -> \`$LATEST_SDK\`
-          - \`@openai/codex\`: \`$CURRENT_CLI\` -> \`$LATEST_CLI\`
-
-          Availability:
-
-          - \`@openai/codex-sdk\`: \`${{ steps.version.outputs.sdk_available }}\`
-          - \`@openai/codex\`: \`${{ steps.version.outputs.cli_available }}\`
-
-          Verification run in this workflow:
-
-          - \`npm run check\`
-          - \`npm test\`
-          - \`codex --version\` when \`@openai/codex\` is available
-          BODY
-          pr_number="$(gh pr list \
-            --repo "$GITHUB_REPOSITORY" \
-            --head "$BRANCH" \
-            --base main \
-            --state open \
-            --json number \
-            --jq '.[0].number // empty')"
-          if [ -n "$pr_number" ]; then
-            gh pr edit "$pr_number" \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "Update Codex packages" \
-              --body-file pr-body.md
-          else
-            gh pr create \
-              --repo "$GITHUB_REPOSITORY" \
-              --base main \
-              --head "$BRANCH" \
-              --title "Update Codex packages" \
-              --body-file pr-body.md
-          fi
+          BASE_SHA: ${{ github.sha }}
+        run: node scripts/publish_package_update.mjs "$RUNNER_TEMP/package-update"
