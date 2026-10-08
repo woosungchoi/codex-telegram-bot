@@ -5,11 +5,12 @@ import { createToolCallbackController } from "../src/ui/tool_callback_controller
 
 function createFixture({ active = false } = {}) {
   const calls = [];
+  const stats = { backups: 0 };
   const state = {
     maintenance: { autoHandoffEnabled: false, autoSqliteRepairEnabled: false }
   };
   const controller = createToolCallbackController({
-    settings: { config: {}, runtimeValue: () => true },
+    settings: { config: { allowedUserIds: new Set(["7", "8"]), backupAdminUserIds: new Set(["7"]) }, runtimeValue: () => true },
     state,
     telegram: {
       editOrReplyHtml: async (...args) => calls.push(["edit", ...args]),
@@ -37,7 +38,7 @@ function createFixture({ active = false } = {}) {
     skills: { replyStatus: async () => calls.push(["skills"]) },
     backup: {
       createChatExport: async () => ({ path: "/tmp/chat.json", bytes: 3 }),
-      createState: async () => ({ path: "/tmp/state.json", bytes: 4, chatCount: 1 })
+      createState: async () => { stats.backups += 1; return { path: "/tmp/state.json", bytes: 4, chatCount: 1 }; }
     },
     cleanup: { handleCommand: async () => calls.push(["cleanup"]) },
     maintenance: {
@@ -62,7 +63,7 @@ function createFixture({ active = false } = {}) {
     },
     localization: { text: (key) => textFor("en", key) }
   });
-  return { calls, controller };
+  return { calls, controller, stats };
 }
 
 test("tool callback renders diagnostics in the existing message", async () => {
@@ -73,10 +74,11 @@ test("tool callback renders diagnostics in the existing message", async () => {
 
 test("tool callback creates and sends a state backup", async () => {
   const { calls, controller } = createFixture();
-  await controller.handleToolButton({}, "backup");
+  const ctx = { from: { id: 7 }, chat: { id: 7, type: "private" } };
+  await controller.handleToolButton(ctx, "backup");
   assert.equal(calls[0][0], "reply");
   assert.deepEqual(calls[0][3], { panel: "tools" });
-  assert.deepEqual(calls[1], ["document", {}, "/tmp/state.json", "Codex Telegram Bot backup"]);
+  assert.deepEqual(calls[1], ["document", ctx, "/tmp/state.json", "Codex Telegram Bot backup"]);
 });
 
 test("export result retains navigation back to tools", async () => {
@@ -91,3 +93,12 @@ test("destructive maintenance actions stop when the chat is active", async () =>
   await controller.handleToolButton({}, "codex_maintenance_config");
   assert.equal(calls.some(([name]) => name === "run"), false);
 });
+
+for (const ctx of [{}, { from: { id: 8 }, chat: { id: 8, type: "private" } }, { from: { id: 7 }, chat: { id: -1, type: "group" } }]) {
+  test(`forged/stale backup button cannot create or send a backup: ${JSON.stringify(ctx)}`, async () => {
+    const { calls, controller, stats } = createFixture();
+    await controller.handleToolButton(ctx, "backup");
+    assert.equal(stats.backups, 0);
+    assert.equal(calls.some(([type]) => type === "document"), false);
+  });
+}

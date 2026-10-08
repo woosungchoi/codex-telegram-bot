@@ -5,6 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { createCleanupController } from "../src/maintenance/cleanup_controller.js";
 
+import { fileIdentity } from "../src/fs/anchored.js";
+
 const FIXED_NOW = new Date("2026-07-21T03:04:05.000Z");
 
 function createHarness({ root, sessionScan, deleteCandidates = [], protectedIds = [] }) {
@@ -187,7 +189,7 @@ test("cleanup controller quarantines an eligible session with restore metadata",
   const plan = {
     id: "quarantine-one",
     quarantineCandidates: [
-      { threadId: "thread-a", path: source, ageDays: 40, bytes: 8 }
+      { threadId: "thread-a", path: source, identity: fileIdentity(await fs.lstat(source)), ageDays: 40, bytes: 8 }
     ],
     deleteCandidates: []
   };
@@ -230,7 +232,7 @@ test("cleanup controller skips sessions that become protected after planning", a
   const result = await harness.controller.applyCleanupPlan({
     id: "protected",
     quarantineCandidates: [
-      { threadId: "thread-active", path: source, ageDays: 40, bytes: 7 }
+      { threadId: "thread-active", path: source, identity: fileIdentity(await fs.lstat(source)), ageDays: 40, bytes: 7 }
     ],
     deleteCandidates: []
   }, "quarantine");
@@ -254,7 +256,7 @@ test("cleanup controller skips planned files that disappear before execution", a
       path: path.join(harness.sessionsDir, "missing.jsonl")
     }],
     deleteCandidates: [
-      { threadId: "present", path: present },
+      { threadId: "present", path: present, identity: fileIdentity(await fs.lstat(present)) },
       ...Array.from({ length: 5 }, (_, index) => ({
         threadId: `missing-delete-${index}`,
         path: path.join(harness.quarantineDir, "old", `missing-${index}.jsonl`)
@@ -289,11 +291,11 @@ test("automatic daily cleanup runs both actions and sends only the result report
     sessionScan: {
       protectedCount: 3,
       recentCount: 4,
-      candidates: [{ threadId: "thread-auto", path: source, ageDays: 31, bytes: 8 }]
+      candidates: [{ threadId: "thread-auto", path: source, identity: fileIdentity(await fs.lstat(source)), ageDays: 31, bytes: 8 }]
     },
     deleteCandidates: [{
       threadId: "thread-delete",
-      path: deletion,
+      path: deletion, identity: fileIdentity(await fs.lstat(deletion)),
       quarantineAgeDays: 15,
       bytes: 7
     }]
@@ -349,8 +351,8 @@ for (const action of ["quarantine", "delete", "both"]) {
     const newlyQuarantined = path.join(harness.quarantineDir, "20260721", "sessions", "old-session.jsonl");
     const result = await harness.controller.applyCleanupPlan({
       id: `selected-${action}`,
-      quarantineCandidates: [{ threadId: "old", path: source }],
-      deleteCandidates: [{ threadId: "expired", path: expired }, { threadId: "recent", path: recent },
+      quarantineCandidates: [{ threadId: "old", path: source, identity: fileIdentity(await fs.lstat(source)) }],
+      deleteCandidates: [{ threadId: "expired", path: expired, identity: fileIdentity(await fs.lstat(expired)) }, { threadId: "recent", path: recent, identity: fileIdentity(await fs.lstat(recent)) },
         ...(action === "both" ? [{ threadId: "old", path: newlyQuarantined }] : [])]
     }, action);
     const moves = action !== "delete", deletes = action !== "quarantine";
@@ -383,7 +385,7 @@ test("permanent deletion rechecks protection and changed quarantine timestamps",
     await fs.mkdir(path.dirname(file), { recursive: true });
     await fs.writeFile(file, "keep\n");
     await fs.writeFile(`${file}.cleanup.json`, JSON.stringify(metadata));
-    candidates.push({ threadId: id, path: file, quarantineAgeDays: 50 });
+    candidates.push({ identity: fileIdentity(await fs.lstat(file)), threadId: id, path: file, quarantineAgeDays: 50 });
   }
   const result = await harness.controller.applyCleanupPlan({
     id: "recheck", quarantineCandidates: [], deleteCandidates: candidates
@@ -423,7 +425,7 @@ test("permanent deletion waits until the full quarantine period has elapsed", as
     await fs.mkdir(harness.quarantineDir, { recursive: true });
     await fs.writeFile(file, "payload\n");
     await fs.writeFile(`${file}.cleanup.json`, JSON.stringify({ quarantinedAt: new Date(timestamp).toISOString() }));
-    candidates.push({ threadId: id, path: file });
+    candidates.push({ identity: fileIdentity(await fs.lstat(file)), threadId: id, path: file });
   }
   const result = await harness.controller.applyCleanupPlan({
     id: "boundary", quarantineCandidates: [], deleteCandidates: candidates

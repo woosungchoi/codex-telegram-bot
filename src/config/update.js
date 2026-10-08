@@ -13,6 +13,7 @@ export function readCodexUpdateConfig(env, paths, access) {
     if (!access.allowedUserIds.has(id)) throw new Error("CODEX_UPDATE_ADMIN_USER_IDS must be allowed users.");
   }
   return {
+    codexUpdateTrustFile: env.CODEX_UPDATE_TRUST_FILE?.trim() || "",
     codexUpdateBin: env.CODEX_UPDATE_BIN?.trim() || (wrapped ? wrapperRealPath : "") || env.CODEX_PATH?.trim() || "codex",
     codexUpdateWrapperRealPath: wrapperRealPath,
     codexUpdateHome: path.resolve(env.CODEX_UPDATE_HOME?.trim() || path.join(paths.homeDir, ".codex")),

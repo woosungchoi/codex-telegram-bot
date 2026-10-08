@@ -1,7 +1,8 @@
+import { anchoredCreate } from "../fs/anchored.js";
+import { randomUUID } from "node:crypto";
 import { createMessageFormatter } from "../i18n.js";
 import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
-import fs from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
@@ -199,12 +200,11 @@ export function createCodexMaintenanceController({
       sessionFile,
       settings.config.codexHandoffRecentEvents
     );
-    const targetDir = await resolveHandoffDir(meta?.cwd);
-    await fs.mkdir(targetDir, { recursive: true });
+    const targetDir = settings.config.codexHandoffDir;
     const projectName = (meta?.cwd || "codex").split(path.sep).filter(Boolean).pop() || "codex";
     const file = path.join(
       targetDir,
-      `${formatting.localDateKey()}-${sanitizeHandoffFilename(projectName)}-${threadId.slice(0, 8)}.md`
+      `${formatting.localDateKey()}-${sanitizeHandoffFilename(projectName)}-${sanitizeHandoffFilename(threadId.slice(0, 8))}-${randomUUID()}.md`
     );
     const body = renderHandoffMarkdown({
       threadId,
@@ -213,7 +213,7 @@ export function createCodexMaintenanceController({
       highlights,
       generatedAt: now().toISOString()
     });
-    await fs.writeFile(file, body, "utf8");
+    await anchoredCreate(targetDir, path.basename(file), body);
     return {
       ok: true,
       file,
@@ -221,18 +221,6 @@ export function createCodexMaintenanceController({
       cwd: meta?.cwd || "",
       highlights: highlights.length
     };
-  }
-
-  async function resolveHandoffDir(cwd) {
-    if (cwd && path.isAbsolute(cwd)) {
-      try {
-        const stat = await fs.stat(cwd);
-        if (stat.isDirectory()) return path.join(cwd, "docs", "codex-handoffs");
-      } catch {
-        // Fall through to the configured handoff directory.
-      }
-    }
-    return settings.config.codexHandoffDir;
   }
 
   async function readSessionHighlights(file, limit) {

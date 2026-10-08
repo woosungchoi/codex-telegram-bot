@@ -1,3 +1,4 @@
+import { buildCodexChildEnv } from "./child_env.js";
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { nativeSessionConfig, nativeTurnSandbox } from "./session_settings.js";
@@ -211,7 +212,7 @@ export async function connectAppServer({ codexPath = "codex", codexEnv = null, c
   const args = appServerDirectArgs();
   if (codexAuthFileStore) args.push("-c", 'cli_auth_credentials_store="file"', "-c", 'model_provider="openai"');
   const child = spawn(codexPath, args, {
-    env: codexAuthFileStore ? codexEnv : mergedEnv(codexEnv),
+    env: buildCodexChildEnv(codexEnv, { managed: codexAuthFileStore }),
     stdio: ["pipe", "pipe", "pipe"]
   });
   const client = new JsonRpcClient(child, { requestTimeoutMs: Math.max(connectTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS) });
@@ -452,8 +453,4 @@ async function* wrapQueue(queue, cleanup) {
 
 function compactObject(value) {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== null && entry !== undefined && entry !== ""));
-}
-
-function mergedEnv(env) {
-  return env && typeof env === "object" ? { ...process.env, ...env } : process.env;
 }

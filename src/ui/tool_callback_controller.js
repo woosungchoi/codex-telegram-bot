@@ -1,3 +1,4 @@
+import { fullBackupAuthorized, requireFullBackup, verifyBackupDestination } from "../maintenance/backup_authorization.js";
 import { createMessageFormatter } from "../i18n.js";
 import { b } from "../telegram/html.js";
 
@@ -59,13 +60,19 @@ export function createToolCallbackController({
     } else if (action === "worker_status") {
       await diagnostics.handleWorkerStatus(ctx);
     } else if (action === "backup") {
-      const result = await backup.createState("manual");
+      if (!fullBackupAuthorized(ctx, settings.config)) {
+        await telegram.replyHtml(ctx, msg("ui.backupPrivateAdminOnly"));
+        return;
+      }
+      const authorization = requireFullBackup(ctx, settings.config);
+    const result = await backup.createState("manual", ctx);
       await telegram.replyHtml(ctx, formatting.keyValue(msg("ui.backupCreated"), [
         [msg("ui.file"), result.path],
         [msg("ui.size"), formatting.bytes(result.bytes)],
         [msg("ui.chats"), result.chatCount]
       ]), keyboards.withToolsBack());
-      await telegram.replyDocument(ctx, result.path, msg("ui.codexTelegramBotBackup"));
+      verifyBackupDestination(ctx, settings.config, authorization);
+    await telegram.replyDocument(ctx, result.path, msg("ui.codexTelegramBotBackup"));
     } else if (action === "export") {
       const file = await backup.createChatExport(chatKey);
       await telegram.replyHtml(ctx, formatting.keyValue(msg("ui.chatExportCreated"), [

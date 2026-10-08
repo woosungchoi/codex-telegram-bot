@@ -1,3 +1,4 @@
+import { anchoredUnlink, fileIdentity } from "./fs/anchored.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
@@ -102,7 +103,7 @@ export async function buildUploadCleanupPlanFromDisk(uploadDir, options = {}) {
 
 export async function deleteUploadCandidates(candidates, options = {}) {
   const dryRun = options.dryRun !== false;
-  const removeFile = options.removeFile ?? ((file) => fs.rm(file, { force: true }));
+  const removeFile = options.removeFile;
   const rootDir = options.rootDir ? path.resolve(options.rootDir) : null;
   const result = { deleted: 0, skipped: 0, errors: [] };
   for (const candidate of candidates) {
@@ -117,7 +118,11 @@ export async function deleteUploadCandidates(candidates, options = {}) {
       continue;
     }
     try {
-      await removeFile(candidatePath);
+      if (removeFile) await removeFile(candidatePath);
+      else {
+        if (!rootDir) throw new Error("Upload cleanup requires an anchored root.");
+        await anchoredUnlink(rootDir, candidatePath, candidate.identity);
+      }
       result.deleted += 1;
     } catch (error) {
       result.errors.push({ path: candidate.path, message: error instanceof Error ? error.message : String(error) });
@@ -152,9 +157,11 @@ async function listFilesRecursive(root) {
     if (dirent.isDirectory()) {
       entries.push(...await listFilesRecursive(entryPath));
     } else if (dirent.isFile()) {
-      const stat = await fs.stat(entryPath);
+      const stat = await fs.lstat(entryPath);
+      if (!stat.isFile()) continue;
       entries.push({
         path: entryPath,
+        identity: fileIdentity(stat),
         bytes: stat.size,
         mtimeMs: stat.mtimeMs,
         modifiedAt: stat.mtime.toISOString()

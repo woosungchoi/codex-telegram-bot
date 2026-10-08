@@ -1,3 +1,4 @@
+import { buildCodexChildEnv } from "../codex/child_env.js";
 import path from "node:path";
 import { accountHome, DEFAULT_ACCOUNT_ID } from "./store.js";
 
@@ -30,8 +31,7 @@ export function applyAccountEvent(chat, event) {
 export function accountConfig(config, id = DEFAULT_ACCOUNT_ID) {
   if (id === DEFAULT_ACCOUNT_ID) return { ...config, codexAccountId: id };
   const home = accountHome(config, id);
-  const env = { ...(config.codexEnv || process.env), CODEX_HOME: home };
-  for (const key of ["CODEX_API_KEY", "OPENAI_API_KEY", "CODEX_ACCESS_TOKEN"]) delete env[key];
+  const env = buildCodexChildEnv(config.codexEnv, { home, managed: true });
   return {
     ...config,
     codexAccountId: id,

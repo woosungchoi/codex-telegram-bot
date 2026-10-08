@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createCodexMaintenanceController } from "../src/maintenance/runtime_controller.js";
 
-function createFixture() {
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+function createFixture({ handoffDir = "/tmp/handoffs", sessionFile = null, cwd = null } = {}) {
   const processCalls = [];
   const state = {
     maintenance: { autoHandoffEnabled: true, autoSqliteRepairEnabled: false }
@@ -10,7 +14,7 @@ function createFixture() {
   const controller = createCodexMaintenanceController({
     settings: {
       config: {
-        codexHandoffDir: "/tmp/handoffs",
+        codexHandoffDir: handoffDir,
         codexHandoffRecentEvents: 5,
         codexHome: "/tmp/codex",
         codexMaintenanceBackupDir: "/tmp/backups",
@@ -25,9 +29,9 @@ function createFixture() {
     threadCache: new Map(),
     chats: { get: () => ({}) },
     sessions: {
-      findFile: async () => null,
+      findFile: async () => sessionFile,
       listRecent: async () => [],
-      readMeta: async () => null
+      readMeta: async () => ({ cwd })
     },
     localization: {
       formatText: (key, values) => `${key}:${values.threadId}`,
@@ -66,4 +70,18 @@ test("maintenance runtime builds the established Python command and parses JSON"
 test("current handoff reports the localized no-thread error", async () => {
   const { controller } = createFixture();
   await assert.rejects(controller.createCurrentHandoff("chat"), /handoffNoThreadError/);
+});
+
+test("repository docs symlink cannot redirect real handoff creation", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "handoff-runtime-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const cwd = path.join(root, "repo"), outside = path.join(root, "outside"), handoffDir = path.join(root, "private");
+  await fs.mkdir(cwd); await fs.mkdir(outside); await fs.symlink(outside, path.join(cwd, "docs"));
+  const sessionFile = path.join(root, "session.jsonl"); await fs.writeFile(sessionFile, "{}\n");
+  const { controller } = createFixture({ handoffDir, sessionFile, cwd });
+  const first = await controller.createThreadHandoff("thread"), second = await controller.createThreadHandoff("thread");
+  assert.equal(path.dirname(first.file), handoffDir);
+  assert.notEqual(first.file, second.file);
+  assert.equal((await fs.stat(first.file)).mode & 0o777, 0o600);
+  assert.deepEqual(await fs.readdir(outside), []);
 });

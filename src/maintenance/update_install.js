@@ -1,3 +1,5 @@
+import { approvedArtifact, extractApprovedBinary } from "./update_artifact.js";
+import { buildCodexChildEnv } from "../codex/child_env.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs/promises";
@@ -5,7 +7,6 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 export const runUpdateProcess = promisify(execFile);
-export const INSTALLER_URL = "https://chatgpt.com/codex/install.sh";
 const LATEST_URL = "https://releases.openai.com/codex/channels/latest";
 export const STABLE_VERSION = /^\d+\.\d+\.\d+$/;
 
@@ -47,7 +48,7 @@ export async function codexInstallation(config, run = runUpdateProcess) {
   const root = path.join(config.codexUpdateHome, "packages", "standalone");
   const { stdout } = await run(real, ["--version"], { timeout: 10_000 });
   const current = versionFromOutput(stdout);
-  const runtimeEnv = { ...process.env, ...config.codexEnv };
+  const runtimeEnv = buildCodexChildEnv(config.codexEnv);
   if (config.codexUpdateWrapperRealPath) runtimeEnv.CODEX_REAL_PATH = config.codexUpdateWrapperRealPath;
   const runtimeVersion = command === config.codexPath ? current
     : versionFromOutput((await run(config.codexPath, ["--version"], { timeout: 10_000, env: runtimeEnv })).stdout);
@@ -60,39 +61,29 @@ export async function codexInstallation(config, run = runUpdateProcess) {
 
 export async function stageCodexRelease(config, state, run = runUpdateProcess) {
   if (!STABLE_VERSION.test(state.target)) throw new Error("Invalid update target.");
-  const runDir = path.join(config.codexUpdateDir, "runs", state.id);
-  const stageHome = path.join(runDir, "stage-home"), binDir = path.join(stageHome, "bin");
-  await fs.mkdir(binDir, { recursive: true, mode: 0o700 });
-  const installer = path.join(runDir, "install.sh");
-  await run("curl", ["--proto", "=https", "-fsSL", "--connect-timeout", "10", "--max-time", "60", INSTALLER_URL, "-o", installer], { timeout: 65_000 });
-  await run("sh", ["-n", installer], { timeout: 10_000 });
-  // Install exclusively in staging. Inherited account CODEX_HOME, installer
-  // overrides and credentials cannot select or mutate the live installation.
-  await run("sh", [installer, "--release", state.target], {
-    timeout: 900_000, maxBuffer: 4 * 1024 * 1024,
-    env: { PATH: process.env.PATH, HOME: stageHome, CODEX_HOME: stageHome,
-      CODEX_INSTALL_DIR: binDir, CODEX_NON_INTERACTIVE: "1" }
-  });
-  const stageRoot = path.join(stageHome, "packages", "standalone");
-  const release = await fs.realpath(path.join(stageRoot, "current"));
-  if (!release.startsWith(`${path.join(stageRoot, "releases")}${path.sep}`)) throw new Error("Unexpected staged release path.");
-  const stagedBin = path.join(release, "bin", "codex");
-  if (versionFromOutput((await run(stagedBin, ["--version"], { timeout: 10_000 })).stdout) !== state.target) {
-    throw new Error("Downloaded CLI version does not match the approved version.");
-  }
-  const destination = path.join(state.installation.root, "releases", path.basename(release));
+  // The trust file is supplied independently by the operator, never fetched
+  // beside the download. No remote installer is executed, even as a fallback.
+  const entry = await approvedArtifact(config, state.target);
+  const runDir = await fs.mkdtemp(path.join(await fs.mkdir(config.codexUpdateDir, { recursive: true }).then(() => config.codexUpdateDir), "verified-"));
+  const archive = path.join(runDir, "artifact.tar.gz");
+  const release = path.join(runDir, "release");
+  const bin = path.join(release, "bin", "codex");
   try {
-    await fs.access(destination);
-    if (versionFromOutput((await run(path.join(destination, "bin", "codex"), ["--version"], { timeout: 10_000 })).stdout) !== state.target) {
-      throw new Error("Existing release directory has an unexpected version.");
-    }
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-    const staging = `${destination}.stage-${state.id}`;
-    await fs.cp(release, staging, { recursive: true, force: false, errorOnExist: true, verbatimSymlinks: true });
-    await fs.rename(staging, destination);
-  }
-  return destination;
+    await run("curl", ["--proto", "=https", "--proto-redir", "=https", "-fsSL", "--connect-timeout", "10", "--max-time", "180", "--max-filesize", "268435456", entry.url, "-o", archive], { timeout: 185_000, env: buildCodexChildEnv({}, { managed: true }) });
+    const executable = extractApprovedBinary(await fs.readFile(archive), entry);
+    await fs.mkdir(path.dirname(bin), { recursive: true, mode: 0o700 });
+    await fs.writeFile(bin, executable, { flag: "wx", mode: 0o700 });
+    const env = buildCodexChildEnv({}, { managed: true, home: runDir });
+    env.HOME = runDir;
+    if (versionFromOutput((await run(bin, ["--version"], { timeout: 10_000, env })).stdout) !== state.target) throw new Error("Verified artifact version mismatch.");
+    const destination = path.join(state.installation.root, "releases", `${state.target}-${process.platform}-${process.arch}-${entry.sha256.slice(0, 16)}`);
+    await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
+    // Never execute an existing unverified destination as a shortcut.
+    try { await fs.lstat(destination); throw new Error("Release destination exists; verify it independently before recovery."); }
+    catch (error) { if (error.code !== "ENOENT") throw error; }
+    await fs.rename(release, destination);
+    return destination;
+  } finally { await fs.rm(runDir, { recursive: true, force: true }); }
 }
 
 export async function atomicSymlink(file, target) {

@@ -1,3 +1,4 @@
+import { approvedArtifact } from "./update_artifact.js";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { createMessageFormatter } from "../i18n.js";
@@ -57,7 +58,11 @@ export function createCodexUpdateController({
     if (state && !UPDATE_TERMINAL_PHASES.has(state.phase)) return showRun(ctx, state);
     const installation = await inspect(config, run);
     const target = await latest(run);
-    const updatable = installation.supported && newerVersion(target, installation.current);
+    let trustError = "";
+    if (installation.supported && newerVersion(target, installation.current)) {
+      try { await approvedArtifact(config, target); } catch (error) { trustError = error.message; }
+    }
+    const updatable = installation.supported && newerVersion(target, installation.current) && !trustError;
     const rows = [];
     if (updatable && admin(ctx)) {
       for (const [id, entry] of previews) { if (entry.expiresAt < now()) previews.delete(id); }
@@ -72,6 +77,7 @@ export function createCodexUpdateController({
         ? newerVersion(target, installation.current) ? msg("ui.codexUpdateAvailable") : msg("ui.codexUpdateCurrent")
         : msg("ui.codexUpdateUnsupported"),
       msg("ui.codexUpdateScope"),
+      trustError ? code(trustError) : "",
       !admin(ctx) ? msg("ui.codexUpdateAdminOnly") : "",
       state ? msg("ui.codexUpdateLastResult", { status: msg(`ui.codexUpdatePhase.${state.phase}`) }) : ""
     ].filter(Boolean).join("\n\n"), rows);
@@ -88,6 +94,7 @@ export function createCodexUpdateController({
     if (!observed.supported || observed.real !== preview.installation.real || observed.current !== preview.installation.current) {
       return edit(ctx, msg("ui.codexUpdateExpired"));
     }
+    await approvedArtifact(config, preview.target);
     validateServiceName(config.codexUpdateBotService);
     validateServiceName(config.codexUpdateWorkerService);
     validateServiceName(config.codexUpdateAppServerService);

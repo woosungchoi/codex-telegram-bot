@@ -24,7 +24,7 @@ function createFixture(config = {}) {
   const handlers = registerAdminCommands({
     bot,
     settings: {
-      config: { botRecoveryDir: "/tmp/recovery", backupAdminUserIds: new Set(["7"]), ...config },
+      config: { botRecoveryDir: "/tmp/recovery", backupAdminUserIds: new Set(["7"]), allowedUserIds: new Set(["7", "8"]), ...config },
       runtimeValue: () => true,
       validQueueModes: new Set(["safe", "steer", "interrupt", "side"])
     },
