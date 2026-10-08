@@ -2,6 +2,34 @@
 
 Released versions are listed below, newest first.
 
+## 1.4.5 - 2026-10-08
+
+### Security hardening
+
+- Fix seven follow-up security findings affecting child-process credentials,
+  full-state backup authorization, cleanup and handoff paths, and update automation.
+- Apply one positive environment allowlist to SDK, direct app-server, managed
+  accounts and workers. Reject unauthorized full-backup creation and delivery,
+  including stale or forged tool callbacks.
+- Anchor Linux cleanup operations to no-follow directory descriptors and planned
+  file identities. Store handoffs exclusively in private configured storage with
+  non-overwriting 0600 file creation.
+- Replace the remote CLI shell installer with independently approved version,
+  platform and SHA-256 artifact verification plus bounded safe archive extraction.
+- Separate PR review and dependency execution from trusted CI publication jobs;
+  pin Actions and validate bounded data before publishing comments or update PRs.
+
+### Upgrade notes
+
+- Bot CLI updates now require `CODEX_UPDATE_TRUST_FILE` with independently reviewed
+  artifact metadata. Without it, updates fail closed; the installed CLI still runs.
+- Regenerate old cleanup previews without file identities. Cleanup mutations need
+  Linux procfs; cross-filesystem quarantine moves fail closed.
+- Handoffs now use only `CODEX_HANDOFF_DIR`, never repository-relative `docs` paths.
+  Environment filtering does not provide same-UID filesystem isolation.
+- See [security boundaries](docs/security-boundaries.md) for setup, limits and tests.
+  This release does not imply a new scanner run.
+
 ## 1.4.4 - 2026-10-08
 
 ### Security hardening
