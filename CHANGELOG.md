@@ -2,7 +2,7 @@
 
 Released versions are listed below, newest first.
 
-## Pending changes
+## 1.4.4 - 2026-10-08
 
 ### Security hardening
 
