@@ -1,0 +1,35 @@
+name: Dependency Auto Merge
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-auto-merge
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Always use trusted main. Never checkout or execute a PR head/artifact.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+      # PAT is required so branch updates and merges trigger normal CI.
+      - name: Reconcile validated dependency updates
+        env:
+          GH_TOKEN: ${{ secrets.CODEX_AUTOMATION_TOKEN }}
+        run: node scripts/merge_dependency_updates.mjs

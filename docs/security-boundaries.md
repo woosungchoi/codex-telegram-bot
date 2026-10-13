@@ -105,3 +105,24 @@ Actions used by these two workflows are pinned to full commit hashes.
 Regression evidence is in `test/security_seven.test.mjs`, account transport,
 backup, cleanup, handoff, updater, and publication helper tests. Tests use temporary
 files and fake credentials; no real Telegram messages or external email are sent.
+
+## Automated dependency PR merging
+
+`Dependency Auto Merge` runs after CI completion, on manual dispatch, and every
+15 minutes (GitHub schedules can be delayed). It executes only trusted `main`
+code, never installs packages or executes PR content, and uses the existing
+`CODEX_AUTOMATION_TOKEN` so branch refreshes and merges trigger normal CI.
+
+Only same-repository Dependabot dependency updates and owner-created Codex
+package update PRs are considered. Existing npm version-only patch/minor bumps
+and same-major Actions ref changes are eligible. Major updates, non-Codex
+pre-1.0 minor changes, drafts, forks, script changes and general feature PRs
+remain manual. Codex stable 0.x SDK/CLI updates retain the dedicated validator.
+An existing Codex update PR prevents the daily publisher from creating another.
+
+A stale branch is refreshed with an expected-head guard and must pass fresh CI.
+All five Node versions, security audit, coverage and artifact transport checks
+must succeed on the exact head before a SHA-guarded squash merge. Failed or
+incomplete checks and conflicts hold the PR open. Only one merge occurs per run;
+main branch protection applies to administrators too. The workflow logs why a
+candidate is held. This updates public source only, not deployed bot services.
