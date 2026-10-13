@@ -86,10 +86,10 @@ test("optional Codex workflows degrade gracefully", async () => {
 });
 
 test("dependency auto-merge executes only the trusted default-branch policy", async () => {
-  const workflow = await fs.readFile(new URL("../.github/workflows/dependency-pr-auto-merge.yml", import.meta.url), "utf8");
-  assert.match(workflow, /ref: \$\{\{ github.sha \}\}/);
+  const workflow = await fs.readFile(new URL("../.github/workflows/dependency-auto-merge.yml", import.meta.url), "utf8");
+  assert.match(workflow, /ref: main/);
   assert.match(workflow, /persist-credentials: false/);
-  assert.match(workflow, /run: node scripts\/dependency-pr-auto-merge.mjs/);
+  assert.match(workflow, /run: node scripts\/merge_dependency_updates.mjs/);
   assert.doesNotMatch(workflow, /pull_request_target|head_sha|npm (ci|install)/);
 });
 
