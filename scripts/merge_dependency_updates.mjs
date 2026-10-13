@@ -11,11 +11,11 @@ const SHA = /^[a-f0-9]{40}$/;
 const CODEX = /^automation\/codex-[a-f0-9]{20}$/;
 export function updateKind(pr, repo) {
   if (pr.state !== "open" || pr.draft || pr.base?.ref !== "main" || pr.head?.repo?.full_name !== repo || pr.base?.repo?.full_name !== repo) return null;
-  if (pr.user?.login === "dependabot[bot]" && pr.user?.type === "Bot") {
+  if (pr.user?.login === "dependabot[bot]" && pr.user?.type === "Bot" && pr.user.id === 49699333) {
     if (pr.head.ref.startsWith("dependabot/npm_and_yarn/")) return "npm";
     if (pr.head.ref.startsWith("dependabot/github_actions/")) return "actions";
   }
-  if (pr.user?.login === repo.split("/")[0] && CODEX.test(pr.head.ref) && pr.title === "Update Codex packages") return "codex";
+  if (pr.user?.login === repo.split("/")[0] && pr.user.type === "User" && CODEX.test(pr.head.ref) && pr.title === "Update Codex packages") return "codex";
   return null;
 }
 function version(value) {
@@ -63,11 +63,13 @@ export function validateActions(before, after) {
   });
   if (!changed || i !== refs.length || stripped !== next) throw new Error("Only action version references may change.");
 }
-export function checksPass(checks) {
+export function checksPass(checks, sha) {
+  if (!SHA.test(sha || "")) return false;
   // GitHub's latest check runs, from the GitHub Actions app, on the exact head.
-  const trusted = checks.filter((c) => c.app?.id === 15368);
+  const trusted = checks.filter((c) => c.app?.id === 15368 && c.app?.slug === "github-actions" && c.head_sha === sha);
   return REQUIRED_CHECKS.every((name) => trusted.some((c) => c.name === name && c.status === "completed" && c.conclusion === "success"))
-    && checks.every((c) => c.status === "completed" && ["success", "skipped", "neutral"].includes(c.conclusion));
+    && trusted.every((c) => !REQUIRED_CHECKS.includes(c.name) || c.conclusion === "success")
+    && checks.every((c) => c.head_sha === sha && c.status === "completed" && ["success", "skipped", "neutral"].includes(c.conclusion));
 }
 export async function reconcile({ repo, api, log = console.log, dryRun = false }) {
   const pulls = await api("pulls?state=open&base=main&per_page=100");
@@ -110,12 +112,12 @@ export async function reconcile({ repo, api, log = console.log, dryRun = false }
       }
       if (pr.mergeable_state !== "clean" || !pr.mergeable) throw new Error("Awaiting mergeability/checks/review.");
       const response = await api(`commits/${pr.head.sha}/check-runs?filter=latest&per_page=100`);
-      if (response.total_count !== response.check_runs.length || !checksPass(response.check_runs)) throw new Error("All exact-head checks must pass.");
+      if (response.total_count !== response.check_runs.length || !checksPass(response.check_runs, pr.head.sha)) throw new Error("All exact-head checks must pass.");
       const status = await api(`commits/${pr.head.sha}/status`);
       if (status.total_count && status.state !== "success") throw new Error("Commit status has not passed.");
       const latest = await api(`pulls/${pr.number}`);
       const currentMain = await api("git/ref/heads/main");
-      if (latest.head.sha !== pr.head.sha || currentMain.object.sha !== baseSha || latest.mergeable_state !== "clean") throw new Error("Revision changed; retry next run.");
+      if (updateKind(latest, repo) !== kind || latest.head.ref !== pr.head.ref || latest.head.sha !== pr.head.sha || currentMain.object.sha !== baseSha || latest.mergeable_state !== "clean") throw new Error("Revision changed; retry next run.");
       log(`#${pr.number}: verified ${pr.head.sha}; squash merge`);
       if (!dryRun) {
         const result = await api(`pulls/${pr.number}/merge`, "PUT", { sha: pr.head.sha, merge_method: "squash" });
