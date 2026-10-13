@@ -61,6 +61,15 @@ async function main() {
   const branch = `automation/codex-${digest.slice(0, 20)}`;
   const existing = await api(`pulls?state=open&head=${encodeURIComponent(repo.split("/")[0] + ":" + branch)}`);
   if (existing.length) return;
+  // Keep one Codex update in flight across version/base changes. The merger
+  // refreshes it against main; the next daily run can propose a newer version.
+  const pending = await api("pulls?state=open&base=main&per_page=100");
+  if (pending.some((pr) => pr.head?.repo?.full_name === repo
+    && /^automation\/codex-[a-f0-9]{20}$/.test(pr.head?.ref || "")
+    && pr.title === "Update Codex packages" && pr.user?.login === repo.split("/")[0])) {
+    console.log("Existing Codex update is awaiting checks or review; no duplicate PR created.");
+    return;
+  }
   const baseCommit = await api(`git/commits/${sha}`);
   const tree = [];
   for (const name of FILES) {
