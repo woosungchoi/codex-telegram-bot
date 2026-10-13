@@ -93,10 +93,10 @@ commits; PR code and package scripts are never executed by the privileged merge
 workflow.
 
 - Dependabot requires its bot login, numeric user ID and Bot type. The Codex update
-  branch requires either the GitHub Actions bot identity or the repository owner
-  User identity, preserving the existing owner PAT updater. Other PAT identities
-  require manual review. Both head repository ID and full name must match the
-  base repository; external forks and branch-name impersonation are rejected.
+  branch requires the repository owner User identity and the current content-bound
+  branch pattern, preserving the existing owner PAT updater. Other identities
+  require manual review. Both head and base repository full names must match
+  the configured repository; external forks are rejected.
 - Package changes can alter only existing dependency version values. Scripts,
   metadata, additions/removals of dependency keys, Git/file specifications and
   unrelated Codex updater dependencies require manual review. Lockfile root
@@ -106,22 +106,26 @@ workflow.
   preserving the action name and all surrounding content. Permissions, commands,
   triggers, added/deleted files and action substitutions require manual review.
 - `Check Node 18/20/22/24/26`, `Integration coverage`, `Security audit`, and
-  `Review PR` must succeed from GitHub Actions on the exact head SHA. Missing or
+  both artifact transport jobs must succeed from GitHub Actions on the exact head SHA. Missing or
   skipped required jobs block merging. An optional reviewer step can still skip
   internally while its job succeeds, as in the existing review workflow.
 - Immediately before merge, author, repository and head/base SHAs are checked
-  again. `--match-head-commit` pins the inspected head at GitHub's merge boundary;
-  uncertain API/merge outcomes fail the run. Success is reported only after
-  GitHub confirms that head was merged. No administrator bypass is used.
+  again. The merge API receives the inspected head SHA; uncertain API/merge
+  outcomes hold that candidate for a later run. A merge is accepted only when
+  GitHub confirms it. No administrator bypass is used.
 
-Required check names are defined in `scripts/dependency-pr-policy.mjs`; update the
-list when changing the CI matrix. This policy does not modify GitHub account
-configuration, branch protection or rulesets.
+The active policy is `scripts/merge_dependency_updates.mjs`; keep its required
+checks aligned with CI. The former `dependency-pr-auto-merge.yml` workflow is
+retired because its required review job and Codex branch pattern were stale.
+See `security-boundaries.md` for eligibility and scheduling. Main protection
+applies to administrators as well. Legacy policy modules/tests are retained as
+regression references and are not executed by any workflow.
 
 ## Validation
 
 Run `npm run verify`, `npm run test:coverage` on Node 22+, and `actionlint`.
 Focused tests are `worker_protocol`, `worker_store`, `worker_server`,
-`worker_event_log`, `worker_log_retention` and `dependency_pr_policy` in `test/`.
+`worker_event_log`, `worker_log_retention`, `dependency_auto_merge` and the
+legacy `dependency_pr_policy` in `test/`.
 They use temporary storage/sockets, fake executors and mocked Git/GitHub calls;
 they do not merge a real PR, consume a real account or send Telegram messages.
