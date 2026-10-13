@@ -10,6 +10,39 @@ permissions:
   contents: read
 
 jobs:
+  artifact-fixture:
+    name: Upload workflow data fixture
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create text and package data
+        run: |
+          mkdir -p "$RUNNER_TEMP/artifact-fixture"
+          printf '%s\n' 'Artifact transport: 한글 검증' > "$RUNNER_TEMP/artifact-fixture/review.md"
+          printf '%s\n' '{"name":"transport-fixture","version":"1.0.0"}' > "$RUNNER_TEMP/artifact-fixture/package.json"
+      # Match the producers in codex-pr-review and codex-sdk-update.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: workflow-data-검증
+          path: ${{ runner.temp }}/artifact-fixture/
+          if-no-files-found: error
+          retention-days: 1
+
+  artifact-transport:
+    name: Artifact transport compatibility
+    needs: artifact-fixture
+    runs-on: ubuntu-latest
+    steps:
+      # Keep the default digest-mismatch=error integrity check enabled.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: workflow-data-검증
+          path: ${{ runner.temp }}/artifact-download
+      - name: Verify extraction and exact data bytes without executing contents
+        run: |
+          printf '%s\n' 'Artifact transport: 한글 검증' | cmp - "$RUNNER_TEMP/artifact-download/review.md"
+          printf '%s\n' '{"name":"transport-fixture","version":"1.0.0"}' | cmp - "$RUNNER_TEMP/artifact-download/package.json"
+          test "$(find "$RUNNER_TEMP/artifact-download" -type f | wc -l)" -eq 2
+
   coverage:
     name: Integration coverage
     runs-on: ubuntu-26.04
@@ -21,7 +54,7 @@ jobs:
           cache: npm
       - run: npm ci --audit=false
       - run: npm run test:coverage
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: coverage
