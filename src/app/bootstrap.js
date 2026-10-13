@@ -1,4 +1,5 @@
 import { ensurePrivateDirectory } from "../fs/private.js";
+import { observeTelegramPolling } from "../telegram/polling_health.js";
 
 export async function bootstrapBot({
   bot,
@@ -14,12 +15,14 @@ export async function bootstrapBot({
   processRef = process,
   logger = console
 }) {
+  const polling = observeTelegramPolling(bot, config, { logger });
   let stopping = false;
   let launched = false;
   let cancelQueueStartup = () => {};
   const stopForSignal = (signal) => {
     stopping = true;
     cancelQueueStartup();
+    void polling.stop();
     if (handleSignal) {
       Promise.resolve(handleSignal(signal)).catch((error) => {
         logger.warn("Signal handler failed:", error instanceof Error ? error.message : String(error));
@@ -56,6 +59,8 @@ export async function bootstrapBot({
       if (typeof cancel === "function") cancelQueueStartup = cancel;
     });
   } finally {
+    await polling.stop();
+    polling.close();
     stopping = true;
     cancelQueueStartup();
   }

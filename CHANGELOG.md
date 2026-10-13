@@ -2,6 +2,15 @@
 
 Released versions are listed below, newest first.
 
+## Pending - 2026-10-13
+
+- Log Telegram polling errors, slow requests, recovery and delayed message
+  receipt with redacted diagnostics and polling health counters.
+- Abort stalled receive requests after 75 seconds and retry through the existing
+  poller, preserving update offsets and active Codex/worker jobs.
+- See [Telegram polling recovery](docs/telegram-polling.md) for diagnostics and
+  recovery limits.
+
 ## 1.4.5 - 2026-10-08
 
 ### Security hardening
