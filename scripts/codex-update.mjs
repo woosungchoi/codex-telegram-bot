@@ -2,7 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import dotenv from "dotenv";
+import { loadUpdateDotenv } from "../src/maintenance/update_bootstrap.js";
 import { parseArgs } from "node:util";
 import { readConfig } from "../src/config.js";
 import { runCodexUpdate } from "../src/maintenance/update_runner.js";
@@ -13,14 +13,16 @@ import { createMessageFormatter, textFor } from "../src/i18n.js";
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { values } = parseArgs({ options: { id: { type: "string" } }, strict: true });
 if (!/^[a-f0-9-]{36}$/.test(values.id || "")) throw new Error("Update run ID required.");
+const dotenv = await loadUpdateDotenv(appRoot, values.id);
 const env = { ...process.env, ...dotenv.parse(await fs.readFile(path.join(appRoot, ".env"))) };
 const config = readConfig(env, { appRoot });
 const result = await runCodexUpdate(config, values.id);
 const msg = createMessageFormatter((key) => textFor(result.language || "en", key));
-const text = msg(`ui.codexUpdateResult.${result.phase}`, {
+let text = msg(`ui.codexUpdateResult.${result.phase}`, {
   previous: result.installation.current, version: result.target,
   error: result.error || "", rollbackError: result.rollbackError || ""
 });
+if (result.sdk) text += `\n\n${msg("ui.codexUpdateSdkVersions", { current: result.sdkCurrent || result.dependencies?.previousVersion || "—", target: result.phase === "succeeded" ? result.sdk.version : result.dependencies?.previousVersion || result.sdkCurrent || "—" })}`;
 const runDir = path.join(config.codexUpdateDir, "runs", result.id);
 const messageFile = path.join(runDir, "completion.txt");
 await writePrivateFileAtomic(messageFile, text);

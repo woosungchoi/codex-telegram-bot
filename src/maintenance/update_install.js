@@ -60,7 +60,7 @@ export async function codexInstallation(config, run = runUpdateProcess) {
 }
 
 export async function stageCodexRelease(config, state, run = runUpdateProcess) {
-  if (!STABLE_VERSION.test(state.target)) throw new Error("Invalid update target.");
+  if (!STABLE_VERSION.test(state.target) || !/^[a-f0-9-]{36}$/.test(state.id || "")) throw new Error("Invalid update target or run ID.");
   // The trust file is supplied independently by the operator, never fetched
   // beside the download. No remote installer is executed, even as a fallback.
   const entry = await approvedArtifact(config, state.target);
@@ -76,7 +76,7 @@ export async function stageCodexRelease(config, state, run = runUpdateProcess) {
     const env = buildCodexChildEnv({}, { managed: true, home: runDir });
     env.HOME = runDir;
     if (versionFromOutput((await run(bin, ["--version"], { timeout: 10_000, env })).stdout) !== state.target) throw new Error("Verified artifact version mismatch.");
-    const destination = path.join(state.installation.root, "releases", `${state.target}-${process.platform}-${process.arch}-${entry.sha256.slice(0, 16)}`);
+    const destination = path.join(state.installation.root, "releases", `${state.target}-${process.platform}-${process.arch}-${entry.sha256.slice(0, 16)}-${state.id}`);
     await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
     // Never execute an existing unverified destination as a shortcut.
     try { await fs.lstat(destination); throw new Error("Release destination exists; verify it independently before recovery."); }

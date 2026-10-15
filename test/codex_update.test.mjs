@@ -17,6 +17,7 @@ async function fixture(t) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-update-test-"));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const config = {
+    codexUpdateAppRoot: dir,
     codexUpdateDir: path.join(dir, "state"), codexUpdateHome: path.join(dir, "home"),
     codexWorkerMode: "sidecar", codexUpdateAdminUserIds: new Set(["42"]),
     codexUpdateBotService: "bot.service", codexUpdateWorkerService: "worker.service",
@@ -33,12 +34,13 @@ async function fixture(t) {
   await fs.symlink(old, path.join(root, "current"));
   config.codexPath = bin;
   const installation = { bin, real: path.join(old, "bin", "codex"), root, current: "0.158.0", supported: true };
-  const state = { id: randomUUID(), unit: "test-update.service", phase: "launching", target: "0.159.0", installation };
+  const state = { id: randomUUID(), unit: "test-update.service", phase: "launching", target: "0.159.0", sdk: { version: "0.159.0", integrity: `sha512-${Buffer.alloc(64).toString("base64")}` }, installation };
   const calls = [];
   let workerBusy = false, failVerify = false, failRollback = false;
   const run = async (command, args) => {
     calls.push([command, ...args]);
     if (command === "systemctl") {
+      if (args.includes("--property=WorkingDirectory")) return { stdout: dir };
       if (args[1] === "is-active" && args[2] === "app.service") throw Object.assign(new Error("inactive"), { code: 3 });
       if (args[1] === "restart" && failRollback && (await readUpdateState(config)).phase === "rolling_back") throw new Error("restore restart failed");
       return { stdout: "active\n" };
@@ -52,6 +54,7 @@ async function fixture(t) {
   let time = 1000;
   const deps = {
     run, stage: async () => release,
+    dependencies: { stage: async () => ({ version: "0.159.0", previousVersion: "0.158.0" }), verify: async () => {}, activate: async () => {}, restore: async () => {}, finish: async () => {}, version: async () => "0.159.0" },
     workerStatus: async () => ({ status: "ok", activeJobs: workerBusy ? [{}] : [], runningJobIds: workerBusy ? ["job"] : [] }),
     now: () => time, stableIdleMs: 1000, idleTimeoutMs: 4000,
     sleep: async () => {
@@ -258,7 +261,9 @@ async function controllerFixture(t, { latest = "0.159.0" } = {}) {
   const f = await fixture(t);
   const { entry } = tarFixture();
   f.config.codexUpdateTrustFile = path.join(f.dir, "trust.json");
-  await fs.writeFile(f.config.codexUpdateTrustFile, JSON.stringify({ artifacts: [{ ...entry, version: latest }] }), { mode: 0o600 });
+  await fs.writeFile(f.config.codexUpdateTrustFile, JSON.stringify({ artifacts: [{ ...entry, version: latest, sdk: { ...f.state.sdk, version: latest } }] }), { mode: 0o600 });
+  await fs.mkdir(path.join(f.dir, "node_modules/@openai/codex-sdk"), { recursive: true });
+  await fs.writeFile(path.join(f.dir, "node_modules/@openai/codex-sdk/package.json"), JSON.stringify({ name: "@openai/codex-sdk", version: "0.158.0" }));
   const edits = [], launches = [];
   let active = false, clock = 1000;
   const controller = createCodexUpdateController({
@@ -324,4 +329,65 @@ test("update panel without approved trust shows no executable update button", as
   await f.controller.handle(f.ctx, "codex_update");
   assert.ok(f.edits.at(-1)[2].every((row) => !row[0].callback_data.includes("start")));
   assert.equal(f.launches.length, 0);
+});
+
+test("SDK preparation failure never stops services or switches CLI", async (t) => {
+  const f = await fixture(t);
+  await claimUpdate(f.config, f.state);
+  const result = await runCodexUpdate(f.config, f.state.id, { ...f.deps,
+    dependencies: { ...f.deps.dependencies, stage: async () => { throw new Error("SDK tests failed"); } }
+  });
+  assert.equal(result.phase, "failed");
+  assert.equal(f.calls.some(([cmd, , action]) => cmd === "systemctl" && ["stop", "restart"].includes(action)), false);
+  assert.equal(await fs.realpath(f.config.codexPath), f.state.installation.real);
+});
+
+test("SDK activation failure rolls back dependencies and CLI before service restart", async (t) => {
+  const f = await fixture(t), actions = [];
+  await claimUpdate(f.config, f.state);
+  const result = await runCodexUpdate(f.config, f.state.id, { ...f.deps,
+    dependencies: { ...f.deps.dependencies,
+      activate: async () => { actions.push("activate"); throw new Error("manifest write failed"); },
+      restore: async () => { actions.push("restore"); }, finish: async () => { actions.push("finish"); }
+    }
+  });
+  assert.equal(result.phase, "rolled_back");
+  assert.deepEqual(actions, ["activate", "restore", "finish"]);
+  assert.equal(await fs.realpath(f.config.codexPath), f.state.installation.real);
+});
+
+test("SDK version mismatch after restart restores the previous pair", async (t) => {
+  const f = await fixture(t); let restored = false;
+  await claimUpdate(f.config, f.state);
+  const result = await runCodexUpdate(f.config, f.state.id, { ...f.deps,
+    dependencies: { ...f.deps.dependencies, version: async () => "0.151.0", restore: async () => { restored = true; } }
+  });
+  assert.equal(result.phase, "rolled_back");
+  assert.equal(restored, true);
+});
+
+test("current CLI with older SDK still offers a paired update", async (t) => {
+  const f = await controllerFixture(t, { latest: "0.158.0" });
+  const sdkFile = path.join(f.dir, "node_modules/@openai/codex-sdk/package.json");
+  await fs.writeFile(sdkFile, JSON.stringify({ name: "@openai/codex-sdk", version: "0.151.0" }));
+  await f.controller.handle(f.ctx, "codex_update");
+  const callback = f.edits.at(-1)[2][0][0].callback_data;
+  assert.match(callback, /codex_update_start/);
+  await f.controller.handle(f.ctx, "codex_update_start", callback.split(":").at(-1));
+  assert.equal(f.launches.length, 1);
+  assert.equal((await readUpdateState(f.config)).sdkCurrent, "0.151.0");
+});
+
+test("a second SDK-only run stages the same verified CLI without colliding with the prior release", async (t) => {
+  const f = await fixture(t), { archive, entry } = tarFixture();
+  f.config.codexUpdateTrustFile = path.join(f.dir, "trust.json");
+  await fs.writeFile(f.config.codexUpdateTrustFile, JSON.stringify({ artifacts: [entry] }), { mode: 0o600 });
+  const run = async (cmd, args) => {
+    if (cmd === "curl") await fs.writeFile(args.at(-1), archive);
+    return { stdout: `codex-cli ${entry.version}` };
+  };
+  const first = await stageCodexRelease(f.config, { ...f.state, target: entry.version }, run);
+  const second = await stageCodexRelease(f.config, { ...f.state, id: randomUUID(), target: entry.version }, run);
+  assert.notEqual(first, second);
+  assert.equal(await fs.readFile(path.join(first, "bin/codex"), "utf8"), await fs.readFile(path.join(second, "bin/codex"), "utf8"));
 });

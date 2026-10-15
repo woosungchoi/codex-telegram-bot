@@ -78,6 +78,7 @@ test("readConfig preserves the complete flat default contract", () => {
     telegramTimeZone: "UTC",
     telegramLocale: "en-US",
     stateFile: "/app/state/threads.json",
+    codexUpdateAppRoot: "/app",
     codexUpdateTrustFile: "",
     codexUpdateHome: "/home/tester/.codex",
     codexUpdateBin: "codex",
