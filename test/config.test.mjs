@@ -133,6 +133,7 @@ test("readConfig preserves the complete flat default contract", () => {
     telegramLiveProgressSource: "agent",
     telegramLiveProgressDeletePolicy: "on_success",
     cleanupEnabled: true,
+    cleanupDatabaseEnabled: false,
     cleanupExecutionMode: "manual",
     cleanupNotifyTime: "09:00",
     cleanupNotifyChatIds: ["42"],
@@ -345,4 +346,10 @@ test("ops defaults off and requires an explicit absolute snapshot path", () => {
   assert.equal(readTestConfig().operationalStatusFile, '');
   assert.equal(readTestConfig({ OPERATIONAL_STATUS_FILE: ' /srv/status.json ' }).operationalStatusFile, '/srv/status.json');
   assert.throws(() => readTestConfig({ OPERATIONAL_STATUS_FILE: 'status.json' }), /absolute path/);
+});
+
+test("database Cleanup requires explicit opt-in", () => {
+  assert.equal(readTestConfig().cleanupDatabaseEnabled, false);
+  assert.equal(readTestConfig({ CLEANUP_DATABASE_ENABLED: "true" }).cleanupDatabaseEnabled, true);
+  assert.equal(readTestConfig({ CLEANUP_DATABASE_ENABLED: "false" }).cleanupDatabaseEnabled, false);
 });

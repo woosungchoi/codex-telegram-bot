@@ -25,6 +25,7 @@ import {
 } from "./codex/thread_factory.js";
 import { readConfig as readRuntimeConfig } from "./config.js";
 import { createCleanupController } from "./maintenance/cleanup_controller.js";
+import { createCleanupDatabase } from "./maintenance/cleanup_database.js";
 import { createBackupController } from "./maintenance/backup_controller.js";
 import { createCleanupRuntime } from "./maintenance/cleanup_runtime.js";
 import { createCodexMaintenanceController } from "./maintenance/runtime_controller.js";
@@ -1056,6 +1057,7 @@ const {
   runDailyCleanup,
   sendCleanupPlan
 } = createCleanupController({
+  database: config.cleanupDatabaseEnabled ? createCleanupDatabase({ config, protectedIds: collectProtectedThreadIds }) : null,
   stateStore: {
     plans: state.cleanup.plans,
     prunePlans: pruneExpiredCleanupPlans,

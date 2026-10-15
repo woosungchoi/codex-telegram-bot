@@ -1386,5 +1386,7 @@
   "panelPreviewLimited": "Preview shortened; the complete final answer is delivered separately.",
   "ui.backupPrivateAdminOnly": "Full backups are available only to designated backup administrators in a private chat.",
   "ui.sideTurnCapacity": "Side reply capacity reached. Please wait for an active reply to finish.",
-  "photoRejection.too_large": "image exceeds the size limit"
+  "photoRejection.too_large": "image exceeds the size limit",
+  "cleanupDatabasePreview": "Database cleanup: {rows} linked rows; {blocked} blocked sessions; {pending} pending retries.",
+  "cleanupDatabaseResult": "Database cleanup: {rows} rows removed across {completed} sessions; {deferred} deferred operations. Database file reduction: {bytes} bytes."
 }

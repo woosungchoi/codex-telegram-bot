@@ -543,6 +543,11 @@ state, but the running services should be restarted after switching them.
 
 ## Session Cleanup
 
+Set `CLEANUP_DATABASE_ENABLED=true` to include linked SQLite conversation rows
+in permanent deletion, with protected threads and durable retries. Quarantine
+preserves rows. Linux and Python 3.9+ are required; the default is off. See
+[database Cleanup](docs/cleanup-database.md) for supported schemas and recovery.
+
 The bot runs cleanup once per day after `CLEANUP_NOTIFY_TIME` in
 `TELEGRAM_TIME_ZONE`. `CLEANUP_EXECUTION_MODE=manual` sends the existing approval
 plan and waits for a Telegram inline button. `quarantine`, `delete`, and `both`

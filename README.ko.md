@@ -424,6 +424,11 @@ service를 restart해 반영하는 것을 권장합니다.
 
 ## Session Cleanup
 
+`CLEANUP_DATABASE_ENABLED=true`를 설정하면 영구 삭제 시 연결된 SQLite 대화
+데이터도 정리합니다. 격리 중에는 DB를 보존하며, 보호 대상과 실패 재시도를
+검사합니다. 기본값은 비활성화이며 Linux와 Python 3.9+가 필요합니다.
+지원 스키마와 복구 방식은 [DB Cleanup 안내](docs/cleanup-database.md)를 참고하세요.
+
 봇은 `TELEGRAM_TIME_ZONE` 기준 `CLEANUP_NOTIFY_TIME` 이후 하루에 한 번 cleanup을 실행합니다.
 `CLEANUP_EXECUTION_MODE=manual`은 기존 approval plan과 Telegram inline button을 사용합니다.
 `quarantine`, `delete`, `both`는 해당 작업을 자동 실행하고 최종 결과만 보고합니다.

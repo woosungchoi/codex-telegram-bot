@@ -16,6 +16,7 @@ export function createCleanupController({
   inventory,
   telegram,
   formatting,
+  database = null,
   now = () => new Date(),
   random = Math.random
 }) {
@@ -36,6 +37,7 @@ export function createCleanupController({
       await inventory.collectProtectedThreadIds()
     );
     const deleteCandidates = await inventory.listDeleteCandidates();
+    const databasePreview = database ? await database.preview(deleteCandidates) : null;
     const maintenance = await inventory.readMaintenanceReport().catch((error) => ({
       ok: false,
       error: error instanceof Error ? error.message : String(error)
@@ -54,7 +56,8 @@ export function createCleanupController({
       recentCount: sessionScan.recentCount,
       quarantineCandidates: sessionScan.candidates,
       deleteCandidates,
-      maintenance
+      maintenance,
+      database: databasePreview
     };
     stateStore.plans[plan.id] = plan;
     await stateStore.appendLog({
@@ -75,7 +78,7 @@ export function createCleanupController({
   async function sendDailyCleanupPlan() {
     const plan = await createCleanupPlan("daily");
     await stateStore.save();
-    if (plan.quarantineCandidates.length === 0 && plan.deleteCandidates.length === 0) {
+    if (plan.quarantineCandidates.length === 0 && plan.deleteCandidates.length === 0 && !plan.database?.pending) {
       return;
     }
 
@@ -114,7 +117,7 @@ export function createCleanupController({
         : mode === "delete"
           ? plan.deleteCandidates.length
           : plan.quarantineCandidates.length + plan.deleteCandidates.length;
-      result = targetCount > 0
+      result = targetCount > 0 || (mode !== "quarantine" && database && await database.pendingCount() > 0)
         ? await applyCleanupPlan(plan, mode)
         : emptyCleanupResult();
       delete stateStore.plans[plan.id];
@@ -214,6 +217,7 @@ export function createCleanupController({
       `${t("cleanupApprovalExpires")}: ${code(formatDateTime(plan.expiresAt))}`
     ];
     lines.push(...formatCleanupMaintenanceSummaryLines(plan.maintenance));
+    if (plan.database) lines.push("", tf("cleanupDatabasePreview", plan.database));
 
     if (plan.quarantineCandidates.length > 0) {
       lines.push("", b(t("cleanupQuarantineSample")));
@@ -275,18 +279,22 @@ export function createCleanupController({
             continue;
           }
           const sourcePath = path.resolve(candidate.path);
-          if (!isPathInside(sourcePath, sessionsRoot)) {
+          const candidateRoot = database ? candidate.sessionsRoot || sessionsRoot : sessionsRoot;
+          if (database) await database.inspect({ ...candidate, originalPath: sourcePath }, "quarantine");
+          if (!isPathInside(sourcePath, candidateRoot)) {
             throw new Error(`Refusing to quarantine outside sessions dir: ${candidate.path}`);
           }
-          const relativePath = path.relative(sessionsRoot, sourcePath);
+          const relativePath = path.relative(candidateRoot, sourcePath);
           const targetPath = path.join(
             policy.quarantineDir,
             policy.dateKey(),
+            ...(candidate.accountKey && candidate.accountKey !== "default" ? ["accounts", candidate.accountKey] : []),
             "sessions",
             relativePath
           );
-          await anchoredMove(sessionsRoot, sourcePath, candidate.identity, policy.quarantineDir, targetPath,
+          await anchoredMove(candidateRoot, sourcePath, candidate.identity, policy.quarantineDir, targetPath,
             `${JSON.stringify({ threadId: candidate.threadId, originalPath: candidate.path,
+              codexHome: candidate.codexHome,
               quarantinedAt: now().toISOString() }, null, 2)}\n`);
           operations.push({
             type: "quarantine",
@@ -334,6 +342,7 @@ export function createCleanupController({
             continue;
           }
           // Permanent deletion retains only the small operation receipt, never a payload copy.
+          if (database) await database.prepare(candidate, metadata);
           await anchoredUnlink(quarantineRoot, deletePath, candidate.identity);
           operations.push({
             type: "delete",
@@ -355,6 +364,11 @@ export function createCleanupController({
           );
         }
       }
+    }
+
+    if (database && (action === "delete" || action === "both")) {
+      result.database = await database.drain(policy.quarantineDays());
+      result.errors.push(...result.database.errors);
     }
 
     if (operations.some((operation) => operation.type === "quarantine")) {
