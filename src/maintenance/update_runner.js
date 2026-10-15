@@ -1,3 +1,4 @@
+import { stageCodexDependencies, verifyDependencySource, activateCodexDependencies, restoreCodexDependencies, finishCodexDependencies, installedSdkVersion } from "./update_dependencies.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { writePrivateFileAtomic } from "../fs/private.js";
@@ -15,6 +16,7 @@ export async function runCodexUpdate(config, id, {
   run = runUpdateProcess,
   stage = stageCodexRelease,
   installation = codexInstallation,
+  dependencies = { stage: stageCodexDependencies, verify: verifyDependencySource, activate: activateCodexDependencies, restore: restoreCodexDependencies, finish: finishCodexDependencies, version: installedSdkVersion },
   workerStatus = () => createWorkerClient(config).status(),
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   now = Date.now,
@@ -25,6 +27,7 @@ export async function runCodexUpdate(config, id, {
   let state = await readUpdateState(config);
   if (!state || state.id !== id) throw new Error("Update run does not own current status.");
   if (UPDATE_TERMINAL_PHASES.has(state.phase)) {
+    if (state.dependencies) await dependencies.finish(config.codexUpdateAppRoot, state.dependencies).catch(() => {});
     await releaseUpdate(config, id);
     return state;
   }
@@ -61,6 +64,11 @@ export async function runCodexUpdate(config, id, {
   };
   const restore = async () => {
     await setPhase("rolling_back");
+    if (state.dependencies) {
+      await service("stop", config.codexUpdateBotService);
+      if (config.codexWorkerMode === "sidecar") await service("stop", config.codexUpdateWorkerService);
+      await dependencies.restore(config.codexUpdateAppRoot, state.dependencies);
+    }
     await atomicSymlink(state.installation.bin, state.previousLinks.bin);
     await atomicSymlink(path.join(state.installation.root, "current"), state.previousLinks.current);
     if (Object.hasOwn(state.previousLinks, "autoUpdateVersion")) {
@@ -76,6 +84,7 @@ export async function runCodexUpdate(config, id, {
   // the persisted original links, then report the interrupted update.
   let selectionStarted = Boolean(state.previousLinks);
   let botStopped = false;
+  let preparedRelease = null;
   try {
     if (selectionStarted) throw new Error("Interrupted update; restoring the previous version.");
     if (state.botStopRequested) {
@@ -92,10 +101,17 @@ export async function runCodexUpdate(config, id, {
       if (!await isActive(config.codexUpdateWorkerService)) throw new Error("Worker service is not running.");
       services.push(config.codexUpdateWorkerService);
     }
+    for (const unit of services) {
+      const directory = (await run("systemctl", ["--user", "show", unit, "--property=WorkingDirectory", "--value"], { timeout: 10_000 })).stdout.trim();
+      if (path.resolve(directory) !== config.codexUpdateAppRoot) throw new Error("Paired update services must use the same application directory.");
+    }
     if (await isActive(config.codexUpdateAppServerService)) services.push(config.codexUpdateAppServerService);
     await setPhase("downloading", { services });
+    if (!state.sdk) throw new Error("This update predates paired SDK approval; create a new update preview.");
     const release = await stage(config, state, run);
-    await setPhase("waiting_idle", { release });
+    preparedRelease = release;
+    const prepared = await dependencies.stage(config, state, run);
+    await setPhase("waiting_idle", { release, dependencies: prepared });
     const started = now();
     let idleSince = null;
     while (now() - started < idleTimeoutMs) {
@@ -112,8 +128,9 @@ export async function runCodexUpdate(config, id, {
     if (idleSince === null || now() - idleSince < stableIdleMs) throw new Error("Timed out waiting for jobs and final delivery; no jobs were stopped.");
     const beforeSwitch = await installation(config, run);
     if (beforeSwitch.real !== state.installation.real) throw new Error("Installation changed while waiting for idle.");
-    // These symlinks are the complete reversible selection. No user settings,
-    // account profiles, databases or model preferences are touched.
+    await dependencies.verify(config.codexUpdateAppRoot, state.dependencies, run);
+    // Persist both selections before activation; recovery restores the CLI and
+    // dependency tree together. User settings, accounts and databases stay intact.
     const previousLinks = {
       bin: await fs.readlink(state.installation.bin),
       current: await fs.readlink(path.join(state.installation.root, "current")),
@@ -128,6 +145,8 @@ export async function runCodexUpdate(config, id, {
     if (!await workerIdle()) throw new Error("A worker job started before activation; update aborted.");
     await setPhase("switching", { previousLinks });
     selectionStarted = true;
+    if (config.codexWorkerMode === "sidecar") await service("stop", config.codexUpdateWorkerService);
+    await dependencies.activate(config.codexUpdateAppRoot, state.dependencies);
     await atomicSymlink(path.join(state.installation.root, "current"), release);
     await atomicSymlink(state.installation.bin, path.join(release, "bin", "codex"));
     if (previousLinks.autoUpdateVersion !== null) {
@@ -144,7 +163,8 @@ export async function runCodexUpdate(config, id, {
         throw new Error("App-server did not load the updated executable.");
       }
     }
-    await setPhase("succeeded", { completedAt: new Date().toISOString() });
+    if (await dependencies.version(config.codexUpdateAppRoot) !== state.sdk.version) throw new Error("Activated SDK version mismatch.");
+    await setPhase("succeeded", { sdkVersion: state.sdk.version, completedAt: new Date().toISOString() });
   } catch (error) {
     const failure = String(error.message).slice(0, 1500);
     try {
@@ -156,6 +176,12 @@ export async function runCodexUpdate(config, id, {
     }
   }
   if (UPDATE_TERMINAL_PHASES.has(state.phase)) {
+    if (state.dependencies) await dependencies.finish(config.codexUpdateAppRoot, state.dependencies).catch(() => {});
+    if (state.phase === "failed" && preparedRelease
+      && path.dirname(preparedRelease) === path.join(state.installation.root, "releases")
+      && path.basename(preparedRelease).endsWith(`-${id}`)) {
+      await fs.rm(preparedRelease, { recursive: true, force: true }).catch(() => {});
+    }
     await releaseUpdate(config, id);
     await fs.rm(path.join(config.codexUpdateDir, "runs", id, "stage-home"), { recursive: true, force: true }).catch(() => {});
   }

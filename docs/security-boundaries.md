@@ -66,7 +66,11 @@ Example schema (replace placeholders after independent verification):
     "url": "https://YOUR-VERIFIED-RELEASE-HOST/codex.tar.gz",
     "format": "tar.gz",
     "binary": "codex-aarch64-unknown-linux-musl",
-    "sha256": "REPLACE_WITH_64_LOWERCASE_HEX_DIGEST"
+    "sha256": "REPLACE_WITH_64_LOWERCASE_HEX_DIGEST",
+    "sdk": {
+      "version": "0.160.0",
+      "integrity": "REPLACE_WITH_INDEPENDENTLY_REVIEWED_NPM_SHA512_SRI"
+    }
   }]
 }
 ```

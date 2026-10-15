@@ -1,4 +1,4 @@
-import { approvedArtifact } from "./update_artifact.js";
+import { approvedSdk, installedSdkVersion } from "./update_dependencies.js";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { createMessageFormatter } from "../i18n.js";
@@ -47,6 +47,7 @@ export function createCodexUpdateController({
     await edit(ctx, [
       b(msg("ui.codexUpdateTitle")),
       msg("ui.codexUpdateVersions", { current: code(state.installation.current), latest: code(state.target) }),
+      state.sdk ? msg("ui.codexUpdateSdkVersions", { current: code(state.sdkCurrent || state.dependencies?.previousVersion || "—"), target: code(state.sdk.version) }) : "",
       msg(`ui.codexUpdatePhase.${state.phase}`),
       interrupted ? msg("ui.codexUpdateInterrupted") : "",
       state.error ? code(state.error) : "",
@@ -58,23 +59,26 @@ export function createCodexUpdateController({
     if (state && !UPDATE_TERMINAL_PHASES.has(state.phase)) return showRun(ctx, state);
     const installation = await inspect(config, run);
     const target = await latest(run);
-    let trustError = "";
-    if (installation.supported && newerVersion(target, installation.current)) {
-      try { await approvedArtifact(config, target); } catch (error) { trustError = error.message; }
+    const sdkCurrent = await installedSdkVersion(appRoot);
+    let sdk = null, trustError = "";
+    if (installation.supported) {
+      try { sdk = await approvedSdk(config, target); } catch (error) { trustError = error.message; }
     }
-    const updatable = installation.supported && newerVersion(target, installation.current) && !trustError;
+    const needsUpdate = newerVersion(target, installation.current) || (target === installation.current && sdk && newerVersion(sdk.version, sdkCurrent));
+    const updatable = installation.supported && needsUpdate && !trustError;
     const rows = [];
     if (updatable && admin(ctx)) {
       for (const [id, entry] of previews) { if (entry.expiresAt < now()) previews.delete(id); }
       const id = randomUUID();
-      previews.set(id, { installation, target, owner: ownerKey(ctx), expiresAt: now() + 10 * 60_000 });
+      previews.set(id, { installation, target, sdk, sdkCurrent, owner: ownerKey(ctx), expiresAt: now() + 10 * 60_000 });
       rows.push([{ text: msg("ui.codexUpdateStart"), callback_data: `tool:codex_update_start:${id}`, style: "primary" }]);
     }
     await edit(ctx, [
       b(msg("ui.codexUpdateTitle")),
       msg("ui.codexUpdateVersions", { current: code(installation.current), latest: code(target) }),
+      msg("ui.codexUpdateSdkVersions", { current: code(sdkCurrent), target: code(sdk?.version || "—") }),
       installation.supported
-        ? newerVersion(target, installation.current) ? msg("ui.codexUpdateAvailable") : msg("ui.codexUpdateCurrent")
+        ? needsUpdate ? msg("ui.codexUpdateAvailable") : msg("ui.codexUpdateCurrent")
         : msg("ui.codexUpdateUnsupported"),
       msg("ui.codexUpdateScope"),
       trustError ? code(trustError) : "",
@@ -94,7 +98,8 @@ export function createCodexUpdateController({
     if (!observed.supported || observed.real !== preview.installation.real || observed.current !== preview.installation.current) {
       return edit(ctx, msg("ui.codexUpdateExpired"));
     }
-    await approvedArtifact(config, preview.target);
+    if (JSON.stringify(await approvedSdk(config, preview.target)) !== JSON.stringify(preview.sdk)
+      || await installedSdkVersion(appRoot) !== preview.sdkCurrent) return edit(ctx, msg("ui.codexUpdateExpired"));
     validateServiceName(config.codexUpdateBotService);
     validateServiceName(config.codexUpdateWorkerService);
     validateServiceName(config.codexUpdateAppServerService);
@@ -107,7 +112,7 @@ export function createCodexUpdateController({
     if (!Number.isSafeInteger(messageId) || messageId <= 0) throw new Error("Update panel message ID required.");
     const state = {
       id, unit: `codex-cli-update-${id}.service`, phase: "launching",
-      installation: observed, target: preview.target, requestedBy: String(ctx.from.id),
+      installation: observed, target: preview.target, sdk: preview.sdk, sdkCurrent: preview.sdkCurrent, requestedBy: String(ctx.from.id),
       language: language(), startedAt: new Date(now()).toISOString(),
       origin: { botId: String(me.id), chatId: String(meta.chatId), threadId: String(meta.messageThreadId || ""), messageId: String(messageId) }
     };

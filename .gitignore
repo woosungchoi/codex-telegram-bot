@@ -8,3 +8,5 @@ npm-debug.log*
 *.log
 *.swp
 .*.swp
+
+.codex-update-deps/

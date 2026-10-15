@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -115,7 +116,7 @@ test("private handoff uses 0700/0600 under umask022 and refuses filename reuse",
 
 test("updater with no trust fails before any download or executable starts", async () => {
   let ran = false;
-  await assert.rejects(stageCodexRelease({}, { target: "0.160.0" }, async () => { ran = true; }), /independently/);
+  await assert.rejects(stageCodexRelease({}, { id: randomUUID(), target: "0.160.0" }, async () => { ran = true; }), /independently/);
   assert.equal(ran, false);
 });
 test("trust manifest binds exact version and platform and refuses permissive or linked files", async (t) => {
@@ -178,7 +179,7 @@ test("credential-bearing workflow jobs never run PR helpers or new dependency co
 test("digest mismatch never launches even the downloaded binary's version probe", async (t) => {
   const root = await fixture(t), { entry } = tarFixture(), calls = [], trust = path.join(root, "trust.json");
   await fs.writeFile(trust, JSON.stringify({ artifacts: [entry] }), { mode: 0o600 });
-  await assert.rejects(stageCodexRelease({ codexUpdateDir: path.join(root, "updates"), codexUpdateTrustFile: trust }, { target: entry.version }, async (cmd, args) => {
+  await assert.rejects(stageCodexRelease({ codexUpdateDir: path.join(root, "updates"), codexUpdateTrustFile: trust }, { id: randomUUID(), target: entry.version }, async (cmd, args) => {
     calls.push(cmd); await fs.writeFile(args.at(-1), "untrusted payload"); return { stdout: "" };
   }), /digest mismatch/);
   assert.deepEqual(calls, ["curl"]);
