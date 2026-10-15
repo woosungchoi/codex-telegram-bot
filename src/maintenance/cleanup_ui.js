@@ -107,6 +107,12 @@ export function createCleanupUi({ telegram, localization, formatting }) {
     if (result.deleted > 0) {
       lines.push("", localization.text("cleanupPermanentDeletionNotice"));
     }
+    if (result.database) lines.push("", localization.formatText("cleanupDatabaseResult", {
+      rows: result.database.deletedRows,
+      completed: result.database.completed,
+      deferred: result.database.deferred,
+      bytes: String(result.database.reclaimedBytes)
+    }));
     if (plan) {
       lines.push(
         "",

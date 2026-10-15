@@ -2,7 +2,10 @@
 
 Released versions are listed below, newest first.
 
-## Pending - 2026-10-13
+## Pending - 2026-10-15
+
+- Add opt-in conversation database Cleanup with account-scoped exact-ID deletion,
+  preserved quarantine rows, protected-thread checks and durable compaction retries.
 
 - Log Telegram polling errors, slow requests, recovery and delayed message
   receipt with redacted diagnostics and polling health counters.

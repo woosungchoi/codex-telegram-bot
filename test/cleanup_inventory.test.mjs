@@ -5,6 +5,16 @@ import os from "node:os";
 import path from "node:path";
 import { createCleanupInventory } from "../src/maintenance/cleanup_inventory.js";
 
+test("database Cleanup stops when active Codex processes cannot be inspected", async () => {
+  const inventory = createCleanupInventory({
+    settings: { config: { cleanupDatabaseEnabled: true } },
+    state: { chats: {} }, threadCache: new Map(), sessions: {},
+    runProcess: async () => { throw new Error("process listing unavailable"); },
+    now: () => new Date()
+  });
+  await assert.rejects(inventory.collectProtectedThreadIds(), /process listing unavailable/);
+});
+
 test("cleanup inventory ignores a quarantined file removed during scanning", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "cleanup-inventory-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));

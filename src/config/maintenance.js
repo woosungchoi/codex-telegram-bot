@@ -72,6 +72,7 @@ export function readCleanupConfig(env, paths, allowedUserIds) {
   );
   return {
     cleanupEnabled: parseOptionalBoolean(env.CLEANUP_ENABLED) ?? true,
+    cleanupDatabaseEnabled: parseOptionalBoolean(env.CLEANUP_DATABASE_ENABLED) ?? false,
     cleanupExecutionMode: parseCleanupExecutionMode(env.CLEANUP_EXECUTION_MODE),
     cleanupNotifyTime: env.CLEANUP_NOTIFY_TIME?.trim() || "09:00",
     cleanupNotifyChatIds: cleanupNotifyChatIds.length > 0

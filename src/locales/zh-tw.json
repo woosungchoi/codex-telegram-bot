@@ -1386,5 +1386,7 @@
   "panelPreviewLimited": "預覽已縮短；完整最終回覆會另行傳送。",
   "ui.backupPrivateAdminOnly": "完整備份僅供指定備份管理員在私人對話中取得。",
   "ui.sideTurnCapacity": "已達平行回覆上限，請等待目前回覆完成。",
-  "photoRejection.too_large": "圖片超過大小限制"
+  "photoRejection.too_large": "圖片超過大小限制",
+  "cleanupDatabasePreview": "資料庫清理：{rows} 筆關聯記錄；{blocked} 個受保護工作階段；{pending} 項等待重試。",
+  "cleanupDatabaseResult": "資料庫清理：已從 {completed} 個工作階段刪除 {rows} 筆記錄；{deferred} 項延後。資料庫檔案縮減：{bytes} 位元組。"
 }
