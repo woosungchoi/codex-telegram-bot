@@ -2,17 +2,42 @@
 
 Released versions are listed below, newest first.
 
-## Pending - 2026-10-15
+## 1.4.6 - 2026-10-15
+
+### Paired Codex updates
+
+- Update Codex CLI and SDK together through the bot update panel, including
+  SDK-only version drift. This release uses Codex CLI and SDK 0.162.1.
+- Require independently approved SDK version and integrity metadata alongside
+  trusted CLI artifacts. Stage dependencies in isolation, run full verification,
+  and reject unrelated dependency changes before activation.
+- Wait for active jobs and final deliveries before activation; verify bot and
+  worker readiness, roll back both components on failure, and recover interrupted
+  swaps after restart. Remove unused staging artifacts after failed validation.
+
+### Cleanup and connection reliability
 
 - Add opt-in conversation database Cleanup with account-scoped exact-ID deletion,
-  preserved quarantine rows, protected-thread checks and durable compaction retries.
+  quarantine retention, protected-thread checks and durable compaction retries.
+- Preserve active, pinned, linked and restored conversations; defer database
+  compaction when locks or available disk space prevent safe completion.
+- Log Telegram polling errors, slow requests, recovery and delayed message receipt
+  with redacted diagnostics and polling health counters. Abort stalled receive
+  requests after 75 seconds and retry without losing offsets or active jobs.
 
-- Log Telegram polling errors, slow requests, recovery and delayed message
-  receipt with redacted diagnostics and polling health counters.
-- Abort stalled receive requests after 75 seconds and retry through the existing
-  poller, preserving update offsets and active Codex/worker jobs.
+### Upgrade notes
+
+- Paired updates require SDK trust metadata in `CODEX_UPDATE_TRUST_FILE`; missing
+  metadata fails closed. External CLI installers do not update the bot SDK.
+- Database Cleanup remains opt-in with `CLEANUP_DATABASE_ENABLED`. Review
+  [database Cleanup](docs/cleanup-database.md) before enabling it.
 - See [Telegram polling recovery](docs/telegram-polling.md) for diagnostics and
   recovery limits.
+
+### Repository maintenance
+
+- Refresh dependency and GitHub Actions versions; validate automated dependency
+  merges against the exact pull-request head and retire stale merge automation.
 
 ## 1.4.5 - 2026-10-08
 
