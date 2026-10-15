@@ -391,3 +391,17 @@ test("a second SDK-only run stages the same verified CLI without colliding with 
   assert.notEqual(first, second);
   assert.equal(await fs.readFile(path.join(first, "bin/codex"), "utf8"), await fs.readFile(path.join(second, "bin/codex"), "utf8"));
 });
+
+test("failed SDK preparation removes only this run's unselected CLI artifact", async (t) => {
+  const f = await fixture(t);
+  const staged = path.join(f.state.installation.root, "releases", `prepared-${f.state.id}`);
+  await fs.mkdir(staged);
+  await claimUpdate(f.config, f.state);
+  const result = await runCodexUpdate(f.config, f.state.id, { ...f.deps, stage: async () => staged,
+    dependencies: { ...f.deps.dependencies, stage: async () => { throw new Error("SDK unavailable"); } }
+  });
+  assert.equal(result.phase, "failed");
+  await assert.rejects(fs.access(staged), { code: "ENOENT" });
+  await fs.access(f.old);
+  await fs.access(f.release);
+});

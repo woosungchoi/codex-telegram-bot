@@ -84,6 +84,7 @@ export async function runCodexUpdate(config, id, {
   // the persisted original links, then report the interrupted update.
   let selectionStarted = Boolean(state.previousLinks);
   let botStopped = false;
+  let preparedRelease = null;
   try {
     if (selectionStarted) throw new Error("Interrupted update; restoring the previous version.");
     if (state.botStopRequested) {
@@ -108,6 +109,7 @@ export async function runCodexUpdate(config, id, {
     await setPhase("downloading", { services });
     if (!state.sdk) throw new Error("This update predates paired SDK approval; create a new update preview.");
     const release = await stage(config, state, run);
+    preparedRelease = release;
     const prepared = await dependencies.stage(config, state, run);
     await setPhase("waiting_idle", { release, dependencies: prepared });
     const started = now();
@@ -175,6 +177,11 @@ export async function runCodexUpdate(config, id, {
   }
   if (UPDATE_TERMINAL_PHASES.has(state.phase)) {
     if (state.dependencies) await dependencies.finish(config.codexUpdateAppRoot, state.dependencies).catch(() => {});
+    if (state.phase === "failed" && preparedRelease
+      && path.dirname(preparedRelease) === path.join(state.installation.root, "releases")
+      && path.basename(preparedRelease).endsWith(`-${id}`)) {
+      await fs.rm(preparedRelease, { recursive: true, force: true }).catch(() => {});
+    }
     await releaseUpdate(config, id);
     await fs.rm(path.join(config.codexUpdateDir, "runs", id, "stage-home"), { recursive: true, force: true }).catch(() => {});
   }
