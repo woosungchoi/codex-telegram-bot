@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { appServerDirectArgs, appServerThreadReadEvents, createAppServerThread } from "../src/codex/app_server.js";
+import { appServerDirectArgs, appServerThreadReadEvents, connectAppServer, createAppServerThread } from "../src/codex/app_server.js";
+import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 test("createAppServerThread exposes an SDK-like thread shape", () => {
   const thread = createAppServerThread({
@@ -11,6 +15,102 @@ test("createAppServerThread exposes an SDK-like thread shape", () => {
   assert.equal(thread.id, "thread-1");
   assert.equal(typeof thread.run, "function");
   assert.equal(typeof thread.runStreamed, "function");
+  assert.equal(thread.sessionTimeoutMs, 120_000);
+});
+
+async function delayedServer(t, { sessionDelayMs = 0, hangSession = false } = {}) {
+  const dir = await mkdtemp(join(tmpdir(), "session-rpc-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const script = join(dir, "fake.mjs");
+  const log = join(dir, "requests.jsonl");
+  await writeFile(log, "");
+  await writeFile(script, `#!/usr/bin/env node
+import { createInterface } from 'node:readline';
+import { appendFileSync } from 'node:fs';
+const send = x => process.stdout.write(JSON.stringify(x) + '\\n');
+createInterface({ input: process.stdin }).on('line', line => {
+  const x = JSON.parse(line);
+  appendFileSync(${JSON.stringify(log)}, JSON.stringify({ method: x.method, pid: process.pid }) + '\\n');
+  if (x.method === 'initialize') send({ id: x.id, result: {} });
+  if (['thread/start', 'thread/resume'].includes(x.method) && !${hangSession}) {
+    setTimeout(() => send({ id: x.id, result: { thread: { id: x.params.threadId || 'new-thread' } } }), ${sessionDelayMs});
+  }
+  if (x.method === 'turn/start') send({ id: x.id, result: { turn: { id: 'turn', status: 'completed', items: [] } } });
+  if (x.method === 'test/delay') setTimeout(() => send({ id: x.id, result: 'done' }), x.params.delayMs);
+});`, { mode: 0o700 });
+  return { script, requests: async () => (await readFile(log, "utf8")).trim().split("\n").filter(Boolean).map(JSON.parse) };
+}
+
+test("session RPC can outlast the control timeout and logs only timing metadata", async (t) => {
+  const { script } = await delayedServer(t);
+  const messages = [];
+  t.mock.method(console, "warn", (...args) => messages.push(args.join(" ")));
+  const client = await connectAppServer({ codexPath: script });
+  t.after(() => client.close());
+  client.requestTimeoutMs = 50;
+  assert.equal(await client.request("test/delay", { delayMs: 150, secret: "private-prompt" }, { timeoutMs: 1000, slowAfterMs: 20 }), "done");
+  assert.equal(messages.length, 2);
+  assert.match(messages[0], /"status":"slow"/);
+  assert.match(messages[1], /"status":"completed"/);
+  assert.doesNotMatch(messages.join(""), /private-prompt|secret|delayMs/);
+  // The longer session budget must not change ordinary RPC deadlines.
+  await assert.rejects(client.request("test/hang"), { code: "CODEX_APP_SERVER_REQUEST_TIMEOUT", method: "test/hang", timeoutMs: 50 });
+  assert.equal(client.pending.size, 0);
+});
+
+for (const threadId of ["", "existing-thread"]) {
+  test(`delayed ${threadId ? "resume" : "start"} preserves identity and starts exactly one turn`, async (t) => {
+    const { script, requests } = await delayedServer(t, { sessionDelayMs: 150 });
+    const thread = createAppServerThread({ codexPath: script, threadId, sessionTimeoutMs: 1000 });
+    await thread.run("hello");
+    assert.equal(thread.id, threadId || "new-thread");
+    assert.deepEqual((await requests()).map(x => x.method), ["initialize", "initialized", threadId ? "thread/resume" : "thread/start", "turn/start"]);
+  });
+}
+
+test("resume timeout closes the process without replaying input or replacing the thread", async (t) => {
+  const { script, requests } = await delayedServer(t, { hangSession: true });
+  t.mock.method(console, "warn", () => {});
+  const thread = createAppServerThread({ codexPath: script, threadId: "existing-thread", sessionTimeoutMs: 50 });
+  await assert.rejects(thread.run("hello"), { code: "CODEX_APP_SERVER_REQUEST_TIMEOUT", method: "thread/resume", timeoutMs: 50 });
+  const calls = await requests();
+  assert.deepEqual(calls.map(x => x.method), ["initialize", "initialized", "thread/resume"]);
+  assert.equal(thread.id, "existing-thread");
+  assert.throws(() => process.kill(calls[0].pid, 0), { code: "ESRCH" });
+});
+
+test("cancel during resume closes the process promptly and never starts a turn", async (t) => {
+  const { script, requests } = await delayedServer(t, { hangSession: true });
+  const controller = new AbortController();
+  const thread = createAppServerThread({ codexPath: script, threadId: "existing-thread" });
+  const result = thread.run("hello", { signal: controller.signal });
+  const rejected = assert.rejects(result, /cancel-resume/);
+  t.after(() => controller.abort(new Error("cancel-resume")));
+  let calls;
+  for (let i = 0; i < 100; i++) {
+    calls = await requests();
+    if (calls.some(x => x.method === "thread/resume")) break;
+    await delay(20);
+  }
+  assert.ok(calls.some(x => x.method === "thread/resume"));
+  controller.abort(new Error("cancel-resume"));
+  await rejected;
+  assert.deepEqual((await requests()).map(x => x.method), ["initialize", "initialized", "thread/resume"]);
+  assert.throws(() => process.kill(calls[0].pid, 0), { code: "ESRCH" });
+});
+
+test("closing a slow request clears both warning and deadline timers", async (t) => {
+  const { script } = await delayedServer(t);
+  const messages = [];
+  t.mock.method(console, "warn", (...args) => messages.push(args.join(" ")));
+  const client = await connectAppServer({ codexPath: script });
+  t.after(() => client.close());
+  const rejected = assert.rejects(client.request("test/hang", {}, { timeoutMs: 150, slowAfterMs: 50 }), /connection closed/);
+  await client.close();
+  await rejected;
+  await delay(200);
+  assert.equal(client.pending.size, 0);
+  assert.deepEqual(messages, []);
 });
 
 test("appServerDirectArgs uses direct stdio without daemon or proxy", () => {
