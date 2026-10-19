@@ -3,11 +3,13 @@ import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { nativeSessionConfig, nativeTurnSandbox } from "./session_settings.js";
 import { createInterface } from "node:readline";
+import { performance } from "node:perf_hooks";
 import { applyCodexStreamEvent, codexStreamResult, createCodexStreamState } from "./stream.js";
 import { codexEventError } from "../accounts/errors.js";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_CONNECT_TIMEOUT_MS = 5000;
+const DEFAULT_SESSION_TIMEOUT_MS = 120_000;
 
 export function createAppServerThread({
   threadId = "",
@@ -15,7 +17,8 @@ export function createAppServerThread({
   codexPath = "codex",
   codexEnv = null,
   codexAuthFileStore = false,
-  connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS
+  connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS,
+  sessionTimeoutMs = DEFAULT_SESSION_TIMEOUT_MS
 } = {}) {
   return {
     transport: "app-server-direct",
@@ -25,6 +28,7 @@ export function createAppServerThread({
     codexEnv,
     codexAuthFileStore,
     connectTimeoutMs,
+    sessionTimeoutMs,
     async run(input, turnOptions = {}) {
       const { events } = await this.runStreamed(input, turnOptions);
       const streamState = createCodexStreamState();
@@ -149,9 +153,12 @@ async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
   }
 
   try {
+    // Resuming restores history and initializes tools; it can legitimately take
+    // longer than a control RPC. Keep a bounded budget without replaying input.
+    const sessionRequestOptions = { timeoutMs: thread.sessionTimeoutMs, slowAfterMs: DEFAULT_REQUEST_TIMEOUT_MS };
     const threadResponse = thread.id
-      ? await client.request("thread/resume", appServerThreadParams({ ...thread.threadOptions, threadId: thread.id }))
-      : await client.request("thread/start", appServerThreadParams(thread.threadOptions));
+      ? await client.request("thread/resume", appServerThreadParams({ ...thread.threadOptions, threadId: thread.id }), sessionRequestOptions)
+      : await client.request("thread/start", appServerThreadParams(thread.threadOptions), sessionRequestOptions);
     thread.id = threadResponse?.thread?.id || thread.id;
     thread.resolvedSandbox = threadResponse?.sandbox;
     if (thread.id) queue.push({ type: "thread.started", thread_id: thread.id });
@@ -311,7 +318,7 @@ class JsonRpcClient {
     });
   }
 
-  request(method, params = {}) {
+  request(method, params = {}, { timeoutMs = this.requestTimeoutMs, slowAfterMs = 0 } = {}) {
     if (this.closed || this.child.exitCode !== null || this.child.signalCode !== null) {
       return Promise.reject(new Error("Codex app-server connection closed."));
     }
@@ -319,15 +326,34 @@ class JsonRpcClient {
     this.nextId += 1;
     const payload = { jsonrpc: "2.0", id, method, params };
     return new Promise((resolve, reject) => {
+      const startedAt = performance.now();
+      let slow = false;
+      // Only method/timing metadata belongs in logs, never prompts or RPC data.
+      const diagnostic = (status) => console.warn("Codex app-server request:", JSON.stringify({
+        method, status, elapsedMs: Math.round(performance.now() - startedAt), timeoutMs
+      }));
+      const slowTimer = slowAfterMs > 0 && slowAfterMs < timeoutMs ? setTimeout(() => {
+        slow = true;
+        diagnostic("slow");
+      }, slowAfterMs) : null;
+      const cleanup = () => { clearTimeout(timer); clearTimeout(slowTimer); };
+      const finish = (error, result) => {
+        cleanup();
+        if (slow || error?.code === "CODEX_APP_SERVER_REQUEST_TIMEOUT") diagnostic(error ? "failed" : "completed");
+        if (error) reject(error);
+        else resolve(result);
+      };
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`Codex app-server request timed out: ${method}`));
-      }, this.requestTimeoutMs);
-      this.pending.set(id, { resolve, reject, timer, method });
+        finish(Object.assign(new Error(`Codex app-server request timed out: ${method} (${timeoutMs} ms)`), {
+          code: "CODEX_APP_SERVER_REQUEST_TIMEOUT", method, timeoutMs,
+          elapsedMs: Math.round(performance.now() - startedAt)
+        }));
+      }, timeoutMs);
+      this.pending.set(id, { resolve: (result) => finish(null, result), reject: (error) => finish(error), method });
       try { this.write(payload); } catch (error) {
-        clearTimeout(timer);
         this.pending.delete(id);
-        reject(error);
+        finish(error);
       }
     });
   }
@@ -371,7 +397,6 @@ class JsonRpcClient {
     if (message.id != null) {
       const pending = this.pending.get(message.id);
       if (!pending) return;
-      clearTimeout(pending.timer);
       this.pending.delete(message.id);
       if (message.error) pending.reject(Object.assign(new Error(message.error.message || "Codex request failed."), { code: message.error.code, codexErrorInfo: message.error.data?.codexErrorInfo }));
       else pending.resolve(message.result);
@@ -387,7 +412,6 @@ class JsonRpcClient {
 
   fail(error) {
     for (const [id, pending] of this.pending) {
-      clearTimeout(pending.timer);
       pending.reject(error);
       this.pending.delete(id);
     }

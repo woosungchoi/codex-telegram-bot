@@ -288,6 +288,12 @@ process. Public installs only need the regular Codex CLI/SDK path for the
 default `sdk` transport. Use `app-server-direct` only when the installed Codex
 CLI provides compatible direct stdio app-server support.
 
+Direct app-server control requests have a minimum 30-second timeout. Starting or
+resuming a conversation has a separate 120-second budget for history restoration
+and tool initialization. Requests taking over 30 seconds log the method and elapsed
+time, then their final outcome, without logging prompts or response contents. A
+session timeout closes the process; it does not resend input or replace the thread.
+
 Telegram controls:
 
 - Open `/settings` -> `Runtime` -> `Codex`

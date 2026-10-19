@@ -275,6 +275,11 @@ app-server daemon, daemon autostart, daemon version check, proxy process는 더 
 필요합니다. `app-server-direct`는 설치된 Codex CLI가 호환되는 direct stdio
 app-server를 제공할 때만 사용하세요.
 
+Direct app-server 제어 요청의 timeout은 최소 30초입니다. 대화 시작·재개는 기록
+복원과 도구 초기화를 위해 별도 120초 제한을 사용합니다. 30초 이상 걸리면 요청
+메서드와 경과 시간, 최종 결과를 기록하며 프롬프트와 응답 내용은 기록하지 않습니다.
+재개 시간이 초과되면 프로세스를 종료하며 입력을 재전송하거나 대화를 교체하지 않습니다.
+
 Telegram 조작 경로:
 
 - `/settings` -> `Runtime` -> `Codex`를 엽니다.
