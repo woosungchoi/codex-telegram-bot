@@ -586,3 +586,30 @@ test("unauthenticated socket requests cannot read jobs or start execution", asyn
   assert.equal(await f.store.readJobState("forbidden"), null);
   assert.equal((await f.client.status()).status, "ok");
 });
+
+test('startup diagnostics identify recovery phases without job contents', async () => {
+  const logs = [];
+  const { worker } = await startServer(async () => {}, { logger: { info: (_label, details) => logs.push(JSON.parse(details)) } });
+  try {
+    assert.deepEqual(logs.map(x => [x.phase, x.status]), [
+      ['state', 'started'], ['recover_active_jobs', 'started'], ['reconcile_orphaned_jobs', 'started'], ['socket', 'ready']
+    ]);
+    for (const item of logs) {
+      assert.deepEqual(Object.keys(item).sort(), ['elapsedMs', 'phase', 'status']);
+      assert.ok(item.elapsedMs >= 0);
+    }
+  } finally { await worker.close(); }
+});
+
+test('startup recovery failure is logged before any socket admits work', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'worker-start-fail-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const config = { codexWorkerStateDir: dir, codexWorkerSocket: path.join(dir, 'worker.sock') };
+  const store = createWorkerStore(config), logs = [];
+  store.recoverActiveJobs = async () => { throw new Error('invalid ledger'); };
+  const worker = createWorkerServer({ config, store, logger: { info: (_label, details) => logs.push(JSON.parse(details)) } });
+  await assert.rejects(worker.listen(), /invalid ledger/);
+  assert.equal(logs.at(-1).phase, 'recover_active_jobs');
+  assert.equal(logs.at(-1).status, 'failed');
+  await assert.rejects(fs.stat(config.codexWorkerSocket), { code: 'ENOENT' });
+});

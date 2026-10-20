@@ -151,8 +151,13 @@ async function* records(handle, start, size) {
     );
     if (!bytesRead) break;
     let begin = 0;
-    for (let i = 0; i < bytesRead; i += 1) {
-      if (buffer[i] !== 10) continue;
+    // Search in native code rather than stepping through every byte in an
+    // async generator. Cold-start recovery validates every historical log.
+    for (
+      let i = buffer.indexOf(10, begin);
+      i >= 0 && i < bytesRead;
+      i = buffer.indexOf(10, begin)
+    ) {
       const part = buffer.subarray(begin, i);
       const body = fragments.length
         ? Buffer.concat([...fragments, part]).toString("utf8")

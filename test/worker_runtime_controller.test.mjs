@@ -21,6 +21,7 @@ function createHarness({
   let eventReadCount = 0;
   let startCount = 0;
   const client = {
+    async status() { return { status: "ok", activeJobs: [], runningJobIds: [], capabilities: ["accounts-v1"] }; },
     async startJob(job) {
       calls.push(["start", job]);
       const jobId = startJobIds[startCount] || `job-${startCount + 1}`;
@@ -189,7 +190,7 @@ test("worker event polling persists monotonic cursors and reconstructs the turn"
 test("saved accounts fail closed on old workers before submitting work", async () => {
   const { controller, chat, calls, client } = createHarness();
   chat.accountId = "saved-account";
-  client.status = async () => ({ status: "ok" });
+  client.status = async () => ({ status: "ok", activeJobs: [], runningJobIds: [] });
   const active = { abortController: new AbortController() };
   await assert.rejects(controller.processPreparedTurnViaWorker({}, "chat", { text: "hello" }, active, {}), /worker must be updated/);
   assert.equal(calls.some(([name]) => name === "start"), false);
@@ -215,7 +216,7 @@ test("worker restart just after account rotation retains the fresh account", asy
       "job-2": completedEvents().map((e) => ({ ...e, accountId: "backup" }))
     }
   });
-  client.status = async () => ({ capabilities: ["accounts-v1"] });
+  client.status = async () => ({ status: "ok", activeJobs: [], runningJobIds: [], capabilities: ["accounts-v1"] });
   await controller.processPreparedTurnViaWorker({}, "chat", { text: "continue" }, { abortController: new AbortController() }, null);
   const retried = calls.filter(([name]) => name === "start")[1][1];
   assert.equal(retried.accountId, "backup");
@@ -246,9 +247,14 @@ test("worker event polling retries transient transport failures", async () => {
 });
 
 test("sidecar turn starts one job and sends at most one cancellation request", async () => {
-  const { calls, controller } = createHarness({ events: completedEvents() });
+  const { calls, controller, client } = createHarness({ events: completedEvents() });
   const abortController = new AbortController();
-  abortController.abort();
+  const startJob = client.startJob;
+  client.startJob = async (job) => {
+    const result = await startJob(job);
+    abortController.abort();
+    return result;
+  };
   const active = { abortController };
 
   const result = await controller.processPreparedTurnViaWorker(
@@ -457,4 +463,37 @@ test("receipt acknowledgement is refreshed during a continuous event stream", as
   assert.ok(seen.includes("pending"));
   assert.ok(seen.includes("accepted"));
   assert.equal(h.calls.some(([name]) => name === "start"), false);
+});
+
+for (const accountId of ['default', 'saved-account']) {
+  test(`first submission waits through a missing worker socket (${accountId})`, async () => {
+    const h = createHarness({ events: completedEvents() });
+    h.chat.accountId = accountId;
+    let probes = 0;
+    h.client.status = async () => {
+      probes++;
+      assert.equal(h.calls.some(([name]) => name === 'start'), false);
+      if (probes < 3) throw Object.assign(new Error('socket starting'), { code: 'ENOENT' });
+      return { status: 'ok', activeJobs: [], runningJobIds: [], capabilities: ['accounts-v1'] };
+    };
+    await h.controller.processPreparedTurnViaWorker({}, 'chat:44', { text: 'once' }, { abortController: new AbortController() }, {});
+    assert.equal(probes, 3);
+    assert.equal(h.calls.filter(([name]) => name === 'start').length, 1);
+  });
+}
+
+test('cancellation while waiting for the worker never submits input', async () => {
+  const h = createHarness();
+  const abortController = new AbortController();
+  h.client.status = async () => { abortController.abort(new Error('cancelled while starting')); return new Promise(() => {}); };
+  await assert.rejects(h.controller.processPreparedTurnViaWorker({}, 'chat:44', { text: 'do not send' }, { abortController }, {}), /cancelled while starting/);
+  assert.equal(h.calls.some(([name]) => name === 'start'), false);
+});
+
+test('a lost job-start acknowledgement is never resubmitted by readiness', async () => {
+  const h = createHarness();
+  let submitted = 0;
+  h.client.startJob = async () => { submitted++; throw Object.assign(new Error('lost acknowledgement'), { code: 'ECONNRESET' }); };
+  await assert.rejects(h.controller.processPreparedTurnViaWorker({}, 'chat:44', { text: 'once' }, { abortController: new AbortController() }, {}), /lost acknowledgement/);
+  assert.equal(submitted, 1);
 });

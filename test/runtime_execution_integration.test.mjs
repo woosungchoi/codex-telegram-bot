@@ -14,6 +14,7 @@ async function fixture(t, { sidecar, transport, rejectDelivery = false, streamEv
     run: async () => ({ finalResponse: "answer" }),
     runStreamed: async () => ({ events: streamEvents }) };
   const worker = { startJob: async (job) => { jobs.push(job); return { jobId: job.id }; },
+    status: async () => ({ status: "ok", activeJobs: [], runningJobIds: [], capabilities: ["accounts-v1"] }),
     getJobStatus: async (jobId) => ({ job: { ...jobs.find((job) => job.id === jobId), status: "completed", inputReceipt: { status: "accepted" } } }),
     readJobEvents: async () => ({ events: streamEvents ? [
       ...streamEvents.map((event, index) => ({ ...event, seq: index + 1 })),

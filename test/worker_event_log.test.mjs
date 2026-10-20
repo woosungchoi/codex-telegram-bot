@@ -100,3 +100,20 @@ test("non-monotonic legacy sequences and cache eviction do not lose events", asy
   }
   assert.equal((await read(file, { afterSeq: 1024 })).length, 2);
 });
+
+test("native newline scanning preserves large UTF-8 records across buffer boundaries", async (t) => {
+  const { file, read } = await fixture(t);
+  const large = { seq: 1, text: "한🙂".repeat(100000) };
+  const second = { seq: 2, text: "tail" };
+  await fs.writeFile(
+    file,
+    JSON.stringify(large) + "\n\n" + JSON.stringify(second) + "\n",
+  );
+  assert.deepEqual(await read(file), [large, second]);
+  const ledger = await read.inspect(file);
+  assert.equal(ledger.lastSeq, 2);
+  assert.equal(ledger.monotonic, true);
+  assert.equal(ledger.completeBytes, (await fs.stat(file)).size);
+  await fs.appendFile(file, "{bad}\n");
+  await assert.rejects(read.inspect(file), SyntaxError);
+});

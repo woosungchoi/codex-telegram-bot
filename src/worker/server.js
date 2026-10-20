@@ -6,6 +6,7 @@ import { createQuestionBroker } from "./questions.js";
 import fs from "node:fs/promises";
 import net from "node:net";
 import { createHash } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import { PRIVATE_FILE_MODE } from "../fs/private.js";
 import { createFrameReader, encodeFrame, errorResponse, okResponse } from "./protocol.js";
 import { createWorkerStore } from "./store.js";
@@ -111,25 +112,44 @@ export function createWorkerServer({
   return {
     server,
     async listen() {
-      await store.ensure();
-      credential = await createWorkerCredential(config.codexWorkerSocket);
-      await store.recoverActiveJobs();
-      await reconcileOrphanedJobs(store, config);
-      await fs.rm(config.codexWorkerSocket, { force: true }).catch(() => {});
-      await new Promise((resolve, reject) => {
-        server.once("error", reject);
-        server.listen(config.codexWorkerSocket, () => {
-          server.off("error", reject);
-          resolve();
+      const startedAt = performance.now();
+      let phase = "state";
+      const report = (status) => logger.info?.("worker startup:", JSON.stringify({
+        phase, status, elapsedMs: Math.round(performance.now() - startedAt)
+      }));
+      const slowTimer = setInterval(() => report("pending"), 30_000);
+      slowTimer.unref();
+      report("started");
+      try {
+        await store.ensure();
+        credential = await createWorkerCredential(config.codexWorkerSocket);
+        phase = "recover_active_jobs";
+        report("started");
+        await store.recoverActiveJobs();
+        phase = "reconcile_orphaned_jobs";
+        report("started");
+        await reconcileOrphanedJobs(store, config);
+        phase = "socket";
+        await fs.rm(config.codexWorkerSocket, { force: true }).catch(() => {});
+        await new Promise((resolve, reject) => {
+          server.once("error", reject);
+          server.listen(config.codexWorkerSocket, () => {
+            server.off("error", reject);
+            resolve();
+          });
         });
-      });
-      await fs.chmod(config.codexWorkerSocket, PRIVATE_FILE_MODE);
-      if (config.codexWorkerLogRetentionDays > 0) {
-        maintenanceStart = setTimeout(archiveLogs, 60_000);
-        maintenanceTimer = setInterval(archiveLogs, 3_600_000);
-        maintenanceStart.unref(); maintenanceTimer.unref();
-      }
-      return this;
+        await fs.chmod(config.codexWorkerSocket, PRIVATE_FILE_MODE);
+        if (config.codexWorkerLogRetentionDays > 0) {
+          maintenanceStart = setTimeout(archiveLogs, 60_000);
+          maintenanceTimer = setInterval(archiveLogs, 3_600_000);
+          maintenanceStart.unref(); maintenanceTimer.unref();
+        }
+        report("ready");
+        return this;
+      } catch (error) {
+        report("failed");
+        throw error;
+      } finally { clearInterval(slowTimer); }
     },
     async close() {
       clearTimeout(maintenanceStart);

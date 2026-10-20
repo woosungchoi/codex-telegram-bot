@@ -276,6 +276,12 @@ for later review or recovery so the bot does not start duplicate work.
 mode the bot executes Codex directly, so a bot process restart also interrupts
 the active stream.
 
+Sidecar turns wait up to five minutes for the worker status handshake before
+submitting input once. This covers the socket creation delay while startup
+validates stored job/event history. Cancelling the wait submits no input; failed
+job submissions are not retried by this check. Worker startup logs report phases
+and elapsed time every 30 seconds until ready or failed.
+
 `CODEX_TRANSPORT=app-server-direct` is optional. The worker starts a direct
 stdio child process with:
 
