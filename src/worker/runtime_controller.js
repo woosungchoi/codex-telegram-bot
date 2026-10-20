@@ -26,6 +26,7 @@ import {
 import { accountThreadId, applyAccountEvent, rememberAccountThread, selectedAccountId } from "../accounts/context.js";
 import { hasAttemptActivity } from "../accounts/errors.js";
 import { workerInputReceipt } from "./input_receipt.js";
+import { waitForWorkerReady, WORKER_READY_TIMEOUT_MS } from "./readiness.js";
 
 const RETRYABLE_WORKER_TRANSPORT_CODES = new Set([
   "ECONNREFUSED",
@@ -104,8 +105,13 @@ export function createWorkerRuntimeController({
 
     while (true) {
       const job = restartAttempt === 0 ? initialJob : createWorkerJobPayload(chatKey, currentTurn);
+      // A spawned systemd process may still be rebuilding its durable ledger.
+      // Retry only status, before any input is submitted; never replay job/start.
+      const status = await waitForWorkerReady(client, {
+        timeoutMs: WORKER_READY_TIMEOUT_MS, signal: active.abortController.signal,
+        now: nowMs, sleep
+      });
       if (job.accountId !== "default") {
-        const status = await client.status?.();
         if (!status?.capabilities?.includes("accounts-v1")) throw new LocalizedError("errors.workerUpdateRequired");
       }
       active.workerCancelRequested = false;

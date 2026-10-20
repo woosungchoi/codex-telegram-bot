@@ -263,6 +263,11 @@ SDK stream backfill은 inline 및 worker 소유가 아닌 recovery의 fallback�
 `CODEX_WORKER_MODE=inline`은 개발/비상 fallback입니다. inline 모드에서는 bot이
 Codex를 직접 실행하므로 bot process가 재시작되면 active stream도 함께 끊깁니다.
 
+Sidecar 작업은 워커의 상태 확인을 최대 5분 기다린 뒤 입력을 한 번 제출합니다.
+시작 중 기존 작업·이벤트 기록을 검사하는 동안 소켓이 아직 없어도 기다립니다.
+대기 중 취소하면 입력을 보내지 않으며, 제출한 작업을 이 확인 절차에서 재전송하지 않습니다.
+워커 시작 로그에는 준비 완료 또는 실패까지 30초마다 단계와 경과 시간이 기록됩니다.
+
 `CODEX_TRANSPORT=app-server-direct`는 선택 기능입니다. worker가 아래 direct stdio
 child process를 시작합니다.
 

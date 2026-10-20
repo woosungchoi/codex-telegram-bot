@@ -73,3 +73,25 @@ test("readiness connects when a real worker creates its Unix socket after the fi
   }
   t.diagnostic("No production worker or job was restarted.");
 });
+
+for (const phase of ['status', 'poll']) {
+  test(`readiness cancellation interrupts a pending ${phase} without another probe`, async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const options = { timeoutMs: 1000, signal: controller.signal };
+    if (phase === 'poll') options.sleep = async () => { controller.abort(new Error('cancel wait')); return new Promise(() => {}); };
+    const waiting = waitForWorkerReady({ status: async () => {
+      calls++;
+      if (phase === 'status') { controller.abort(new Error('cancel wait')); return new Promise(() => {}); }
+      throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+    } }, options);
+    await assert.rejects(waiting, /cancel wait/);
+    assert.equal(calls, 1);
+  });
+}
+
+test('already cancelled readiness performs no RPC', async () => {
+  const controller = new AbortController();
+  controller.abort(new Error('cancel first'));
+  await assert.rejects(waitForWorkerReady({ status() { assert.fail('must not probe'); } }, { signal: controller.signal }), /cancel first/);
+});
