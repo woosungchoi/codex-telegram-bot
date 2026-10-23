@@ -144,6 +144,8 @@ export function registerRuntimeRoutes(r, { accounts, workspace } = {}) {
       setMode: r.setQueueMode,
       setPaused: r.setQueuePaused,
       startDrain: r.startQueueDrainIfIdle,
+      sideTurnCount: r.getSideTurnCount,
+      sideTurnRecords: r.sideTurnRecords,
       stopSideTurns: r.stopSideTurns
     },
     cleanup: {

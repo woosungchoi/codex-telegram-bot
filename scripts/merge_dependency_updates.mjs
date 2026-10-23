@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
-import { validatePackageUpdate } from "./publish_package_update.mjs";
+import { validatePackageUpdate, requirePackageApproval } from "./publish_package_update.mjs";
 
 export const REQUIRED_CHECKS = [
   "Check Node 18", "Check Node 20", "Check Node 22", "Check Node 24", "Check Node 26",
@@ -71,7 +71,7 @@ export function checksPass(checks, sha) {
     && trusted.every((c) => !REQUIRED_CHECKS.includes(c.name) || c.conclusion === "success")
     && checks.every((c) => c.head_sha === sha && c.status === "completed" && ["success", "skipped", "neutral"].includes(c.conclusion));
 }
-export async function reconcile({ repo, api, log = console.log, dryRun = false }) {
+export async function reconcile({ repo, api, log = console.log, dryRun = false, approval = {} }) {
   const pulls = await api("pulls?state=open&base=main&per_page=100");
   const newestCodex = Math.max(0, ...pulls.filter((pr) => updateKind(pr, repo) === "codex").map((pr) => pr.number));
   // Newest Codex candidate first; never merge an older candidate as a downgrade.
@@ -104,6 +104,11 @@ export async function reconcile({ repo, api, log = console.log, dryRun = false }
         validateVersions(base, candidate, kind);
         const lock = JSON.parse(await content("package-lock.json", pr.head.sha));
         validatePackageUpdate(kind === "codex" ? base : candidate, candidate, lock);
+      }
+      if (kind === "codex") {
+        if (!SHA.test(approval.commit || "") || approval.commit !== pr.head.sha) throw new Error("Exact Codex commit approval required.");
+        requirePackageApproval({ "package.json": await content("package.json", pr.head.sha), "package-lock.json": await content("package-lock.json", pr.head.sha) }, approval);
+        if (pr.mergeable_state === "behind") throw new Error("Approved Codex commit requires a fresh preview after rebase.");
       }
       if (pr.mergeable_state === "behind") {
         log(`#${pr.number}: update branch, then wait for new CI`);
@@ -143,6 +148,6 @@ async function main() {
     if (!result.ok) throw new Error(`GitHub API ${result.status}`);
     return result.status === 204 ? null : result.json();
   };
-  await reconcile({ repo, api, dryRun: process.argv.includes("--dry-run") });
+  await reconcile({ repo, api, approval: { commit: process.env.CODEX_APPROVED_COMMIT, packageSha256: process.env.CODEX_APPROVED_PACKAGE_SHA256, lockSha256: process.env.CODEX_APPROVED_LOCK_SHA256 }, dryRun: process.argv.includes("--dry-run") });
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

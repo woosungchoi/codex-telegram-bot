@@ -42,22 +42,22 @@ export function createCodexSessionRuntime({
     return workerClient;
   }
 
-  function startCodexThread(chatKey) {
-    return createCodexThread(chatKey, "");
+  function startCodexThread(chatKey, inputDirectories) {
+    return createCodexThread(chatKey, "", undefined, {}, inputDirectories);
   }
 
   function resumeCodexThread(chatKey, threadId) {
     return createCodexThread(chatKey, threadId);
   }
 
-  function createCodexThread(chatKey, threadId = "", accountId = selectedAccountId(chats.get(chatKey)), attemptState = {}) {
+  function createCodexThread(chatKey, threadId = "", accountId = selectedAccountId(chats.get(chatKey)), attemptState = {}, inputDirectories) {
     assertSessionOwner(settings.config, chatKey, accountId, threadId);
     return createCodexThreadForTransport({
       transport: codexTransport(),
       threadId,
       accountId,
       attemptState,
-      effectiveOptions: chats.getEffectiveOptions(chatKey),
+      effectiveOptions: chats.getEffectiveOptions(chatKey, inputDirectories),
       config: {
         ...settings.config,
         sessionChatKey: String(chatKey),
@@ -71,7 +71,14 @@ export function createCodexSessionRuntime({
     return detectThreadTransport(thread);
   }
 
-  function getOrCreateThread(chatKey, recovery) {
+  function getOrCreateThread(chatKey, recovery, inputDirectories) {
+    if (inputDirectories !== undefined) {
+      const accountId = recovery?.accountId || selectedAccountId(chats.get(chatKey));
+      const saved = recovery ? recovery.threadId || "" : accountThreadId(chats.get(chatKey), accountId);
+      const thread = createCodexThread(chatKey, saved && ownsSession(settings.config, chatKey, accountId, saved) ? saved : "", accountId, recovery?.accountAttemptState || {}, inputDirectories);
+      threadCache.set(chatKey, thread);
+      return thread;
+    }
     if (recovery?.accountId) return createCodexThread(chatKey, recovery.threadId || "", recovery.accountId, recovery.accountAttemptState || {});
     const cached = threadCache.get(chatKey);
     if (cached?.id) assertSessionOwner(settings.config, chatKey, cached.accountId || selectedAccountId(chats.get(chatKey)), cached.id);

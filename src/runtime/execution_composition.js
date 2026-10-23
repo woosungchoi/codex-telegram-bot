@@ -23,7 +23,7 @@ export function createExecutionComposition(r) {
     && (!record.recovery?.threadId || ownsSession(r.config, record.chatKey,
       record.recovery.accountId || record.accountId, record.recovery.threadId));
   const steering = createSteeringUi({ getClient: r.getWorkerClient, getChatKey: r.getChatKey, text: r.text,
-    admissionPaused: () => updateAdmissionPaused(r.config),
+    admissionPaused: () => r.config.maintenanceBusy === true || updateAdmissionPaused(r.config),
     queue: { get: r.getPendingTurns, persist: r.persistPendingTurns, remove: r.removePendingTurn, startDrain: r.startQueueDrainIfIdle }
   });
   const nativeControls = createNativeControls({ getClient: r.getWorkerClient, getChatKey: r.getChatKey, activeTurns: r.activeTurns, deliveries: () => r.state.worker?.deliveries || {}, refreshStatus: r.refreshTaskStatus, resolveStatusJob: r.resolveTaskStatusJob, queue: r.getPendingTurns, steering, text: r.text });
@@ -207,7 +207,7 @@ export function createExecutionComposition(r) {
       startDrain: r.startQueueDrainIfIdle
     },
     lifecycle: {
-      isAdmissionPaused: () => updateAdmissionPaused(r.config),
+      isAdmissionPaused: () => r.config.maintenanceBusy === true || updateAdmissionPaused(r.config),
       isRecoveryActive: r.isRecoveryActive,
       isRestartScheduled: () => recoveryController?.isRestartScheduled() ?? false,
       onTurnFinished: r.onTurnFinished,
@@ -266,6 +266,7 @@ export function createExecutionComposition(r) {
 
   recoveryController = createRuntimeRecoveryController({
     settings: {
+      config: r.config,
       enabled: r.config.botRestartRecoveryEnabled,
       recoveryDir: r.config.botRecoveryDir,
       assertAuthorized, isAuthorized,

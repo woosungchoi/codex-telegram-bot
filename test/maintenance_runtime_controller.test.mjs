@@ -19,7 +19,7 @@ function createFixture({ handoffDir = "/tmp/handoffs", sessionFile = null, cwd =
         codexHome: "/tmp/codex",
         codexMaintenanceBackupDir: "/tmp/backups",
         codexMaintenanceLogRotateMb: 10,
-        codexMaintenanceScript: "/tmp/maintenance.py",
+        codexMaintenanceScript: path.resolve("scripts/codex_maintenance.py"),
         codexMaintenanceThreadPreviewLimit: 200,
         codexMaintenanceThreadTitleLimit: 80,
         codexMaintenanceWorktreeDays: 7
@@ -64,7 +64,9 @@ test("maintenance runtime builds the established Python command and parses JSON"
   const report = await controller.readReport();
   assert.equal(report.action, "report");
   assert.equal(processCalls[0][0], "python3");
-  assert.deepEqual(processCalls[0][1].slice(0, 2), ["/tmp/maintenance.py", "report"]);
+  assert.equal(processCalls[0][1][0], "-c");
+  assert.match(processCalls[0][1][1], /argparse/);
+  assert.equal(processCalls[0][1][2], "report");
 });
 
 test("current handoff reports the localized no-thread error", async () => {
@@ -84,4 +86,15 @@ test("repository docs symlink cannot redirect real handoff creation", async (t) 
   assert.notEqual(first.file, second.file);
   assert.equal((await fs.stat(first.file)).mode & 0o777, 0o600);
   assert.deepEqual(await fs.readdir(outside), []);
+});
+
+test("host maintenance rejects a modified helper before invoking Python", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "maintenance-integrity-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const script = path.join(root, "helper.py"); await fs.writeFile(script, "print('unexpected')\n");
+  let calls = 0;
+  const controller = createCodexMaintenanceController({ settings: { config: { codexMaintenanceScript: script } },
+    state: {}, threadCache: new Map(), chats: {}, sessions: {}, formatting: {}, localization: { text: String }, runProcess: async () => { calls++; } });
+  await assert.rejects(controller.readReport(), /integrity mismatch/);
+  assert.equal(calls, 0);
 });

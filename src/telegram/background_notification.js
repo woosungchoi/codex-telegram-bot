@@ -1,3 +1,4 @@
+import { authorizeStoredRequest } from "../authorization.js";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -11,13 +12,15 @@ export async function loadNotificationAccess(appRoot) {
   return readTelegramAccessConfig(dotenv.parse(await fs.readFile(path.join(appRoot, ".env"))));
 }
 
-export function notificationTarget({ botId, chatId, threadId = "", messageId }, access) {
+export function notificationTarget({ botId, chatId, threadId = "", messageId, requesterUserId, authorizationVersion, chatType, isForum, accountId }, access) {
   const target = { botId: String(botId || ""), chatId: String(chatId || ""), threadId: String(threadId || "") };
   if (!/^[1-9]\d*$/.test(target.botId)) throw new Error("expected-bot-id-required");
   if (!/^-?[1-9]\d*$/.test(target.chatId)) throw new Error("chat-id-invalid");
   if (target.threadId && (!/^[1-9]\d*$/.test(target.threadId) || !Number.isSafeInteger(Number(target.threadId)))) {
     throw new Error("thread-id-invalid");
   }
+  Object.assign(target, { requesterUserId: String(requesterUserId || ""), authorizationVersion, chatType, isForum: isForum === true, accountId });
+  if (!authorizeStoredRequest({ ...target, messageThreadId: threadId || undefined }, access, target.botId)) throw new Error("notification-requester-not-authorized");
   const allowed = target.chatId.startsWith("-") ? access.allowedChatIds : access.allowedUserIds;
   if (!allowed?.has(target.chatId)) throw new Error("notification-target-not-allowed");
   if (access.allowedThreadIds?.size && (!target.threadId || !access.allowedThreadIds.has(target.threadId))) {
@@ -33,7 +36,7 @@ export function notificationTarget({ botId, chatId, threadId = "", messageId }, 
 }
 
 export async function sendBackgroundNotification({
-  telegram, target, text, receiptPath, now = () => new Date().toISOString(),
+  telegram, target, text, receiptPath, authorize, now = () => new Date().toISOString(),
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 }) {
   if (typeof text !== "string" || !text.trim() || text.length > 4000) {
@@ -82,6 +85,8 @@ export async function sendBackgroundNotification({
       deliveryEvidence: "not_sent", retrySafe: true
     };
     await writeReceipt(absoluteReceipt, receipt);
+    if (typeof authorize !== "function") throw new Error("notification-current-policy-required");
+    await authorize();
     const me = await telegram.getMe();
     receipt.botUsername = String(me.username || "");
     receipt.observedBotId = String(me.id);
@@ -91,6 +96,7 @@ export async function sendBackgroundNotification({
       receipt.attempts.push(entry);
       Object.assign(receipt, { status: "sending", retrySafe: false });
       await writeReceipt(absoluteReceipt, receipt);
+      await authorize();
       requestStarted = true;
       let sent;
       try {

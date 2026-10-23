@@ -1,3 +1,5 @@
+import { dependencyTreeDigest } from "./tree_integrity.js";
+import { controlDir, signControlRecord, readControlRecord, requireControlSeparation } from "./control_receipt.js";
 import { isolatedUpdateCommand, verifyIsolatedUpdate } from "./update_isolation.js";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -62,7 +64,7 @@ async function cleanHead(root, run) {
 
 function transactionPaths(root, transaction) {
   const directory = path.resolve(transaction.directory);
-  if (path.dirname(directory) !== path.join(root, ".codex-update-deps") || !/^run-[a-f0-9-]{36}$/.test(path.basename(directory))) {
+  if (path.dirname(directory) !== path.join(transaction.controlDirectory || "", "dependencies") || !/^run-[a-f0-9-]{36}$/.test(path.basename(directory))) {
     throw new Error("Invalid dependency transaction path.");
   }
   return { directory, staged: path.join(directory, "project"), backup: path.join(directory, "backup") };
@@ -77,7 +79,9 @@ export async function stageCodexDependencies(config, state, run = runUpdateProce
   const previousVersion = await installedSdkVersion(root);
   const modules = await fs.lstat(path.join(root, "node_modules"));
   if (!modules.isDirectory() || modules.isSymbolicLink()) throw new Error("Dependency update requires a regular node_modules directory.");
-  const base = path.join(root, ".codex-update-deps");
+  const controlDirectory = controlDir(config);
+  await requireControlSeparation(controlDirectory, [root, config.codexWorkdir, ...(config.codexAdditionalDirectories || [])]);
+  const base = path.join(controlDirectory, "dependencies");
   await fs.mkdir(base, { recursive: true, mode: 0o700 });
   if ((await fs.lstat(base)).isSymbolicLink()) throw new Error("Dependency staging directory must not be a symlink.");
   if (!/^[a-f0-9-]{36}$/.test(state.id || "")) throw new Error("Invalid dependency update ID.");
@@ -85,7 +89,7 @@ export async function stageCodexDependencies(config, state, run = runUpdateProce
   // Preparation is repeatable; activation recovery never calls this function.
   await fs.rm(directory, { recursive: true, force: true });
   await fs.mkdir(directory, { mode: 0o700 });
-  const transaction = { approval: { trustFile: config.codexUpdateTrustFile, sdk, target: state.target }, directory, head, previousVersion, version: sdk.version, originals: {}, prepared: {} };
+  const transaction = { controlDirectory, id: state.id, approval: { trustFile: config.codexUpdateTrustFile, sdk, target: state.target }, directory, head, previousVersion, version: sdk.version, originals: {}, prepared: {} };
   const { staged, backup } = transactionPaths(root, transaction);
   try {
     await fs.mkdir(staged); await fs.mkdir(backup);
@@ -126,6 +130,7 @@ export async function stageCodexDependencies(config, state, run = runUpdateProce
     validateDependencyLock(before, JSON.parse(await fs.readFile(path.join(staged, "package-lock.json"), "utf8")), sdk, state.target);
     await run("npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], options);
     if (await installedSdkVersion(staged) !== sdk.version) throw new Error("Staged SDK version mismatch.");
+    const treeSha256 = await dependencyTreeDigest(path.join(staged, "node_modules"));
     await verifyIsolatedUpdate(staged, home, run, options);
     const verified = await run("npm", ["audit", "--audit-level=moderate", "--ignore-scripts"], options);
     await fs.writeFile(path.join(directory, "verification.log"), verified.stdout || "Verification passed.\n", { mode: 0o600 });
@@ -137,6 +142,8 @@ export async function stageCodexDependencies(config, state, run = runUpdateProce
     if (JSON.stringify(await approvedSdk(config, state.target)) !== JSON.stringify(sdk)) throw new Error("Approval changed during verification.");
     await verifyDependencySource(root, transaction, run);
     await fs.rm(path.join(directory, "npm-cache"), { recursive: true, force: true });
+    if (treeSha256 !== await dependencyTreeDigest(path.join(staged, "node_modules"))) throw new Error("Dependency tree changed during verification.");
+    await signControlRecord(controlDirectory, `dependencies-${state.id}`, { id: state.id, directory, treeSha256, prepared: transaction.prepared });
     return transaction;
   } catch (error) {
     await fs.rm(directory, { recursive: true, force: true });
@@ -160,8 +167,11 @@ export async function activateCodexDependencies(root, transaction) {
   for (const name of manifests) {
     if (digest(await fs.readFile(path.join(staged, name))) !== transaction.prepared[name]) throw new Error("Prepared dependency manifest changed.");
   }
+  const attestation = await readControlRecord(transaction.controlDirectory, `dependencies-${transaction.id}`);
+  if (attestation.directory !== transaction.directory || JSON.stringify(attestation.prepared) !== JSON.stringify(transaction.prepared) || attestation.treeSha256 !== await dependencyTreeDigest(path.join(staged, "node_modules"))) throw new Error("Staged dependency tree changed after verification.");
   await fs.rename(path.join(root, "node_modules"), path.join(backup, "node_modules"));
   await fs.rename(path.join(staged, "node_modules"), path.join(root, "node_modules"));
+  if (attestation.treeSha256 !== await dependencyTreeDigest(path.join(root, "node_modules"))) throw new Error("Activated dependency tree changed.");
   for (const name of manifests) await writePrivateFileAtomic(path.join(root, name), await fs.readFile(path.join(staged, name), "utf8"));
 }
 
@@ -170,7 +180,7 @@ export async function restoreCodexDependencies(root, transaction) {
   if (await exists(path.join(backup, "node_modules"))) {
     if (await exists(path.join(root, "node_modules"))) {
       // Keep the failed tree for diagnosis; never overwrite a prior recovery.
-      await fs.rename(path.join(root, "node_modules"), path.join(directory, "failed-node_modules"));
+  await fs.rename(path.join(root, "node_modules"), path.join(directory, "failed-node_modules"));
     }
     await fs.rename(path.join(backup, "node_modules"), path.join(root, "node_modules"));
   }

@@ -28,6 +28,7 @@ function createHarness({ root, sessionScan, deleteCandidates = [], protectedIds 
       retentionDays: () => 30,
       quarantineDays: () => 14,
       artifactDir,
+      controlDir: path.join(root, "control"),
       sessionsDir,
       quarantineDir,
       notifyChatIds: ["101"],
@@ -168,7 +169,7 @@ test("cleanup controller refuses candidates outside the configured roots", async
     ]
   };
 
-  const result = await harness.controller.applyCleanupPlan(plan, "both");
+  const result = await harness.controller.applyCleanupPlan(plan, "both", { authorize: () => {} });
 
   assert.equal(result.quarantined, 0);
   assert.equal(result.deleted, 0);
@@ -194,7 +195,7 @@ test("cleanup controller quarantines an eligible session with restore metadata",
     deleteCandidates: []
   };
 
-  const result = await harness.controller.applyCleanupPlan(plan, "quarantine");
+  const result = await harness.controller.applyCleanupPlan(plan, "quarantine", { authorize: () => {} });
   const target = path.join(
     harness.quarantineDir,
     "20260721",
@@ -218,6 +219,9 @@ test("cleanup controller quarantines an eligible session with restore metadata",
     type: "quarantine",
     threadId: "thread-a",
     from: source,
+    identity: fileIdentity(await fs.lstat(target)),
+    sessionsRoot: harness.sessionsDir,
+    quarantineRoot: harness.quarantineDir,
     to: target
   });
 });
@@ -235,7 +239,7 @@ test("cleanup controller skips sessions that become protected after planning", a
       { threadId: "thread-active", path: source, identity: fileIdentity(await fs.lstat(source)), ageDays: 40, bytes: 7 }
     ],
     deleteCandidates: []
-  }, "quarantine");
+  }, "quarantine", { authorize: () => {} });
 
   assert.equal(result.skipped, 1);
   assert.equal(result.quarantined, 0);
@@ -264,7 +268,7 @@ test("cleanup controller skips planned files that disappear before execution", a
     ]
   };
 
-  const result = await harness.controller.applyCleanupPlan(plan, "both");
+  const result = await harness.controller.applyCleanupPlan(plan, "both", { authorize: () => {} });
 
   assert.equal(result.quarantined, 0);
   assert.equal(result.deleted, 1);
@@ -354,7 +358,7 @@ for (const action of ["quarantine", "delete", "both"]) {
       quarantineCandidates: [{ threadId: "old", path: source, identity: fileIdentity(await fs.lstat(source)) }],
       deleteCandidates: [{ threadId: "expired", path: expired, identity: fileIdentity(await fs.lstat(expired)) }, { threadId: "recent", path: recent, identity: fileIdentity(await fs.lstat(recent)) },
         ...(action === "both" ? [{ threadId: "old", path: newlyQuarantined }] : [])]
-    }, action);
+    }, action, { authorize: () => {} });
     const moves = action !== "delete", deletes = action !== "quarantine";
     assert.equal(result.quarantined, Number(moves));
     assert.equal(result.deleted, Number(deletes));
@@ -389,7 +393,7 @@ test("permanent deletion rechecks protection and changed quarantine timestamps",
   }
   const result = await harness.controller.applyCleanupPlan({
     id: "recheck", quarantineCandidates: [], deleteCandidates: candidates
-  }, "delete");
+  }, "delete", { authorize: () => {} });
   assert.equal(result.deleted, 0);
   assert.equal(result.skipped, 4);
   assert.deepEqual(result.errors, []);
@@ -410,7 +414,7 @@ test("permanent deletion refuses symlinked files and parent directories", async 
     id: "links", quarantineCandidates: [], deleteCandidates: [
       { threadId: "link", path: link }, { threadId: "parent-link", path: path.join(directory, "outside.jsonl") }
     ]
-  }, "delete");
+  }, "delete", { authorize: () => {} });
   assert.equal(result.deleted, 0);
   assert.equal(result.errors.length, 2);
   assert.equal(await fs.readFile(outside, "utf8"), "keep\n");
@@ -429,7 +433,7 @@ test("permanent deletion waits until the full quarantine period has elapsed", as
   }
   const result = await harness.controller.applyCleanupPlan({
     id: "boundary", quarantineCandidates: [], deleteCandidates: candidates
-  }, "delete");
+  }, "delete", { authorize: () => {} });
   assert.equal(result.deleted, 1);
   assert.equal(result.skipped, 1);
   assert.equal(await fs.readFile(candidates[0].path, "utf8"), "payload\n");
@@ -438,6 +442,6 @@ test("permanent deletion waits until the full quarantine period has elapsed", as
 
 test("unsupported cleanup action cannot create artifacts or change files", async (t) => {
   const harness = createHarness({ root: await createFixture(t) });
-  await assert.rejects(harness.controller.applyCleanupPlan({ id: "bad" }, "invalid"), /Unsupported cleanup action/);
+  await assert.rejects(harness.controller.applyCleanupPlan({ id: "bad" }, "invalid", { authorize: () => {} }), /Unsupported cleanup action/);
   await assert.rejects(fs.access(harness.artifactDir), { code: "ENOENT" });
 });

@@ -22,7 +22,7 @@ function createHarness(defaultAccountId) {
       model: "gpt-test",
       networkAccessEnabled: false,
       webSearchEnabled: true,
-      additionalDirectories: ["/shared", "/uploads"],
+      additionalDirectories: ["/shared"],
       uploadDir: "/uploads"
     },
     stateStore: { chats: state.chats, defaultAccountId: () => defaultAccountId, save: async () => {} },
@@ -89,7 +89,7 @@ test("chat options merge configured defaults and initialize chat state determini
     model: "gpt-test",
     networkAccessEnabled: false,
     webSearchEnabled: true,
-    additionalDirectories: ["/shared", "/uploads"]
+    additionalDirectories: ["/shared"]
   });
   assert.deepEqual(controller.getChatState("chat"), {
     options: {},
@@ -131,4 +131,12 @@ test("chat option commands report usage without mutating state", async () => {
 
   assert.deepEqual(state.chats, {});
   assert.match(replies[0], /Usage: <code>\/option &lt;mode&gt;<\/code>/);
+});
+
+test("attachment capabilities stay specific to each turn and are removed on the next turn", () => {
+  const { controller } = createHarness();
+  assert.deepEqual(controller.getEffectiveOptions("a", ["/uploads/a"]).additionalDirectories, ["/shared", "/uploads/a"]);
+  assert.deepEqual(controller.getEffectiveOptions("b", ["/uploads/b"]).additionalDirectories, ["/shared", "/uploads/b"]);
+  assert.deepEqual(controller.getEffectiveOptions("a", []).additionalDirectories, ["/shared"]);
+  assert.deepEqual(controller.getEffectiveOptions("b", []).additionalDirectories, ["/shared"]);
 });

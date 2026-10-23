@@ -1,3 +1,4 @@
+import { requireOperator, rememberControlConfirmation, consumeControlConfirmation } from "../operator_authorization.js";
 import { fullBackupAuthorized, requireFullBackup, verifyBackupDestination } from "../maintenance/backup_authorization.js";
 import { createMessageFormatter } from "../i18n.js";
 import { b } from "../telegram/html.js";
@@ -19,6 +20,7 @@ export function createToolCallbackController({
 }) {
   const msg = createMessageFormatter(localization.text);
   async function handleToolButton(ctx, action, requestId) {
+    if (action.startsWith("codex_maintenance") || action.startsWith("cleanup")) requireOperator(ctx, settings.config);
     if (action === "codex_update" || action === "codex_update_start" || action === "codex_update_recover") {
       return codexUpdate?.handle(ctx, action, requestId);
     }
@@ -111,6 +113,7 @@ export function createToolCallbackController({
       if (await telegram.rejectCallbackIfActive(ctx, chatKey)) return;
       await runMaintenanceAction(ctx, "log-rotate", "busyLogs", "busyLogsDetail");
     } else if (action === "codex_maintenance_sqlite_repair") {
+      rememberControlConfirmation(state, ctx, "sqlite_repair");
       await telegram.editOrReplyHtml(
         ctx,
         maintenance.sqliteRepairConfirmHtml(),
@@ -131,6 +134,7 @@ export function createToolCallbackController({
         ]))
       );
     } else if (action === "codex_maintenance_sqlite_repair_apply") {
+      consumeControlConfirmation(state, ctx, "sqlite_repair");
       if (await telegram.rejectCallbackIfActive(ctx, chatKey)) return;
       await runMaintenanceAction(
         ctx,
@@ -155,6 +159,7 @@ export function createToolCallbackController({
       await persistence.save();
       await showMaintenanceMenu(ctx);
     } else if (action === "codex_maintenance_auto_sqlite_repair") {
+      state.maintenance.operator = requireOperator(ctx, settings.config);
       state.maintenance.autoSqliteRepairEnabled = !maintenance.autoSqliteRepairEnabled();
       await persistence.save();
       await showMaintenanceMenu(ctx);
@@ -181,7 +186,7 @@ export function createToolCallbackController({
     );
     await telegram.editOrReplyHtml(
       ctx,
-      maintenance.formatResult(await maintenance.run(action)),
+      maintenance.formatResult(await maintenance.run(action, ctx)),
       keyboards.maintenance()
     );
   }

@@ -31,5 +31,8 @@ jobs:
       # PAT is required so branch updates and merges trigger normal CI.
       - name: Reconcile validated dependency updates
         env:
+          CODEX_APPROVED_COMMIT: ${{ vars.CODEX_APPROVED_COMMIT }}
+          CODEX_APPROVED_PACKAGE_SHA256: ${{ vars.CODEX_APPROVED_PACKAGE_SHA256 }}
+          CODEX_APPROVED_LOCK_SHA256: ${{ vars.CODEX_APPROVED_LOCK_SHA256 }}
           GH_TOKEN: ${{ secrets.CODEX_AUTOMATION_TOKEN }}
         run: node scripts/merge_dependency_updates.mjs

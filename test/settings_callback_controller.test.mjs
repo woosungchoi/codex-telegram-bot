@@ -1,3 +1,4 @@
+import { operatorCtx, operatorConfig } from "./helpers/security17.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -12,7 +13,7 @@ function createFixture() {
   const state = { ui: {}, chats: { chat: { options: {} } } };
   const controller = createSettingsCallbackController({
     settings: {
-      config: { telegramLocale: "en-US", telegramTimeZone: "UTC" },
+      config: { ...operatorConfig, telegramLocale: "en-US", telegramTimeZone: "UTC" },
       runtimeValue: () => 1000,
       updateRuntimeSetting: async (...args) => calls.push(["runtime", ...args]),
       validQueueModes: new Set(["safe", "interrupt", "side"]),
@@ -77,7 +78,7 @@ function createFixture() {
 
 test("settings callback maps compact values and persists one chat option", async () => {
   const { calls, controller } = createFixture();
-  await controller.handleSettingButton({}, "sandbox", "ww");
+  await controller.handleSettingButton(operatorCtx, "sandbox", "ww");
   assert.deepEqual(calls.slice(0, 2), [
     ["setOption", "chat", "sandboxMode", "workspace-write"],
     ["save"]
@@ -87,7 +88,7 @@ test("settings callback maps compact values and persists one chat option", async
 
 test("queue callback rejects an unknown mode without mutating queue state", async () => {
   const { calls, controller } = createFixture();
-  await controller.handleQueueButton({}, "mode", "unknown");
+  await controller.handleQueueButton(operatorCtx, "mode", "unknown");
   assert.equal(calls.some(([name]) => name === "setMode"), false);
   assert.equal(calls.at(-1)[0], "edit");
 });
@@ -103,7 +104,7 @@ test("runtime callback mappings preserve the existing wire format", () => {
 test("destructive cleanup modes require one setting confirmation", async () => {
   const { calls, controller } = createFixture();
 
-  await controller.handleSettingButton({}, "runtime_cleanupmode", "both");
+  await controller.handleSettingButton(operatorCtx, "runtime_cleanupmode", "both");
   assert.equal(calls.some(([name]) => name === "runtime"), false);
   const confirmationKeyboard = calls.at(-1)[3];
   assert.equal(
@@ -111,7 +112,7 @@ test("destructive cleanup modes require one setting confirmation", async () => {
     "set:runtime_cleanupmode_confirm:both"
   );
 
-  await controller.handleSettingButton({}, "runtime_cleanupmode_confirm", "both");
+  await controller.handleSettingButton(operatorCtx, "runtime_cleanupmode_confirm", "both");
   assert.deepEqual(calls.find(([name]) => name === "runtime"), [
     "runtime",
     "cleanupExecutionMode",
@@ -122,7 +123,7 @@ test("destructive cleanup modes require one setting confirmation", async () => {
 
 test("manual and quarantine cleanup modes update without destructive confirmation", async () => {
   const { calls, controller } = createFixture();
-  await controller.handleSettingButton({}, "runtime_cleanupmode", "quarantine");
+  await controller.handleSettingButton(operatorCtx, "runtime_cleanupmode", "quarantine");
   assert.deepEqual(calls.find(([name]) => name === "runtime"), [
     "runtime",
     "cleanupExecutionMode",

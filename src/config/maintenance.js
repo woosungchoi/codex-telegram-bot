@@ -8,6 +8,8 @@ import { parseCleanupExecutionMode } from "../maintenance/cleanup_mode.js";
 
 export function readCodexMaintenanceConfig(env, paths) {
   return {
+    maintenanceRestoreScript: env.MAINTENANCE_RESTORE_SCRIPT?.trim() || "/usr/local/lib/codex-telegram-bot/restore-cleanup.py",
+    maintenanceControlDir: env.MAINTENANCE_CONTROL_DIR?.trim() || "/var/lib/codex-telegram-bot-control",
     codexMaintenanceScript: env.CODEX_MAINTENANCE_SCRIPT?.trim()
       || path.join(paths.appRoot, "scripts", "codex_maintenance.py"),
     codexMaintenanceBackupDir: env.CODEX_MAINTENANCE_BACKUP_DIR?.trim()
@@ -100,6 +102,8 @@ export function readCleanupConfig(env, paths, allowedUserIds) {
       24,
       "CLEANUP_PLAN_TTL_HOURS"
     ),
+    queueAdminUserIds: new Set(parseTelegramIdCsv(env.QUEUE_ADMIN_USER_IDS, "QUEUE_ADMIN_USER_IDS")),
+    operatorUserIds: new Set(parseTelegramIdCsv(env.OPERATOR_USER_IDS ?? env.CODEX_UPDATE_ADMIN_USER_IDS, "OPERATOR_USER_IDS")),
     backupAdminUserIds: new Set(parseTelegramIdCsv(env.BACKUP_ADMIN_USER_IDS, "BACKUP_ADMIN_USER_IDS")),
     backupDir: env.BACKUP_DIR?.trim() || path.join(paths.stateRoot, "backups"),
     snapshotEnabled: parseOptionalBoolean(env.SNAPSHOT_ENABLED) ?? true,

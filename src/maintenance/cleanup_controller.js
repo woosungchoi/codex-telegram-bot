@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { signControlRecord, readControlRecord, DEFAULT_CONTROL_DIR } from "./control_receipt.js";
 import { anchoredMove, anchoredUnlink, fileIdentity } from "../fs/anchored.js";
 import { createMessageFormatter } from "../i18n.js";
 import fs from "node:fs/promises";
@@ -31,7 +33,8 @@ export function createCleanupController({
   const msg = createMessageFormatter(t);
   const navigation = createNavigationKeyboardViews({ text: t });
 
-  async function createCleanupPlan(source) {
+  async function createCleanupPlan(source, operator) {
+    await policy.validateControl?.();
     stateStore.prunePlans();
     const sessionScan = await inventory.listSessionFiles(
       await inventory.collectProtectedThreadIds()
@@ -46,6 +49,7 @@ export function createCleanupController({
     const plan = {
       id: `${createdAt.getTime().toString(36)}-${random().toString(36).slice(2, 8)}`,
       source,
+      ...(operator ? { operator } : {}),
       createdAt: createdAt.toISOString(),
       expiresAt: new Date(
         createdAt.getTime() + policy.planTtlHours() * 60 * 60 * 1000
@@ -59,6 +63,7 @@ export function createCleanupController({
       maintenance,
       database: databasePreview
     };
+    if (operator) await signControlRecord(policy.controlDir || DEFAULT_CONTROL_DIR, `plan-${plan.id}`, { digest: createHash("sha256").update(JSON.stringify(plan)).digest("hex") });
     stateStore.plans[plan.id] = plan;
     await stateStore.appendLog({
       type: "plan",
@@ -84,10 +89,19 @@ export function createCleanupController({
 
     for (const chatId of policy.notifyChatIds) {
       try {
+        let recipientPlan = plan;
+        if (policy.operatorForChat) {
+          const operator = policy.operatorForChat(chatId);
+          if (!operator) continue;
+          recipientPlan = { ...plan, id: `${plan.id}-${operator.requesterUserId}`, operator };
+          await signControlRecord(policy.controlDir || DEFAULT_CONTROL_DIR, `plan-${recipientPlan.id}`, { digest: createHash("sha256").update(JSON.stringify(recipientPlan)).digest("hex") });
+          stateStore.plans[recipientPlan.id] = recipientPlan;
+          await stateStore.save();
+        }
         await telegram.sendHtmlMessage(
           chatId,
-          formatCleanupPlanHtml(plan),
-          cleanupKeyboard(plan.id)
+          formatCleanupPlanHtml(recipientPlan),
+          cleanupKeyboard(recipientPlan.id)
         );
       } catch (error) {
         await stateStore.appendLog({
@@ -253,7 +267,13 @@ export function createCleanupController({
     };
   }
 
-  async function applyCleanupPlan(plan, action) {
+  async function applyCleanupPlan(plan, action, { authorize = () => { if (plan.source !== "daily-auto") throw new Error("Cleanup approval required."); } } = {}) {
+    await policy.validateControl?.();
+    authorize();
+    if (plan.operator) {
+      const approval = await readControlRecord(policy.controlDir || DEFAULT_CONTROL_DIR, `plan-${plan.id}`);
+      if (approval.digest !== createHash("sha256").update(JSON.stringify(plan)).digest("hex")) throw new Error("Cleanup plan changed after operator preview.");
+    }
     if (!["quarantine", "delete", "both"].includes(action)) {
       throw new Error(`Unsupported cleanup action: ${action}`);
     }
@@ -262,6 +282,8 @@ export function createCleanupController({
       plan,
       action,
       cleanupArtifactDir: policy.artifactDir,
+      controlDirectory: policy.controlDir,
+      restoreProgram: policy.restoreProgram,
       dateKey: policy.dateKey()
     });
     result.artifactDir = artifact.dir;
@@ -292,6 +314,7 @@ export function createCleanupController({
             "sessions",
             relativePath
           );
+          authorize();
           await anchoredMove(candidateRoot, sourcePath, candidate.identity, policy.quarantineDir, targetPath,
             `${JSON.stringify({ threadId: candidate.threadId, originalPath: candidate.path,
               codexHome: candidate.codexHome,
@@ -300,7 +323,10 @@ export function createCleanupController({
             type: "quarantine",
             threadId: candidate.threadId,
             from: sourcePath,
-            to: targetPath
+            to: targetPath,
+            identity: candidate.identity,
+            sessionsRoot: candidateRoot,
+            quarantineRoot: path.resolve(policy.quarantineDir)
           });
           result.quarantined += 1;
         } catch (error) {
@@ -343,6 +369,7 @@ export function createCleanupController({
           }
           // Permanent deletion retains only the small operation receipt, never a payload copy.
           if (database) await database.prepare(candidate, metadata);
+          authorize();
           await anchoredUnlink(quarantineRoot, deletePath, candidate.identity);
           operations.push({
             type: "delete",
@@ -367,6 +394,7 @@ export function createCleanupController({
     }
 
     if (database && (action === "delete" || action === "both")) {
+      authorize();
       result.database = await database.drain(policy.quarantineDays());
       result.errors.push(...result.database.errors);
     }

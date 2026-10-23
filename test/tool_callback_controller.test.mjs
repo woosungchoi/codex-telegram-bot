@@ -1,3 +1,4 @@
+import { operatorCtx, operatorConfig } from "./helpers/security17.mjs";
 import { textFor } from "../src/i18n.js";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -10,7 +11,7 @@ function createFixture({ active = false } = {}) {
     maintenance: { autoHandoffEnabled: false, autoSqliteRepairEnabled: false }
   };
   const controller = createToolCallbackController({
-    settings: { config: { allowedUserIds: new Set(["7", "8"]), backupAdminUserIds: new Set(["7"]) }, runtimeValue: () => true },
+    settings: { config: { ...operatorConfig, allowedUserIds: new Set(["7", "8"]), backupAdminUserIds: new Set(["7"]) }, runtimeValue: () => true },
     state,
     telegram: {
       editOrReplyHtml: async (...args) => calls.push(["edit", ...args]),
@@ -68,13 +69,13 @@ function createFixture({ active = false } = {}) {
 
 test("tool callback renders diagnostics in the existing message", async () => {
   const { calls, controller } = createFixture();
-  await controller.handleToolButton({}, "health");
-  assert.deepEqual(calls, [["edit", {}, "health", { panel: "tools" }]]);
+  await controller.handleToolButton(operatorCtx, "health");
+  assert.deepEqual(calls, [["edit", operatorCtx, "health", { panel: "tools" }]]);
 });
 
 test("tool callback creates and sends a state backup", async () => {
   const { calls, controller } = createFixture();
-  const ctx = { from: { id: 7 }, chat: { id: 7, type: "private" } };
+  const ctx = { ...operatorCtx, from: { id: 7 }, chat: { id: 7, type: "private" } };
   await controller.handleToolButton(ctx, "backup");
   assert.equal(calls[0][0], "reply");
   assert.deepEqual(calls[0][3], { panel: "tools" });
@@ -83,14 +84,14 @@ test("tool callback creates and sends a state backup", async () => {
 
 test("export result retains navigation back to tools", async () => {
   const { calls, controller } = createFixture();
-  await controller.handleToolButton({}, "export");
+  await controller.handleToolButton(operatorCtx, "export");
   assert.deepEqual(calls[0][3], { panel: "tools" });
   assert.equal(calls[1][0], "document");
 });
 
 test("destructive maintenance actions stop when the chat is active", async () => {
   const { calls, controller } = createFixture({ active: true });
-  await controller.handleToolButton({}, "codex_maintenance_config");
+  await controller.handleToolButton(operatorCtx, "codex_maintenance_config");
   assert.equal(calls.some(([name]) => name === "run"), false);
 });
 

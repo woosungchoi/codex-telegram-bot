@@ -1,3 +1,4 @@
+import { requireOperator, operatorContext } from "../operator_authorization.js";
 import { errorText, LocalizedError } from "../i18n.js";
 import { createCodexStreamState, codexStreamResult } from "../codex/stream.js";
 import { handleRestartCommandCore } from "../restart_command.js";
@@ -48,6 +49,7 @@ export function createRuntimeRecoveryController({
 }) {
   let startupRecoveryRunning = false;
   const restartController = createRestartController({
+    authorize: (origin) => { if (origin) requireOperator(operatorContext(origin), settings.config || {}); },
     activeTurns: stateStore.activeTurns,
     exitCode: settings.restartExitCode,
     drainTimeoutSeconds: settings.restartDrainTimeoutSeconds,
@@ -104,6 +106,7 @@ export function createRuntimeRecoveryController({
   }
 
   async function handleRestartCommand(ctx) {
+    requireOperator(ctx, settings.config || {});
     await handleRestartCommandCore(ctx, {
       recoveryEnabled: settings.enabled,
       recoveryDisabledText: () => t("recoveryDisabled"),

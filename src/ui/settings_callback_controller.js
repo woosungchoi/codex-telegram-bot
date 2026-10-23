@@ -1,3 +1,4 @@
+import { requireOperator, verifyOperator, requireQueueOwner, rememberControlConfirmation } from "../operator_authorization.js";
 import { errorText, LocalizedError, createMessageFormatter } from "../i18n.js";
 import { b, code } from "../telegram/html.js";
 
@@ -43,8 +44,11 @@ export function createSettingsCallbackController({
   commands
 }) {
   const msg = createMessageFormatter(localization.text);
+  const confirmations = new Map();
+  const approvalKey = (ctx) => `${ctx.botInfo?.id}:${ctx.from?.id}:${ctx.chat?.id}`;
   async function handleQueueButton(ctx, action, value) {
     const chatKey = telegram.getChatKey(ctx);
+    requireQueueOwner(ctx, settings.config, state.queues?.[chatKey]?.items || state.queues?.[chatKey] || [], { sharedPolicy: true });
     await queue.pruneExpired(chatKey, ctx);
     if (action === "pause") {
       await queue.setPaused(chatKey, true);
@@ -83,6 +87,7 @@ export function createSettingsCallbackController({
       return;
     }
     if (action === "clear") {
+      rememberControlConfirmation(state, ctx, "q_clear", state.queues?.[chatKey] || []);
       await telegram.editOrReplyHtml(
         ctx,
         `${b(localization.text("queueClearConfirmTitle"))}\n${localization.text("queueClearConfirmBody")}`,
@@ -98,10 +103,12 @@ export function createSettingsCallbackController({
   }
 
   async function handleSettingButton(ctx, key, value) {
+    if (key.startsWith("runtime_") || ["language", "timezone"].includes(key)) requireOperator(ctx, settings.config);
     const chatKey = telegram.getChatKey(ctx);
     if (await telegram.rejectCallbackIfActive(ctx, chatKey)) return;
     try {
       if (key === "runtime_cleanupmode" && ["delete", "both"].includes(value)) {
+        confirmations.set(approvalKey(ctx), { operator: requireOperator(ctx, settings.config), value, until: Date.now() + 300000 });
         await telegram.editOrReplyHtml(
           ctx,
           `${b(localization.text("cleanupModeConfirmTitle"))}\n\n${localization.text("cleanupModeConfirmBody")}`,
@@ -120,6 +127,10 @@ export function createSettingsCallbackController({
         if (!["delete", "both"].includes(value)) {
           throw new LocalizedError("errors.unsupportedDestructiveCleanupMode", { value1: value });
         }
+        const approval = confirmations.get(approvalKey(ctx));
+        if (!approval || approval.value !== value || approval.until < Date.now()) throw new Error("Cleanup confirmation expired.");
+        verifyOperator(ctx, settings.config, approval.operator);
+        confirmations.delete(approvalKey(ctx));
         await settings.updateRuntimeSetting("cleanupExecutionMode", value);
         await telegram.editOrReplyHtml(
           ctx,
@@ -147,6 +158,7 @@ export function createSettingsCallbackController({
       } else if (key === "liveprogressdelete") {
         await chats.setOption(chatKey, "liveProgressDeletePolicy", value);
       } else if (key.startsWith("runtime_")) {
+        requireOperator(ctx, settings.config);
         await settings.updateRuntimeSetting(
           runtimeSettingKey(key),
           runtimeSettingValue(key, value)

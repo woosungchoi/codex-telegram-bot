@@ -47,3 +47,7 @@ file as a successful-delivery marker. `telegram_api_accepted` is API acceptance,
 not proof that the user read it. No bot/worker restart is needed for this CLI.
 
 Reference: [Telegram getMe and sendMessage](https://core.telegram.org/bots/api#sendmessage).
+
+## Current request authorization
+
+The sender now also requires `--requester-user-id ID --authorization-version 1 --chat-type TYPE --account-id ID`, and `--is-forum` for a forum request. Capture these from the verified original request; do not infer a requester from a destination. The current user/chat/topic policy is rechecked before each API attempt. Old receipts without provenance require explicit review, never automatic resending.

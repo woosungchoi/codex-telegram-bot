@@ -31,7 +31,9 @@ async function fixture(t) {
   await fs.writeFile(path.join(root, ".gitignore"), "node_modules/\n.codex-update-deps/\n.env\ntrust.json\n");
   await fs.writeFile(path.join(root, ".env"), "SECRET=must-not-copy\n");
   await writeSdk(root, "0.151.0");
-  const config = { codexUpdateAppRoot: root, codexUpdateTrustFile: path.join(root, "trust.json") };
+  const control = await fs.mkdtemp(path.join(os.tmpdir(), "codex-control-"));
+  t.after(() => fs.rm(control, { recursive: true, force: true }));
+  const config = { maintenanceControlDir: control, codexUpdateAppRoot: root, codexUpdateTrustFile: path.join(root, "trust.json") };
   await fs.writeFile(config.codexUpdateTrustFile, JSON.stringify({ artifacts: [{ ...tarFixture().entry, version: sdk.version, sdk }] }), { mode: 0o600 });
   for (const args of [["init", "-q"], ["add", "."], ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"]]) {
     await runUpdateProcess("git", args, { cwd: root });
@@ -41,7 +43,7 @@ async function fixture(t) {
     calls.push({ cmd, args, options });
     if (cmd === "/usr/bin/bwrap") return { stdout: "isolated fixture passed" };
     if (cmd !== "npm") return runUpdateProcess(cmd, args, options);
-    assert.equal(options.env.HOME.startsWith(path.join(root, ".codex-update-deps")), true);
+    assert.equal(options.env.HOME.startsWith(path.join(control, "dependencies")), true);
     assert.equal(options.env.CODEX_HOME, options.env.HOME);
     assert.equal(options.env.TELEGRAM_BOT_TOKEN, undefined);
     assert.equal(options.env.NODE_OPTIONS, undefined);
@@ -127,7 +129,7 @@ test("failed tests remove preparation and preserve installed files", async (t) =
     return f.run(cmd, args, options);
   }), /regression failed/);
   assert.equal(await installedSdkVersion(f.root), "0.151.0");
-  assert.deepEqual(await fs.readdir(path.join(f.root, ".codex-update-deps")), []);
+  assert.deepEqual(await fs.readdir(path.join(f.config.maintenanceControlDir, "dependencies")), []);
 });
 
 test("changed source while waiting blocks activation", async (t) => {
@@ -148,11 +150,11 @@ test("tampered staged manifest and external transaction path are rejected", asyn
 test("updater can load its environment parser when a crash leaves node_modules only in backup", async (t) => {
   const { loadUpdateDotenv } = await import("../src/maintenance/update_bootstrap.js");
   const f = await fixture(t);
-  const dir = path.join(f.root, ".codex-update-deps", `run-${f.state.id}`, "backup/node_modules/dotenv/lib");
+  const dir = path.join(f.config.maintenanceControlDir, "dependencies", `run-${f.state.id}`, "backup/node_modules/dotenv/lib");
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, "../package.json"), JSON.stringify({ type: "commonjs" }));
   await fs.writeFile(path.join(dir, "main.js"), 'module.exports = { parse: () => ({ fixture: "backup" }) };');
-  const dotenv = await loadUpdateDotenv(f.root, f.state.id);
+  const dotenv = await loadUpdateDotenv(f.root, f.state.id, f.config.maintenanceControlDir);
   assert.equal(dotenv.parse().fixture, "backup");
   await assert.rejects(loadUpdateDotenv(f.root, "../../escape"), /run ID/);
 });
@@ -170,5 +172,13 @@ test("unavailable namespace isolation stops before npm or candidate execution", 
   };
   await assert.rejects(stageCodexDependencies(f.config, f.state, run), /isolation denied/);
   assert.equal(await installedSdkVersion(f.root), "0.151.0");
-  assert.deepEqual(await fs.readdir(path.join(f.root, ".codex-update-deps")), []);
+  assert.deepEqual(await fs.readdir(path.join(f.config.maintenanceControlDir, "dependencies")), []);
+});
+
+test("post-verification module mutation blocks activation before moving the live dependencies", async (t) => {
+  const f = await fixture(t), tx = await stageCodexDependencies(f.config, f.state, f.run);
+  await fs.appendFile(path.join(tx.directory, "project/node_modules/@openai/codex-sdk/index.js"), "// modified after verification\n");
+  await assert.rejects(activateCodexDependencies(f.root, tx), /tree changed/);
+  assert.equal(await installedSdkVersion(f.root), "0.151.0");
+  await assert.rejects(fs.access(path.join(tx.directory, "backup/node_modules")));
 });

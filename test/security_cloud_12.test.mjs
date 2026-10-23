@@ -86,7 +86,7 @@ test("aggregate quota serializes concurrent streams and counts existing/orphan f
   assert.equal(results.filter((x) => x.status === "fulfilled").length, 1);
   assert.match(results.find((x) => x.status === "rejected").reason.message, /quota exceeded/);
   await assert.rejects(upload(root, [3, 3]), /quota exceeded/);
-  const sizes = await Promise.all((await fs.readdir(root)).map(async (name) => (await fs.stat(path.join(root, name))).size));
+  const sizes = await Promise.all((await fs.readdir(root, { recursive: true })).map(async (name) => { const stat = await fs.stat(path.join(root, name)); return stat.isFile() ? stat.size : 0; }));
   assert.equal(sizes.reduce((a, b) => a + b, 0), 95);
 });
 test("quota lock is shared by separate processes and released on process death; orphan bytes remain charged", async (t) => {

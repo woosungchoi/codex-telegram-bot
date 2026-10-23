@@ -1,3 +1,4 @@
+import { requireOperator, verifyOperator, requireQueueOwner, consumeControlConfirmation } from "../operator_authorization.js";
 import { createMessageFormatter } from "../i18n.js";
 import { b, code } from "./html.js";
 
@@ -37,6 +38,7 @@ export function registerCallbackRoutes({
       );
       return;
     }
+    verifyOperator(ctx, settings.config, plan.operator);
     if (now() > Date.parse(plan.expiresAt)) {
       await cleanup.answerCallback(ctx, "expired");
       delete state.cleanup.plans[planId];
@@ -55,7 +57,7 @@ export function registerCallbackRoutes({
       await cleanup.editMessage(ctx, cleanup.formatIgnored(plan));
       return;
     }
-    const result = await cleanup.applyPlan(plan, action);
+    const result = await cleanup.applyPlan(plan, action, { authorize: () => verifyOperator(ctx, settings.config, plan.operator) });
     delete state.cleanup.plans[planId];
     await cleanup.appendLog({
       type: "apply",
@@ -71,6 +73,7 @@ export function registerCallbackRoutes({
   bot.action(/^upload_cleanup_confirm:([a-zA-Z0-9_-]+)$/, async (ctx) => {
     const [, planId] = ctx.match;
     const record = state.uploadCleanup?.plans?.[planId];
+    verifyOperator(ctx, settings.config, record?.operator);
     const confirmation = cleanup.confirmUploadPlan(record);
     if (!confirmation.ok) {
       await cleanup.answerUploadCallback(ctx, confirmation.reason);
@@ -93,6 +96,7 @@ export function registerCallbackRoutes({
         callback_data: `upload_cleanup_processing:${planId}`
       }]])
     );
+    verifyOperator(ctx, settings.config, record.operator);
     const result = await cleanup.deleteUploadCandidates(
       confirmation.plan.candidates,
       { dryRun: false, rootDir: settings.config.uploadDir }
@@ -126,6 +130,7 @@ export function registerCallbackRoutes({
     await ctx.answerCbQuery();
     const chatKey = telegram.getChatKey(ctx);
     await queue.pruneExpired(chatKey, ctx);
+    requireQueueOwner(ctx, settings.config, (pendingTurns.get(chatKey) || []).filter((item) => item.id === turnId));
     let changed = 0;
     if (action === "cancel") changed = await queue.remove(chatKey, turnId);
     else if (action === "up") changed = await queue.move(chatKey, turnId, "up");
@@ -190,7 +195,7 @@ export function registerCallbackRoutes({
     if (action === "new") await commands.handleNew(ctx);
     else if (action === "resume_last") await commands.handleResume(ctx, "last");
     else if (action === "stop") await commands.handleStop(ctx);
-    else if (action === "restart") await commands.handleRestart(ctx);
+    else if (action === "restart") { requireOperator(ctx, settings.config); await commands.handleRestart(ctx); }
   });
   bot.action(/^confirm:(q_clear|forget|prefs_reset)$/, async (ctx) => {
     const [, action] = ctx.match;
@@ -236,6 +241,8 @@ export function registerCallbackRoutes({
   async function handleConfirmButton(ctx, action) {
     const chatKey = telegram.getChatKey(ctx);
     if (action === "q_clear") {
+      consumeControlConfirmation(state, ctx, "q_clear", pendingTurns.get(chatKey) || []);
+      requireQueueOwner(ctx, settings.config, pendingTurns.get(chatKey) || []);
       const cleared = await queue.clear(chatKey);
       await telegram.editOrReplyHtml(
         ctx,

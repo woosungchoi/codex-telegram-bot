@@ -1,3 +1,4 @@
+import { approveUpdate } from "./helpers/security17.mjs";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -175,7 +176,10 @@ test("credential-bearing workflow jobs never run PR helpers or new dependency co
 test("digest mismatch never launches even the downloaded binary's version probe", async (t) => {
   const root = await fixture(t), { entry } = tarFixture(), calls = [], trust = path.join(root, "trust.json");
   await fs.writeFile(trust, JSON.stringify({ artifacts: [entry] }), { mode: 0o600 });
-  await assert.rejects(stageCodexRelease({ codexUpdateDir: path.join(root, "updates"), codexUpdateTrustFile: trust }, { id: randomUUID(), target: entry.version }, async (cmd, args) => {
+  const config = { maintenanceControlDir: path.join(root, "control"), codexUpdateDir: path.join(root, "updates"), codexUpdateTrustFile: trust };
+  const state = { id: randomUUID(), target: entry.version };
+  await approveUpdate(config, state);
+  await assert.rejects(stageCodexRelease(config, state, async (cmd, args) => {
     calls.push(cmd); await fs.writeFile(args.at(-1), "untrusted payload"); return { stdout: "" };
   }), /digest mismatch/);
   assert.deepEqual(calls, ["curl"]);

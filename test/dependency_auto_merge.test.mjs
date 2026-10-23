@@ -1,4 +1,5 @@
 import test from "node:test";
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { updateKind, validateVersions, validateActions, checksPass, reconcile, REQUIRED_CHECKS } from "../scripts/merge_dependency_updates.mjs";
 const repo = "owner/repo", head = "a".repeat(40), base = "b".repeat(40);
@@ -59,16 +60,24 @@ async function scenario(options = {}) {
     if (url.endsWith("/status")) return { total_count: 0 };
     throw new Error(`Unexpected call ${url}`);
   };
-  await reconcile({ repo, api, log: v => logs.push(v), dryRun: options.dryRun });
+  const digest = value => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  const approval = { commit: head, packageSha256: digest(candidate), lockSha256: digest(lock), ...options.approval };
+  await reconcile({ repo, api, approval, log: v => logs.push(v), dryRun: options.dryRun });
   return { writes, logs };
 }
 test("valid exact-head candidate merges with SHA guard", async () => {
   const { writes } = await scenario(); assert.deepEqual(writes, [{ url: "pulls/1/merge", method: "PUT", body: { sha: head, merge_method: "squash" } }]);
 });
-test("behind candidate updates only, waits for fresh CI", async () => {
+test("behind Codex approval waits for a fresh preview", async () => {
   const { writes } = await scenario({ pr: { mergeable_state: "behind" } });
-  assert.deepEqual(writes, [{ url: "pulls/1/update-branch", method: "PUT", body: { expected_head_sha: head } }]);
+  assert.deepEqual(writes, []);
 });
 for (const [name, option] of Object.entries({ "dry run": { dryRun: true }, "head checks absent": { checks: [] }, "base race": { race: true }, "package script injection": { bad: true }, "extra file": { files: ["package.json", "evil.js"] }, "conflict": { pr: { mergeable_state: "dirty" } } })) {
   test(`${name} never mutates`, async () => assert.equal((await scenario(option)).writes.length, 0));
+}
+
+for (const approval of [{ commit: "" }, { commit: base }, { packageSha256: "0".repeat(64) }, { lockSha256: "0".repeat(64) }]) {
+  test(`Codex rejects mismatched independent approval ${JSON.stringify(approval)}`, async () => {
+    assert.equal((await scenario({ approval })).writes.length, 0);
+  });
 }

@@ -1,3 +1,4 @@
+import { readBoundedFile, probeDirectory } from "../fs/bounded.js";
 import { createMessageFormatter } from "../i18n.js";
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
@@ -218,8 +219,8 @@ export function createRuntimeDiagnosticsCollectors({
 
   async function checkStateReadWrite() {
     try {
-      await fs.readFile(settings.config.stateFile, "utf8");
-      await checkDirectoryWritable(path.dirname(settings.config.stateFile), msg);
+      await readBoundedFile(settings.config.stateFile);
+      await probeDirectory(path.dirname(settings.config.stateFile));
       return msg("ui.Ok");
     } catch (error) {
       return msg("ui.checkFailed", { error: error instanceof Error ? error.message : String(error) });
@@ -275,14 +276,10 @@ export async function readCommandOutput(command, args, timeoutMs, text) {
 }
 
 async function checkDirectoryWritable(dir, msg = createMessageFormatter()) {
-  const testFile = path.join(dir, `.write-test-${process.pid}-${Date.now()}`);
   try {
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(testFile, "ok\n", "utf8");
-    await fs.rm(testFile, { force: true });
+    await probeDirectory(dir);
     return msg("ui.Ok");
   } catch (error) {
-    await fs.rm(testFile, { force: true }).catch(() => {});
     return msg("ui.checkFailed", { error: error instanceof Error ? error.message : String(error) });
   }
 }

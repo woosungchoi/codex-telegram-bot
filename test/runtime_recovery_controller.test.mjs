@@ -1,3 +1,4 @@
+import { authorizeStoredRequest } from "../src/authorization.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -9,7 +10,7 @@ import {
   createWorkerRecoveryTurn,
   isWorkerCancelledMessage
 } from "../src/recovery/runtime_controller.js";
-import { readActiveTurnSnapshots, replaceActiveTurnSnapshot } from "../src/recovery/state.js";
+import { readActiveTurnSnapshots, replaceActiveTurnSnapshot, removeActiveTurnSnapshot } from "../src/recovery/state.js";
 import { loadProgressMessageStore } from "../src/telegram/progress_store.js";
 import { createTelegramRuntimeResponder } from "../src/telegram/runtime_responder.js";
 import { createLiveProgressController } from "../src/ui/live_progress.js";
@@ -546,4 +547,21 @@ for (const workerEnabled of [false, true]) test(`unauthorized startup recovery s
   assert.deepEqual(h.replies, []);
   assert.equal(h.activeTurns.size, 0);
   assert.ok((await readActiveTurnSnapshots(h.recoveryDir)).turns["chat-1"]);
+});
+
+test("authorized worker recovery carries provenance through completion and delivers exactly once", async (t) => {
+  const config = { telegramBotToken: "123:fixture", allowedUserIds: new Set(["7"]) };
+  const provenance = { authorizationVersion: 1, botId: "123", requesterUserId: "7", accountId: "default", chatId: "7", chatType: "private", isForum: false };
+  const h = await createHarness(t, { workerEnabled: true, isAuthorized: (record) => authorizeStoredRequest(record, config),
+    workerJob: { ...provenance, id: "job-1", status: "running", threadId: "thread-1", transport: "sdk" },
+    workerResult: { turn: { response: "authorized recovered answer" }, threadId: "thread-1" },
+    turnOverrides: { recordActiveTurnCompleted: (chatKey) => removeActiveTurnSnapshot(h.recoveryDir, chatKey) } });
+  await replaceActiveTurnSnapshot(h.recoveryDir, "7", { ...provenance, inputPreview: "resume", recoveryEligible: true, startedAt: new Date().toISOString(), workerEventSeq: 0, workerJobId: "job-1" });
+  assert.equal(await h.controller.recoverActiveWorkerJobs({ source: "test" }), 1);
+  for (let i = 0; i < 300 && !h.answerReplies.length; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(h.answerReplies.length, 1);
+  for (let i = 0; i < 300 && h.activeTurns.size; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(h.activeTurns.size, 0);
+  assert.equal(await h.controller.recoverActiveWorkerJobs({ source: "test" }), 0);
+  assert.equal(h.answerReplies.length, 1);
 });

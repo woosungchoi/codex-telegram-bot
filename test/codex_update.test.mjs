@@ -1,3 +1,4 @@
+import { approveUpdate } from "./helpers/security17.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -7,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { readConfig } from "../src/config.js";
 import { textFor } from "../src/i18n.js";
 import { createCodexUpdateController } from "../src/maintenance/update_controller.js";
-import { codexInstallation, latestCodexVersion, newerVersion, stageCodexRelease } from "../src/maintenance/update_install.js";
+import { codexInstallation, latestCodexVersion, newerVersion, stageCodexRelease as stageRelease } from "../src/maintenance/update_install.js";
 import { runCodexUpdate } from "../src/maintenance/update_runner.js";
 import { claimUpdate, readUpdateState, releaseUpdate, updateAdmissionPaused, updateLockPath, writeUpdateState } from "../src/maintenance/update_state.js";
 
@@ -35,6 +36,10 @@ async function fixture(t) {
   config.codexPath = bin;
   const installation = { bin, real: path.join(old, "bin", "codex"), root, current: "0.158.0", supported: true };
   const state = { id: randomUUID(), unit: "test-update.service", phase: "launching", target: "0.159.0", sdk: { version: "0.159.0", lockSha256: "a".repeat(64), integrity: `sha512-${Buffer.alloc(64).toString("base64")}` }, installation };
+  config.maintenanceControlDir = await fs.mkdtemp(path.join(os.tmpdir(), "update-control-"));
+  t.after(() => fs.rm(config.maintenanceControlDir, { recursive: true, force: true }));
+  config.codexUpdateTrustFile = path.join(dir, "trust.json");
+  await fs.writeFile(config.codexUpdateTrustFile, JSON.stringify({ artifacts: [{ ...tarFixture().entry, version: state.target, sdk: state.sdk }] }), { mode: 0o600 });
   const calls = [];
   let workerBusy = false, failVerify = false, failRollback = false;
   const run = async (command, args) => {
@@ -129,6 +134,7 @@ test("staging verifies the approved artifact before execution without changing t
 
 test("successful update switches both links only after idle and verifies services", async (t) => {
   const f = await fixture(t);
+  await approveUpdate(f.config, f.state);
   await claimUpdate(f.config, f.state);
   const result = await runCodexUpdate(f.config, f.state.id, f.deps);
   assert.equal(result.phase, "succeeded");
@@ -143,6 +149,7 @@ test("successful update switches both links only after idle and verifies service
 
 test("updater waits for a restarted worker socket before starting the bot or rolling back", async (t) => {
   const f = await fixture(t);
+  await approveUpdate(f.config, f.state);
   await claimUpdate(f.config, f.state);
   let checks = 0;
   const result = await runCodexUpdate(f.config, f.state.id, {
@@ -166,6 +173,7 @@ test("updater waits for a restarted worker socket before starting the bot or rol
 
 test("a worker that never becomes ready on the new release triggers a bounded rollback", async (t) => {
   const f = await fixture(t);
+  await approveUpdate(f.config, f.state);
   await claimUpdate(f.config, f.state);
   const result = await runCodexUpdate(f.config, f.state.id, {
     ...f.deps, workerReadyTimeoutMs: 3000,
@@ -184,6 +192,7 @@ test("a worker that never becomes ready on the new release triggers a bounded ro
 
 test("busy worker timeout leaves jobs, services and original CLI untouched", async (t) => {
   const f = await fixture(t); f.busy();
+  await approveUpdate(f.config, f.state);
   await claimUpdate(f.config, f.state);
   const result = await runCodexUpdate(f.config, f.state.id, f.deps);
   assert.equal(result.phase, "failed");
@@ -195,6 +204,7 @@ test("busy worker timeout leaves jobs, services and original CLI untouched", asy
 test("verification failure restores both selection links and restarts prior services", async (t) => {
   const f = await fixture(t); f.failVerify();
   await fs.writeFile(path.join(f.state.installation.root, "auto-update-version"), "0.158.0-linux");
+  await approveUpdate(f.config, f.state);
   await claimUpdate(f.config, f.state);
   const result = await runCodexUpdate(f.config, f.state.id, f.deps);
   assert.equal(result.phase, "rolled_back");
@@ -206,6 +216,7 @@ test("verification failure restores both selection links and restarts prior serv
 
 test("a crash after requesting bot stop resumes it before retrying preparation", async (t) => {
   const f = await fixture(t);
+  await approveUpdate(f.config, f.state);
   await claimUpdate(f.config, f.state);
   await writeUpdateState(f.config, { ...f.state, phase: "waiting_idle", botStopRequested: true });
   const result = await runCodexUpdate(f.config, f.state.id, { ...f.deps,
@@ -217,6 +228,7 @@ test("a crash after requesting bot stop resumes it before retrying preparation",
 
 test("failed rollback keeps admission paused and the run available for recovery", async (t) => {
   const f = await fixture(t); f.failVerify(); f.failRollback();
+  await approveUpdate(f.config, f.state);
   await claimUpdate(f.config, f.state);
   const result = await runCodexUpdate(f.config, f.state.id, f.deps);
   assert.equal(result.phase, "rollback_failed");
@@ -226,6 +238,7 @@ test("failed rollback keeps admission paused and the run available for recovery"
 
 test("a detached updater restart restores an uncertain selection without reapplying", async (t) => {
   const f = await fixture(t);
+  await approveUpdate(f.config, f.state);
   await claimUpdate(f.config, f.state);
   await writeUpdateState(f.config, { ...f.state, phase: "verifying", services: ["bot.service", "worker.service"],
     previousLinks: { bin: f.state.installation.real, current: f.old } });
@@ -297,7 +310,7 @@ test("panel preview is bound to administrator and message, with exact topic stor
   await f.controller.handle(f.ctx, "codex_update_start", id);
   await f.controller.handle(f.ctx, "codex_update_start", id);
   assert.equal(f.launches.length, 1);
-  assert.deepEqual((await readUpdateState(f.config)).origin, { botId: "123", chatId: "-100", threadId: "7", messageId: "88" });
+  assert.deepEqual((await readUpdateState(f.config)).origin, { authorizationVersion: 1, requesterUserId: "42", chatType: "supergroup", isForum: false, accountId: "default", messageThreadId: 7, botId: "123", chatId: "-100", threadId: "7", messageId: "88" });
 });
 
 test("update cannot launch without a durable panel message ID", async (t) => {
@@ -333,6 +346,7 @@ test("update panel without approved trust shows no executable update button", as
 
 test("SDK preparation failure never stops services or switches CLI", async (t) => {
   const f = await fixture(t);
+  await approveUpdate(f.config, f.state);
   await claimUpdate(f.config, f.state);
   const result = await runCodexUpdate(f.config, f.state.id, { ...f.deps,
     dependencies: { ...f.deps.dependencies, stage: async () => { throw new Error("SDK tests failed"); } }
@@ -344,6 +358,7 @@ test("SDK preparation failure never stops services or switches CLI", async (t) =
 
 test("SDK activation failure rolls back dependencies and CLI before service restart", async (t) => {
   const f = await fixture(t), actions = [];
+  await approveUpdate(f.config, f.state);
   await claimUpdate(f.config, f.state);
   const result = await runCodexUpdate(f.config, f.state.id, { ...f.deps,
     dependencies: { ...f.deps.dependencies,
@@ -358,6 +373,7 @@ test("SDK activation failure rolls back dependencies and CLI before service rest
 
 test("SDK version mismatch after restart restores the previous pair", async (t) => {
   const f = await fixture(t); let restored = false;
+  await approveUpdate(f.config, f.state);
   await claimUpdate(f.config, f.state);
   const result = await runCodexUpdate(f.config, f.state.id, { ...f.deps,
     dependencies: { ...f.deps.dependencies, version: async () => "0.151.0", restore: async () => { restored = true; } }
@@ -396,6 +412,7 @@ test("failed SDK preparation removes only this run's unselected CLI artifact", a
   const f = await fixture(t);
   const staged = path.join(f.state.installation.root, "releases", `prepared-${f.state.id}`);
   await fs.mkdir(staged);
+  await approveUpdate(f.config, f.state);
   await claimUpdate(f.config, f.state);
   const result = await runCodexUpdate(f.config, f.state.id, { ...f.deps, stage: async () => staged,
     dependencies: { ...f.deps.dependencies, stage: async () => { throw new Error("SDK unavailable"); } }
@@ -404,4 +421,25 @@ test("failed SDK preparation removes only this run's unselected CLI artifact", a
   await assert.rejects(fs.access(staged), { code: "ENOENT" });
   await fs.access(f.old);
   await fs.access(f.release);
+});
+
+async function stageCodexRelease(config, state, run) { await approveUpdate(config, state); return stageRelease(config, state, run); }
+
+test("detached update rejects changed approved configuration before service or binary execution", async (t) => {
+  const f = await fixture(t);
+  await approveUpdate(f.config, f.state);
+  await claimUpdate(f.config, f.state);
+  f.config.codexUpdateBotService = "another.service";
+  await assert.rejects(runCodexUpdate(f.config, f.state.id, f.deps), /differs from the operator approval/);
+  assert.deepEqual(f.calls, []);
+});
+test("same version with different approved artifact bytes cannot replace a confirmed update", async (t) => {
+  const f = await fixture(t);
+  await approveUpdate(f.config, f.state);
+  await claimUpdate(f.config, f.state);
+  const trust = JSON.parse(await fs.readFile(f.config.codexUpdateTrustFile));
+  trust.artifacts[0].sha256 = "b".repeat(64);
+  await fs.writeFile(f.config.codexUpdateTrustFile, JSON.stringify(trust));
+  await assert.rejects(runCodexUpdate(f.config, f.state.id, f.deps), /differs from the operator approval/);
+  assert.deepEqual(f.calls, []);
 });

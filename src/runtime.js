@@ -1,3 +1,5 @@
+import { requireControlSeparation } from "./maintenance/control_receipt.js";
+import { requireOperator } from "./operator_authorization.js";
 import { authorizeStoredRequest } from "./authorization.js";
 import "dotenv/config";
 
@@ -264,6 +266,7 @@ const {
   setQueuePaused,
   startPersistedQueues,
   startQueueDrainIfIdle,
+  sideTurnRecords,
   stopSideTurns,
   trackSideTurn,
   untrackSideTurn
@@ -276,7 +279,7 @@ const {
   settings: {
     isAuthorized: (record) => authorizeStoredRequest(record, config, bot.botInfo?.id),
     maxPendingTurns: () => runtimeValue("telegramPendingTurnsMax"),
-    admissionPaused: () => updateAdmissionPaused(config),
+    admissionPaused: () => config.maintenanceBusy === true || updateAdmissionPaused(config),
     maxPendingAgeSeconds: () => runtimeValue("telegramPendingTurnMaxAgeSeconds")
   },
   chats: {
@@ -388,6 +391,7 @@ const {
     model: config.codexModel,
     networkAccessEnabled: config.codexNetworkAccess,
     webSearchEnabled: config.codexWebSearchEnabled,
+    inputDirectories: (chatKey) => activeTurns.get(chatKey)?.currentPreparedTurn?.inputDirectories || [],
     additionalDirectories: config.codexAdditionalDirectories,
     uploadDir: config.uploadDir
   },
@@ -627,6 +631,8 @@ const {
   }
 });
 maintenanceController = createCodexMaintenanceController({
+  activeTurns,
+  countSideTurns,
   settings: {
     config
   },
@@ -1072,8 +1078,15 @@ const {
     retentionDays: () => runtimeValue("cleanupRetentionDays"),
     quarantineDays: () => runtimeValue("cleanupQuarantineDays"),
     artifactDir: config.cleanupArtifactDir,
+    controlDir: config.maintenanceControlDir,
+    validateControl: () => requireControlSeparation(config.maintenanceControlDir, [config.codexWorkdir, ...(config.codexAdditionalDirectories || []), config.codexUpdateAppRoot, config.cleanupArtifactDir, config.uploadDir]),
+    restoreProgram: config.maintenanceRestoreScript,
     sessionsDir: config.codexSessionsDir,
     quarantineDir: config.cleanupQuarantineDir,
+    operatorForChat: (chatId) => {
+      if (!config.operatorUserIds?.has(String(chatId))) return null;
+      return requireOperator({ from: { id: chatId }, chat: { id: chatId, type: "private" }, botInfo: bot.botInfo }, config);
+    },
     notifyChatIds: config.cleanupNotifyChatIds,
     maintenanceLogRotateMb: config.codexMaintenanceLogRotateMb,
     dateKey: getLocalDateKey
@@ -1268,6 +1281,7 @@ hydratePendingTurnsFromState();
   setQueueMode,
   setQueuePaused,
   startQueueDrainIfIdle,
+  sideTurnRecords,
   stopSideTurns,
   appendCleanupLog,
   createCleanupPlan,

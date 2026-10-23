@@ -1,11 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFile as execFileCallback, spawn } from "node:child_process";
-import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 import { gzipSync } from "node:zlib";
 import {
   buildCleanupArtifactRetentionManifest,
@@ -15,21 +12,6 @@ import {
 import { cleanupRestoreScript } from "../src/maintenance/cleanup.js";
 
 const DAY_MS = 86_400_000;
-const execFile = promisify(execFileCallback);
-
-async function waitForPath(filePath, timeoutMs = 5_000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      await fs.lstat(filePath);
-      return;
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error(`timed out waiting for ${filePath}`);
-}
 
 async function setTreeMtime(root, date) {
   const entries = await fs.readdir(root, { withFileTypes: true });
@@ -432,91 +414,6 @@ test("noncanonical cleanup JSONL row timestamps block archive retention with no 
   }
 });
 
-test("generated restore script publishes and clears an active restore reference", () => {
-  const source = cleanupRestoreScript("/tmp/artifact/manifest.jsonl");
-  assert.match(source, /\.restore-active\.json/);
-  assert.match(source, /restore-complete\.json/);
-  assert.match(source, /manifestSha256/);
-  assert.match(source, /hashlib\.sha256/);
-  assert.match(source, /os\.O_EXCL/);
-  assert.match(source, /finally:/);
-  assert.match(source, /active_ref\.unlink/);
-});
-
-test("generated restore script is valid Python", async (t) => {
-  const base = await fs.mkdtemp(path.join(os.tmpdir(), "codex-restore-script-"));
-  const script = path.join(base, "restore-cleanup.py");
-  t.after(() => fs.rm(base, { recursive: true, force: true }));
-  await fs.writeFile(script, cleanupRestoreScript("/tmp/artifact/manifest.jsonl"));
-  await execFile("python3", ["-m", "py_compile", script]);
-});
-
-test("generated restore script executes and hashes one pinned manifest byte buffer", async (t) => {
-  const base = await fs.mkdtemp(path.join(os.tmpdir(), "codex-restore-pinned-bytes-"));
-  const artifact = path.join(base, "artifact");
-  const manifest = path.join(artifact, "manifest.jsonl");
-  const script = path.join(artifact, "restore-cleanup.py");
-  const source = path.join(base, "source");
-  const destination = path.join(base, "restored-source");
-  await fs.mkdir(artifact, { recursive: true });
-  await fs.mkdir(source);
-  await fs.writeFile(path.join(source, "sentinel.txt"), "original\n");
-  t.after(() => fs.rm(base, { recursive: true, force: true }));
-
-  const originalBytes = [
-    JSON.stringify({ type: "quarantine", to: source, from: destination }),
-    ...Array.from({ length: 50_000 }, (_, index) => JSON.stringify({
-      type: "delete",
-      backup: path.join(base, `missing-${index}`),
-      from: path.join(base, `unused-${index}`)
-    }))
-  ].join("\n") + "\n";
-  const replacementBytes = `${JSON.stringify({ type: "delete", backup: "/replacement", from: "/not-executed" })}\n`;
-  await fs.writeFile(manifest, originalBytes);
-  await fs.writeFile(script, cleanupRestoreScript(manifest));
-
-  const child = spawn("python3", [script], { stdio: ["ignore", "ignore", "pipe"] });
-  let stderr = "";
-  child.stderr.setEncoding("utf8");
-  child.stderr.on("data", (chunk) => { stderr += chunk; });
-  const completed = new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", (code) => {
-      resolve({ code, stderr });
-    });
-  });
-
-  await waitForPath(destination);
-  await fs.writeFile(manifest, replacementBytes);
-  const result = await completed;
-
-  assert.notEqual(result.code, 0, result.stderr);
-  assert.equal(await fs.readFile(path.join(destination, "sentinel.txt"), "utf8"), "original\n");
-  await assert.rejects(fs.lstat(path.join(artifact, "restore-complete.json")), { code: "ENOENT" });
-  await assert.rejects(fs.lstat(path.join(artifact, ".restore-active.json")), { code: "ENOENT" });
-
-  const stableArtifact = path.join(base, "stable-artifact");
-  const stableManifest = path.join(stableArtifact, "manifest.jsonl");
-  const stableScript = path.join(stableArtifact, "restore-cleanup.py");
-  const stableBackup = path.join(base, "stable-backup.txt");
-  const stableDestination = path.join(base, "stable-destination.txt");
-  const stableBytes = `${JSON.stringify({ type: "delete", backup: stableBackup, from: stableDestination })}\n`;
-  await fs.mkdir(stableArtifact);
-  await fs.writeFile(stableBackup, "restored once\n");
-  await fs.writeFile(stableManifest, stableBytes);
-  await fs.writeFile(stableScript, cleanupRestoreScript(stableManifest));
-  await execFile("python3", [stableScript]);
-  const stableMarker = JSON.parse(
-    await fs.readFile(path.join(stableArtifact, "restore-complete.json"), "utf8")
-  );
-  assert.equal(
-    stableMarker.manifestSha256,
-    crypto.createHash("sha256").update(stableBytes).digest("hex")
-  );
-  assert.equal(await fs.readFile(stableDestination, "utf8"), "restored once\n");
-
-  await fs.writeFile(stableDestination, "changed after restore\n");
-  await assert.rejects(execFile("python3", [stableScript]), /restore already completed/);
-  assert.equal(await fs.readFile(stableDestination, "utf8"), "changed after restore\n");
-  await assert.rejects(fs.lstat(path.join(stableArtifact, ".restore-active.json")), { code: "ENOENT" });
+test("generated restore scripts are refused; restore executes only the trusted installed utility", () => {
+  assert.throws(() => cleanupRestoreScript("/tmp/untrusted/manifest.jsonl"), /disabled/);
 });

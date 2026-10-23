@@ -1,3 +1,4 @@
+import { operatorCtx, operatorConfig } from "./helpers/security17.mjs";
 import test from "node:test";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -24,7 +25,7 @@ function createFixture(config = {}) {
   const handlers = registerAdminCommands({
     bot,
     settings: {
-      config: { botRecoveryDir: "/tmp/recovery", backupAdminUserIds: new Set(["7"]), allowedUserIds: new Set(["7", "8"]), ...config },
+      config: { ...operatorConfig, botRecoveryDir: "/tmp/recovery", backupAdminUserIds: new Set(["7"]), allowedUserIds: new Set(["7", "8"]), ...config },
       runtimeValue: () => true,
       validQueueModes: new Set(["safe", "steer", "interrupt", "side"])
     },
@@ -101,7 +102,7 @@ function createFixture(config = {}) {
 
 test("stopping from a menu keeps previous navigation even when no turn is running", async () => {
   const { calls, handlers } = createFixture();
-  await handlers.handleStopCommand({ callbackQuery: { data: "act:stop" } });
+  await handlers.handleStopCommand({ ...operatorCtx, callbackQuery: { data: "act:stop" } });
   const buttons = calls.find(([name]) => name === "reply")[3].reply_markup.inline_keyboard.flat();
   assert.ok(buttons.some((button) => button.text.startsWith("⬅️ ") && button.callback_data === "p:main"));
 });
@@ -115,15 +116,15 @@ test("admin router registers operational and cleanup commands", () => {
 
 test("queue mode shortcut persists the same mode value", async () => {
   const { calls, commands } = createFixture();
-  await commands.get("queue_mode_side")({});
-  assert.deepEqual(calls[0], ["setMode", "chat", "side"]);
+  await commands.get("queue_mode_side")(operatorCtx);
+  assert.deepEqual(calls[0], ["setMode", "7", "side"]);
 });
 
 test("stop command marks and aborts an active turn before clearing its queue", async () => {
   const { activeTurns, calls, handlers } = createFixture();
   const abortController = new AbortController();
-  activeTurns.set("chat", { abortController, workerJobId: "job" });
-  await handlers.handleStopCommand({});
+  activeTurns.set("7", { abortController, workerJobId: "job" });
+  await handlers.handleStopCommand(operatorCtx);
   assert.equal(abortController.signal.aborted, true);
   assert.deepEqual(calls.slice(0, 2), [["markStopped"], ["cancelWorker"]]);
 });
@@ -132,9 +133,9 @@ test("stop in a forum topic leaves other topics and General running", async () =
   const { activeTurns, handlers } = createFixture();
   const controllers = [new AbortController(), new AbortController(), new AbortController()];
   for (const [i, key] of ["-100123:topic:40", "-100123:topic:41", "-100123"].entries()) {
-    activeTurns.set(key, { abortController: controllers[i] });
+    activeTurns.set(key, { currentPreparedTurn: { authorizationVersion: 1, requesterUserId: "7", botId: "12345", accountId: "default", chatId: -100123, chatType: "supergroup", messageThreadId: 40 }, abortController: controllers[i] });
   }
-  await handlers.handleStopCommand({ chat: { id: -100123, type: "supergroup" }, message: { message_thread_id: 40 } });
+  await handlers.handleStopCommand({ ...operatorCtx, chat: { id: -100123, type: "supergroup" }, message: { message_thread_id: 40 } });
   assert.deepEqual(controllers.map((c) => c.signal.aborted), [true, false, false]);
 });
 
@@ -148,7 +149,7 @@ test("steer commands select the mode in the requesting topic without stopping wo
     const f = createFixture();
     const abortController = new AbortController();
     f.activeTurns.set("-100123:topic:40", { abortController });
-    await f.commands.get(name)({ args: "mode steer", chat: { id: -100123, type: "supergroup" }, message: { message_thread_id: 40 } });
+    await f.commands.get(name)({ ...operatorCtx, args: "mode steer", chat: { id: -100123, type: "supergroup" }, message: { message_thread_id: 40 } });
     assert.deepEqual(f.calls[0], ["setMode", "-100123:topic:40", "steer"]);
     assert.equal(abortController.signal.aborted, false);
     assert.equal(f.calls.some(([name]) => name === "cancelWorker"), false);

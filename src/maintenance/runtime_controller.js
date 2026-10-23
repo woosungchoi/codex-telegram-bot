@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { readBoundedFile } from "../fs/bounded.js";
+import { requireOperator, verifyOperator, operatorContext } from "../operator_authorization.js";
 import { anchoredCreate } from "../fs/anchored.js";
 import { randomUUID } from "node:crypto";
 import { createMessageFormatter } from "../i18n.js";
@@ -18,6 +21,8 @@ const execFileAsync = promisify(execFile);
 
 export function createCodexMaintenanceController({
   settings,
+  activeTurns = new Map(),
+  countSideTurns = () => 0,
   state,
   threadCache,
   chats,
@@ -77,10 +82,19 @@ export function createCodexMaintenanceController({
     return run("report");
   }
 
-  async function run(action) {
+  let running = false;
+  async function run(action, ctx) {
     const config = settings.config;
+    if (!ctx && action === "sqlite-metadata-repair") ctx = operatorContext(state.maintenance?.operator);
+    const authorization = action !== "report" ? requireOperator(ctx, config) : null;
+    if (running || (action !== "report" && (activeTurns.size || countSideTurns()))) throw new Error("Shared maintenance is busy with an active turn.");
+    running = true;
+    config.maintenanceBusy = action !== "report";
+    try {
+    const helper = await readBoundedFile(config.codexMaintenanceScript, 1024 * 1024, { privateMode: true });
+    if (createHash("sha256").update(helper).digest("hex") !== "c6d7e3778077a0794a6743ee69544dedb0d07c9b15a2133cc86907fc2916e2c2") throw new Error("Maintenance helper integrity mismatch.");
     const args = [
-      config.codexMaintenanceScript,
+      "-c", helper.toString("utf8"),
       action,
       "--codex-home",
       config.codexHome,
@@ -102,11 +116,13 @@ export function createCodexMaintenanceController({
         )
       );
     }
+    if (authorization) { verifyOperator(ctx, config, authorization); if (activeTurns.size || countSideTurns()) throw new Error("Shared maintenance is busy with an active turn."); }
     const { stdout } = await runProcess("python3", args, {
       timeout: 300000,
       maxBuffer: 4 * 1024 * 1024
     });
     return parseCodexMaintenanceOutput(stdout);
+    } finally { running = false; config.maintenanceBusy = false; }
   }
 
   function formatReport(report) {

@@ -1,7 +1,9 @@
+import { anchoredCreate } from "../fs/anchored.js";
+import { randomUUID } from "node:crypto";
 import { requireFullBackup } from "./backup_authorization.js";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { ensurePrivateDirectory, writePrivateFile } from "../fs/private.js";
+
 import { serializePendingTurn } from "../queue.js";
 import { safeFilename } from "../utils/text.js";
 import { timestampForFilename } from "../utils/time.js";
@@ -50,7 +52,6 @@ export function createBackupController({
 
   async function writeStateBackup(source) {
     const config = settings.config;
-    await ensurePrivateDirectory(config.backupDir);
     const createdAt = now().toISOString();
     const payload = {
       createdAt,
@@ -69,9 +70,9 @@ export function createBackupController({
     };
     const filePath = path.join(
       config.backupDir,
-      `${timestampForFilename(createdAt)}-${source}.json`
+      `${timestampForFilename(createdAt)}-${randomUUID()}-${source}.json`
     );
-    await writePrivateFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    await createBackupFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
     await pruneOldBackups();
     const stat = await fs.stat(filePath);
     return { path: filePath, bytes: stat.size, chatCount: payload.stats.chats };
@@ -79,7 +80,6 @@ export function createBackupController({
 
   async function createChatExport(chatKey) {
     const config = settings.config;
-    await ensurePrivateDirectory(config.backupDir);
     const createdAt = now().toISOString();
     const chat = chats.get(chatKey);
     const payload = {
@@ -93,9 +93,9 @@ export function createBackupController({
     };
     const filePath = path.join(
       config.backupDir,
-      `${timestampForFilename(createdAt)}-chat-${safeFilename(chatKey)}.json`
+      `${timestampForFilename(createdAt)}-${randomUUID()}-chat-${safeFilename(chatKey)}.json`
     );
-    await writePrivateFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    await createBackupFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
     const stat = await fs.stat(filePath);
     return { path: filePath, bytes: stat.size };
   }
@@ -134,4 +134,8 @@ async function readOptionalText(file) {
     if (error?.code === "ENOENT") return "";
     throw error;
   }
+}
+
+async function createBackupFile(file, data) {
+  return anchoredCreate(path.dirname(file), path.basename(file), data);
 }

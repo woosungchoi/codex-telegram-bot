@@ -36,7 +36,9 @@ export async function downloadAttachment({ getLink, fetchImpl, agent, uploadDir,
     quota = await acquireUploadQuota(anchor, { quotaBytes, minFreeBytes });
     await quota.grow(0);
     const suffix = /^\.[a-zA-Z0-9]{1,10}$/.test(ext) ? ext.toLowerCase() : ".bin";
-    const name = `${randomUUID()}${suffix}`;
+    const capability = randomUUID();
+    await fs.mkdir(path.join(anchor, capability), { mode: 0o700 });
+    const name = `${capability}/${randomUUID()}${suffix}`;
     storedPath = path.join(anchor, name);
     handle = await fs.open(storedPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
     let bytes = 0;
@@ -55,7 +57,7 @@ export async function downloadAttachment({ getLink, fetchImpl, agent, uploadDir,
     controller.abort();
     response?.body?.destroy?.();
     await handle?.close().catch(() => {});
-    if (!complete && storedPath) await fs.unlink(storedPath).catch(() => {});
+    if (!complete && storedPath) { await fs.unlink(storedPath).catch(() => {}); await fs.rmdir(path.dirname(storedPath)).catch(() => {}); }
     await quota?.release();
     await directory?.close().catch(() => {});
     activeDownloads--;

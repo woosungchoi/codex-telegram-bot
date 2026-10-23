@@ -6,16 +6,32 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
-    name: Publish Release
+  verify:
+    name: Verify Release
     runs-on: ubuntu-latest
 
+    outputs:
+      commit: ${{ steps.provenance.outputs.commit }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify tag provenance before executing repository code
+        id: provenance
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          commit=$(git rev-parse "refs/tags/$TAG^{commit}")
+          git merge-base --is-ancestor "$commit" origin/main
+          test "$(git show "$commit:package.json" | jq -r .version)" = "${TAG#v}"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -36,11 +52,23 @@ jobs:
           version="v$(node -p "require('./package.json').version")"
           test "$GITHUB_REF_NAME" = "$version"
 
-      - name: Publish GitHub release
+  publish:
+    name: Publish Release
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # No checkout, dependencies or repository executable code in this job.
+      - name: Publish verified tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          APPROVED_COMMIT: ${{ needs.verify.outputs.commit }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 && exit 0
-          gh release create "$GITHUB_REF_NAME" \
-            --title "${GITHUB_REF_NAME#v}" \
-            --generate-notes
+          set -eu
+          commit=$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)
+          test "$commit" = "$APPROVED_COMMIT"
+          gh release view "$TAG" >/dev/null 2>&1 && exit 0
+          gh release create "$TAG" --verify-tag --target "$APPROVED_COMMIT" --title "${TAG#v}" --generate-notes

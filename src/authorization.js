@@ -7,7 +7,7 @@ export function authorizationError() {
 }
 
 export function provenanceFields(record = {}) {
-  return Object.fromEntries(["artifactAccountId", "artifactToken", "artifactTurnId", "artifactCreatedAt", "authorizationVersion", "botId", "requesterUserId", "chatType", "isForum", "accountId"]
+  return Object.fromEntries(["inputDirectories", "artifactAccountId", "artifactToken", "artifactTurnId", "artifactCreatedAt", "authorizationVersion", "botId", "requesterUserId", "chatType", "isForum", "accountId"]
     .filter((key) => record[key] !== undefined).map((key) => [key, record[key]]));
 }
 
