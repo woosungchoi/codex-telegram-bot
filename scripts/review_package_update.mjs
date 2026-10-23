@@ -3,9 +3,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { readCandidate, requirePackageApproval, validatePackageUpdate } from "./publish_package_update.mjs";
+import { validateRegistryLockUpdate } from "./codex_registry_policy.mjs";
 
 // This runs on a fresh read-only runner, never in the dependency test job.
-// Candidate hashes are review evidence, not a source of approval.
+// Automatic mode requires independent registry/base-lock validation first.
+// Legacy manual mode never treats candidate hashes as human approval.
 export function reviewPackageUpdate(base, data, approval = {}) {
   const candidate = JSON.parse(data["package.json"]);
   validatePackageUpdate(base, candidate, JSON.parse(data["package-lock.json"]));
@@ -27,11 +29,25 @@ export function reviewPackageUpdate(base, data, approval = {}) {
 async function main() {
   const data = await readCandidate(process.argv[2]);
   const base = JSON.parse(await fs.readFile("package.json", "utf8"));
-  const review = reviewPackageUpdate(base, data, {
+  const automatic = process.argv.includes("--automatic");
+  if (automatic) {
+    validatePackageUpdate(base, JSON.parse(data["package.json"]), JSON.parse(data["package-lock.json"]));
+    await validateRegistryLockUpdate(JSON.parse(await fs.readFile("package-lock.json", "utf8")), JSON.parse(data["package-lock.json"]));
+  }
+  const review = reviewPackageUpdate(base, data, automatic ? {
+    packageSha256: createHash("sha256").update(data["package.json"]).digest("hex"),
+    lockSha256: createHash("sha256").update(data["package-lock.json"]).digest("hex")
+  } : {
     packageSha256: process.env.CODEX_APPROVED_PACKAGE_SHA256,
     lockSha256: process.env.CODEX_APPROVED_LOCK_SHA256
   });
-  const summary = [
+  const summary = automatic ? [
+    "### Codex automatic update validation", "",
+    "Policy: owner-authorized CI-based updates. Registry metadata and the complete lock delta passed validation.",
+    `- SDK: ${review.sdk}`, `- CLI: ${review.cli}`,
+    `- package.json SHA256: ${review.packageSha256}`, `- package-lock.json SHA256: ${review.lockSha256}`, "",
+    "The publisher rechecks these exact bytes and registry metadata. The PR can merge only after all nine required checks pass on its current head.", ""
+  ].join("\n") : [
     "### Codex dependency candidate review", "",
     `Status: **${review.status}**`, "",
     `- SDK: \`${review.sdk}\``, `- CLI: \`${review.cli}\``,
@@ -46,6 +62,7 @@ async function main() {
   ].join("\n");
   if (process.env.GITHUB_STEP_SUMMARY) await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, summary);
   if (process.env.GITHUB_OUTPUT) await fs.appendFile(process.env.GITHUB_OUTPUT, `approved=${review.approved}\n`);
+  if (automatic && process.env.GITHUB_OUTPUT) await fs.appendFile(process.env.GITHUB_OUTPUT, `package_sha256=${review.packageSha256}\nlock_sha256=${review.lockSha256}\n`);
   console.log(summary);
 }
 

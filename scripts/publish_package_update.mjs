@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
+import { validateRegistryLockUpdate } from "./codex_registry_policy.mjs";
 
 const FILES = ["package-lock.json", "package.json"];
 const VERSION = /^\d+\.\d+\.\d+$/;
@@ -54,6 +55,8 @@ async function main() {
   requirePackageApproval(data, { packageSha256: process.env.CODEX_APPROVED_PACKAGE_SHA256, lockSha256: process.env.CODEX_APPROVED_LOCK_SHA256 });
   const base = JSON.parse(await fs.readFile("package.json", "utf8"));
   validatePackageUpdate(base, JSON.parse(data["package.json"]), JSON.parse(data["package-lock.json"]));
+  if (process.argv.includes("--automatic")) await validateRegistryLockUpdate(
+    JSON.parse(await fs.readFile("package-lock.json", "utf8")), JSON.parse(data["package-lock.json"]));
   const repo = process.env.GITHUB_REPOSITORY;
   const sha = process.env.BASE_SHA;
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo || "") || !/^[a-f0-9]{40}$/.test(sha || "")) throw new Error("Invalid trusted publication context.");
@@ -94,6 +97,6 @@ async function main() {
   if (existing.length) return;
   if (!existingRef) await api("git/refs", "POST", { ref: `refs/heads/${branch}`, sha: commit.sha });
   await api("pulls", "POST", { head: branch, base: "main", title: "Update Codex packages",
-    body: "Updates only the pinned Codex SDK/CLI packages. Installation and tests ran in a separate read-only job without publication credentials. Required PR checks and review still apply." });
+    body: "Updates only the pinned Codex SDK/CLI packages. Installation and tests ran in a separate read-only job without publication credentials. The CI-based dependency policy and all nine required exact-head checks still apply before automatic merge." });
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();
