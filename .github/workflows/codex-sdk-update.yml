@@ -110,11 +110,35 @@ jobs:
             package.json
             package-lock.json
           if-no-files-found: error
-          retention-days: 1
-  publish:
-    name: Validate data and create update PR
+          retention-days: 7
+  review:
+    name: Review candidate approval (read-only)
     needs: update
     if: needs.update.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      approved: ${{ steps.approval.outputs.approved }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package-update
+          path: ${{ runner.temp }}/package-update
+      - name: Validate candidate and report approval status
+        id: approval
+        env:
+          CODEX_APPROVED_PACKAGE_SHA256: ${{ vars.CODEX_APPROVED_PACKAGE_SHA256 }}
+          CODEX_APPROVED_LOCK_SHA256: ${{ vars.CODEX_APPROVED_LOCK_SHA256 }}
+        run: node scripts/review_package_update.mjs "$RUNNER_TEMP/package-update"
+  publish:
+    name: Validate data and create update PR
+    needs: [update, review]
+    if: needs.update.outputs.changed == 'true' && needs.review.outputs.approved == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write

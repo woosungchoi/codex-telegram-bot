@@ -63,6 +63,22 @@ The publisher uses repository variables `CODEX_APPROVED_PACKAGE_SHA256` and
 outside the candidate artifact/PR. These differ from the canonical lock digest.
 Codex changes require an explicit maintainer merge decision even after CI passes.
 
+The dependency update workflow validates candidates in a separate read-only job
+before starting the credentialed publisher. Missing approval is reported as
+`awaiting-approval`; valid hashes for different bytes are reported as
+`awaiting-new-approval`. Both leave publication skipped, without failing the
+scheduled test run. Malformed configured hashes or invalid candidate data still
+fail. The publisher retains its strict exact-byte approval check before any API
+writes, including when approval changes after the read-only check.
+
+The run summary records the tested SDK/CLI versions and both candidate hashes.
+Download the `package-update` artifact (retained for seven days), independently
+review the complete package/lock diff and provenance, and only then set the two
+repository variables above to the reviewed file hashes. Re-run the workflow;
+a different regenerated candidate needs fresh review. Never populate approval
+variables automatically from the test job or its artifact. Successful tests and
+an overall green run alone do not mean that packages were published or upgraded.
+
 Paired updates require Linux bubblewrap with usable mount, PID and network
 namespaces. Verification cannot fall back to host execution. A separate HOME or
 filtered environment does not prevent another same-UID process reading host
