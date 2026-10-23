@@ -89,12 +89,13 @@ test("workflow gates the write-capable job on separate read-only approval review
   assert.match(review, /contents: read/);
   assert.match(review, /ref: \$\{\{ github.sha \}\}/);
   assert.match(review, /review_package_update\.mjs/);
-  assert.match(review, /vars.CODEX_APPROVED_PACKAGE_SHA256/);
-  assert.match(review, /vars.CODEX_APPROVED_LOCK_SHA256/);
+  assert.match(review, /review_package_update\.mjs.*--automatic/);
+  assert.doesNotMatch(review, /vars.CODEX_APPROVED/);
   assert.doesNotMatch(review, /contents: write|pull-requests: write|secrets\.|npm (ci|install|test)|GH_TOKEN:/);
   assert.match(publish, /needs: \[update, review\]/);
   assert.match(publish, /needs.review.outputs.approved == 'true'/);
   assert.match(publish, /publish_package_update\.mjs/);
-  assert.match(publish, /vars.CODEX_APPROVED_PACKAGE_SHA256/);
-  assert.match(publish, /vars.CODEX_APPROVED_LOCK_SHA256/);
+  assert.match(publish, /needs.review.outputs.package_sha256/);
+  assert.match(publish, /needs.review.outputs.lock_sha256/);
+  assert.match(publish, /publish_package_update\.mjs.*--automatic/);
 });

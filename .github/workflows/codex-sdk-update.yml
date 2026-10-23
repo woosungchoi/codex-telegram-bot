@@ -112,7 +112,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   review:
-    name: Review candidate approval (read-only)
+    name: Validate automatic update policy (read-only)
     needs: update
     if: needs.update.outputs.changed == 'true'
     runs-on: ubuntu-latest
@@ -120,6 +120,8 @@ jobs:
       contents: read
     outputs:
       approved: ${{ steps.approval.outputs.approved }}
+      package_sha256: ${{ steps.approval.outputs.package_sha256 }}
+      lock_sha256: ${{ steps.approval.outputs.lock_sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -129,12 +131,9 @@ jobs:
         with:
           name: package-update
           path: ${{ runner.temp }}/package-update
-      - name: Validate candidate and report approval status
+      - name: Validate candidate against registry and trusted base lock
         id: approval
-        env:
-          CODEX_APPROVED_PACKAGE_SHA256: ${{ vars.CODEX_APPROVED_PACKAGE_SHA256 }}
-          CODEX_APPROVED_LOCK_SHA256: ${{ vars.CODEX_APPROVED_LOCK_SHA256 }}
-        run: node scripts/review_package_update.mjs "$RUNNER_TEMP/package-update"
+        run: node scripts/review_package_update.mjs "$RUNNER_TEMP/package-update" --automatic
   publish:
     name: Validate data and create update PR
     needs: [update, review]
@@ -156,6 +155,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.CODEX_AUTOMATION_TOKEN || github.token }}
           BASE_SHA: ${{ github.sha }}
-          CODEX_APPROVED_PACKAGE_SHA256: ${{ vars.CODEX_APPROVED_PACKAGE_SHA256 }}
-          CODEX_APPROVED_LOCK_SHA256: ${{ vars.CODEX_APPROVED_LOCK_SHA256 }}
-        run: node scripts/publish_package_update.mjs "$RUNNER_TEMP/package-update"
+          CODEX_APPROVED_PACKAGE_SHA256: ${{ needs.review.outputs.package_sha256 }}
+          CODEX_APPROVED_LOCK_SHA256: ${{ needs.review.outputs.lock_sha256 }}
+        run: node scripts/publish_package_update.mjs "$RUNNER_TEMP/package-update" --automatic

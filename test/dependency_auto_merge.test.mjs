@@ -1,5 +1,4 @@
 import test from "node:test";
-import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { updateKind, validateVersions, validateActions, checksPass, reconcile, REQUIRED_CHECKS } from "../scripts/merge_dependency_updates.mjs";
 const repo = "owner/repo", head = "a".repeat(40), base = "b".repeat(40);
@@ -45,6 +44,10 @@ async function scenario(options = {}) {
   const lock = { name: pkg.name, version: pkg.version, lockfileVersion: 3, packages: { "": candidate,
     "node_modules/@openai/codex-sdk": { version: "0.162.1", resolved: "https://registry.npmjs.org/sdk.tgz", integrity: "sha512-YQ==" },
     "node_modules/@openai/codex": { version: "0.160.1", resolved: "https://registry.npmjs.org/cli.tgz", integrity: "sha512-YQ==" } } };
+  const baseLock = globalThis.structuredClone(lock);
+  baseLock.packages[""] = pkg;
+  baseLock.packages["node_modules/@openai/codex-sdk"].version = "0.160.1";
+  if (options.lockAttack) options.lockAttack(lock);
   const api = async (url, method = "GET", body) => {
     if (method !== "GET") { writes.push({ url, method, body }); return { merged: true }; }
     if (url.startsWith("pulls?")) return [p];
@@ -53,31 +56,38 @@ async function scenario(options = {}) {
     if (url === "git/ref/heads/main") return { object: { sha: options.race && mainReads++ ? "c".repeat(40) : base } };
     if (url.startsWith("compare/")) return { merge_base_commit: { sha: base } };
     if (url.startsWith("contents/")) {
-      const data = url.includes("package-lock") ? lock : url.endsWith(base) ? pkg : candidate;
+      const data = url.includes("package-lock") ? (url.endsWith(base) ? baseLock : lock) : url.endsWith(base) ? pkg : candidate;
       return { type: "file", encoding: "base64", size: 1000, content: Buffer.from(JSON.stringify(data)).toString("base64") };
     }
     if (url.includes("/check-runs?")) { const c = options.checks || checks(); return { total_count: c.length, check_runs: c }; }
     if (url.endsWith("/status")) return { total_count: 0 };
     throw new Error(`Unexpected call ${url}`);
   };
-  const digest = value => createHash("sha256").update(JSON.stringify(value)).digest("hex");
-  const approval = { commit: head, packageSha256: digest(candidate), lockSha256: digest(lock), ...options.approval };
-  await reconcile({ repo, api, approval, log: v => logs.push(v), dryRun: options.dryRun });
+  const getMetadata = async (name, version) => {
+    if (options.registryError) throw new Error("Registry unavailable");
+    return { name, version, dist: { tarball: "https://registry.npmjs.org/sdk.tgz", integrity: "sha512-YQ==" } };
+  };
+  await reconcile({ repo, api, getMetadata, log: v => logs.push(v), dryRun: options.dryRun });
   return { writes, logs };
 }
 test("valid exact-head candidate merges with SHA guard", async () => {
   const { writes } = await scenario(); assert.deepEqual(writes, [{ url: "pulls/1/merge", method: "PUT", body: { sha: head, merge_method: "squash" } }]);
 });
-test("behind Codex approval waits for a fresh preview", async () => {
+test("behind Codex candidate refreshes the branch and waits for new CI", async () => {
   const { writes } = await scenario({ pr: { mergeable_state: "behind" } });
-  assert.deepEqual(writes, []);
+  assert.deepEqual(writes, [{ url: "pulls/1/update-branch", method: "PUT", body: { expected_head_sha: head } }]);
 });
 for (const [name, option] of Object.entries({ "dry run": { dryRun: true }, "head checks absent": { checks: [] }, "base race": { race: true }, "package script injection": { bad: true }, "extra file": { files: ["package.json", "evil.js"] }, "conflict": { pr: { mergeable_state: "dirty" } } })) {
   test(`${name} never mutates`, async () => assert.equal((await scenario(option)).writes.length, 0));
 }
 
-for (const approval of [{ commit: "" }, { commit: base }, { packageSha256: "0".repeat(64) }, { lockSha256: "0".repeat(64) }]) {
-  test(`Codex rejects mismatched independent approval ${JSON.stringify(approval)}`, async () => {
-    assert.equal((await scenario({ approval })).writes.length, 0);
+for (const [name, options] of Object.entries({
+  "registry unavailable": { registryError: true },
+  "registry integrity mismatch": { lockAttack: lock => { lock.packages["node_modules/@openai/codex-sdk"].integrity = "sha512-evil"; } },
+  "CLI bin mutation without version increase": { lockAttack: lock => { lock.packages["node_modules/@openai/codex"].bin = { node: "evil.js" }; } },
+  "lock structure injection": { lockAttack: lock => { lock.packages["node_modules/evil"] = { version: "1.0.0" }; } }
+})) {
+  test(`Codex refuses ${name} even with green CI`, async () => {
+    assert.equal((await scenario(options)).writes.length, 0);
   });
 }

@@ -58,26 +58,17 @@ It covers the SDK, CLI, optional platforms, integrity, bin entries and dependenc
 relationships. A checksum obtained from the candidate registry is not itself an
 independent approval. Keep the existing independently approved CLI archive digest.
 
-The publisher uses repository variables `CODEX_APPROVED_PACKAGE_SHA256` and
-`CODEX_APPROVED_LOCK_SHA256`: SHA256 of the exact original file bytes, managed
-outside the candidate artifact/PR. These differ from the canonical lock digest.
-Codex changes require an explicit maintainer merge decision even after CI passes.
+The public dependency workflows now use the owner's CI-based automatic update
+policy, documented in [dependency automation](dependency-automation.md). This
+2026-10-23 decision supersedes the earlier requirement for manually maintained
+`CODEX_APPROVED_PACKAGE_SHA256` / `CODEX_APPROVED_LOCK_SHA256` repository variables.
+The read-only validator checks the candidate against the trusted base lock and
+fresh official npm metadata, then supplies exact-byte hashes only to the separate
+publisher. The publisher revalidates the registry and those hashes before writes.
+The standalone helper's legacy manual-approval mode remains fail-closed.
 
-The dependency update workflow validates candidates in a separate read-only job
-before starting the credentialed publisher. Missing approval is reported as
-`awaiting-approval`; valid hashes for different bytes are reported as
-`awaiting-new-approval`. Both leave publication skipped, without failing the
-scheduled test run. Malformed configured hashes or invalid candidate data still
-fail. The publisher retains its strict exact-byte approval check before any API
-writes, including when approval changes after the read-only check.
-
-The run summary records the tested SDK/CLI versions and both candidate hashes.
-Download the `package-update` artifact (retained for seven days), independently
-review the complete package/lock diff and provenance, and only then set the two
-repository variables above to the reviewed file hashes. Re-run the workflow;
-a different regenerated candidate needs fresh review. Never populate approval
-variables automatically from the test job or its artifact. Successful tests and
-an overall green run alone do not mean that packages were published or upgraded.
+This changes public dependency PR automation only. Local CLI/SDK installation
+still requires its independently approved trust manifest and isolation below.
 
 Paired updates require Linux bubblewrap with usable mount, PID and network
 namespaces. Verification cannot fall back to host execution. A separate HOME or

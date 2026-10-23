@@ -10,7 +10,7 @@ Scope: the 2026-10-23 report against public commit `ee20dd2f7630e5dba594490acfe8
 | 4 | Global restart/recovery commands and callbacks require a private operator. Persisted lifecycle operations recheck current authorization before execution. Revoked self-restart requests do not fall through to an unconditional exit. |
 | 5 | Host Python receives bounded, no-follow, owner/mode-checked helper bytes matching the bundled approved SHA-256. Python executes the checked in-memory source rather than reopening the mutable helper path. |
 | 6 | Release tag ancestry and package version are checked before install. Build/tests have read-only permissions and no persisted checkout credential. A separate write job checks the verified commit and publishes without checkout or repository code execution. |
-| 7 | Publisher verifies existing branch/PR head against its deterministic approved commit. The actual public auto-merger requires independently configured exact commit and package/lock hashes; rebasing requires renewed approval. |
+| 7 | Publisher verifies existing branch/PR head against its deterministic validated commit. The owner subsequently authorized CI-based automatic updates: the merger revalidates registry metadata, lock scope and all exact-head checks; rebased branches require fresh CI. |
 | 8 | Backups and exports use random exclusive files with anchored, no-follow creation, single-link checks, private modes and fsync. |
 | 9 | Global settings require the operator role; destructive confirmation is bound to actor, bot/chat and value, expires and is consumed once. |
 | 10 | No automatic grant of the shared upload root. Attachments have separate capability directories and aggregate quota accounting. Inline, sidecar and parallel turns receive their own directories; resumed sessions replace earlier writable-root grants. Stored uploads retain the existing retention policy. |
@@ -33,7 +33,7 @@ Provision `MAINTENANCE_CONTROL_DIR` with mode 0700 for the service identity, out
 
 Control records are single use and fail closed after uncertain partial restoration; inspect the retained claim and file identities instead of deleting claims to retry blindly. Restore requires existing original parent directories and refuses cross-device moves or existing destinations.
 
-CLI/SDK updates remain disabled unless independently approved trust metadata and namespace isolation are available. Public auto-merge additionally needs repository variables `CODEX_APPROVED_COMMIT`, `CODEX_APPROVED_PACKAGE_SHA256`, and `CODEX_APPROVED_LOCK_SHA256`, maintained by authorized reviewers. A successful CI run is not artifact approval.
+CLI/SDK updates remain disabled unless independently approved trust metadata and namespace isolation are available. Public auto-merge now follows the owner-authorized [CI-based dependency policy](dependency-automation.md), superseding the earlier three manual approval variables. It also checks registry metadata and the complete lock delta; CI alone does not authorize arbitrary PRs or package graphs.
 
 ## Boundary and validation limits
 
