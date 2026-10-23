@@ -7,8 +7,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { loadNotificationAccess, notificationTarget, sendBackgroundNotification } from "../src/telegram/background_notification.js";
 
-const target = { botId: "12345", chatId: "67890", threadId: "" };
-const access = { allowedUserIds: new Set(["67890"]), allowedChatIds: new Set(["-1001"]), allowedThreadIds: new Set() };
+const target = { requesterUserId: "67890", authorizationVersion: 1, chatType: "private", isForum: false, accountId: "default", botId: "12345", chatId: "67890", threadId: "" };
+const access = { allowedUserIds: new Set(["67890"]), allowedChatIds: new Set(["-1001", "67890"]), allowedThreadIds: new Set() };
 const sent = { from: { id: 12345 }, chat: { id: 67890 }, message_id: 21 };
 const apiError = (code, retryAfter) => Object.assign(new Error("api error"), {
   response: { error_code: code, description: "rejected", parameters: { retry_after: retryAfter } }
@@ -19,7 +19,7 @@ async function fixture(t) {
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const calls = [];
   const config = {
-    target, text: "✅ 기사 배포 완료", receiptPath: path.join(root, "receipt.json"), sleep: async () => {},
+    authorize: async () => {}, target, text: "✅ 기사 배포 완료", receiptPath: path.join(root, "receipt.json"), sleep: async () => {},
     telegram: {
       getMe: async () => ({ id: 12345, is_bot: true, username: "expected_bot" }),
       sendMessage: async (...args) => { calls.push(args); return sent; }

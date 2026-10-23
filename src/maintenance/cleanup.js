@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
+import { anchoredCreate } from "../fs/anchored.js";
+import { signControlRecord, controlKey, DEFAULT_CONTROL_DIR } from "./control_receipt.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
   ensurePrivateDirectory,
-  hardenPrivateTree,
-  writePrivateFile
+  hardenPrivateTree
 } from "../fs/private.js";
 
 export function buildCleanupArtifactPaths({ cleanupArtifactDir, dateKey, planId, action }) {
@@ -17,23 +19,28 @@ export function buildCleanupArtifactPaths({ cleanupArtifactDir, dateKey, planId,
   };
 }
 
-export async function createCleanupArtifact({ plan, action, cleanupArtifactDir, dateKey }) {
+export async function createCleanupArtifact({ plan, action, cleanupArtifactDir, dateKey, controlDirectory = DEFAULT_CONTROL_DIR, restoreProgram = "/usr/local/lib/codex-telegram-bot/restore-cleanup.py" }) {
   const artifact = buildCleanupArtifactPaths({
     cleanupArtifactDir,
     dateKey,
     planId: plan.id,
     action
   });
-  await ensurePrivateDirectory(artifact.dir);
-  await writePrivateFile(path.join(artifact.dir, "plan.json"), `${JSON.stringify(plan, null, 2)}\n`, "utf8");
-  await writePrivateFile(artifact.restoreScript, cleanupRestoreScript(artifact.manifest), "utf8");
+  await controlKey(controlDirectory);
+  artifact.controlDirectory = controlDirectory;
+  artifact.id = `cleanup-${plan.id}`;
+  artifact.operator = plan.operator || { source: plan.source };
+  await anchoredCreate(artifact.dir, "plan.json", `${JSON.stringify(plan, null, 2)}\n`, "utf8");
+  artifact.restoreScript = `${shellQuote(restoreProgram)} --control-dir ${shellQuote(controlDirectory)} --id ${shellQuote(artifact.id)}`;
   return artifact;
 }
 
 export async function finalizeCleanupArtifact(artifact, operations, result) {
   const lines = operations.map((operation) => JSON.stringify(operation));
-  await writePrivateFile(artifact.manifest, `${lines.join("\n")}${lines.length ? "\n" : ""}`, "utf8");
-  await writePrivateFile(path.join(artifact.dir, "result.json"), `${JSON.stringify(result, null, 2)}\n`, "utf8");
+  const manifest = `${lines.join("\n")}${lines.length ? "\n" : ""}`;
+  await anchoredCreate(artifact.dir, "manifest.jsonl", manifest);
+  await signControlRecord(artifact.controlDirectory, artifact.id, { kind: "cleanup-restore-v1", id: artifact.id, operator: artifact.operator, manifest: artifact.manifest, manifestSha256: createHash("sha256").update(manifest).digest("hex"), operations });
+  await anchoredCreate(artifact.dir, "result.json", `${JSON.stringify(result, null, 2)}\n`, "utf8");
 }
 
 export async function copyCleanupBackup(source, destination) {
@@ -45,107 +52,7 @@ export async function copyCleanupBackup(source, destination) {
   }
 }
 
-export function cleanupRestoreScript(manifestPath) {
-  return `#!/usr/bin/env python3
-import hashlib
-import json
-import os
-import shutil
-import stat
-from datetime import datetime, timezone
-from pathlib import Path
+// Retained only for callers displaying old artifacts. New artifacts contain no executable code.
+export function cleanupRestoreScript() { throw new Error("Generated restore scripts are disabled; use the installed trusted restore command."); }
 
-manifest = Path(${JSON.stringify(manifestPath)})
-active_ref = manifest.parent / ".restore-active.json"
-complete_ref = manifest.parent / "restore-complete.json"
-exclusive_write_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
-fd = os.open(active_ref, exclusive_write_flags, 0o600)
-with os.fdopen(fd, "w", encoding="utf-8") as handle:
-    json.dump({
-        "schema": "codex-cleanup-restore-active/v1",
-        "pid": os.getpid(),
-        "startedAt": datetime.now(timezone.utc).isoformat(),
-    }, handle, sort_keys=True)
-    handle.write("\\n")
-try:
-    try:
-        complete_ref.lstat()
-    except FileNotFoundError:
-        pass
-    else:
-        raise RuntimeError("restore already completed; refusing to run again")
-    lexical_before = manifest.lstat()
-    if stat.S_ISLNK(lexical_before.st_mode) or not stat.S_ISREG(lexical_before.st_mode):
-        raise RuntimeError("manifest must be a regular non-symlink file")
-    if lexical_before.st_nlink != 1:
-        raise RuntimeError("manifest hard-link count must be exactly one")
-    manifest_fd = os.open(manifest, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
-    with os.fdopen(manifest_fd, "rb", closefd=True) as manifest_handle:
-        opened_before = os.fstat(manifest_handle.fileno())
-        identity_before = (
-            opened_before.st_dev, opened_before.st_ino, opened_before.st_size,
-            opened_before.st_mtime_ns, opened_before.st_ctime_ns, opened_before.st_nlink,
-            opened_before.st_uid, opened_before.st_gid, stat.S_IMODE(opened_before.st_mode),
-        )
-        lexical_identity = (
-            lexical_before.st_dev, lexical_before.st_ino, lexical_before.st_size,
-            lexical_before.st_mtime_ns, lexical_before.st_ctime_ns, lexical_before.st_nlink,
-            lexical_before.st_uid, lexical_before.st_gid, stat.S_IMODE(lexical_before.st_mode),
-        )
-        if lexical_identity != identity_before:
-            raise RuntimeError("manifest identity changed before restore")
-        manifest_bytes = manifest_handle.read()
-        opened_after_read = os.fstat(manifest_handle.fileno())
-        if (
-            opened_after_read.st_dev, opened_after_read.st_ino, opened_after_read.st_size,
-            opened_after_read.st_mtime_ns, opened_after_read.st_ctime_ns, opened_after_read.st_nlink,
-            opened_after_read.st_uid, opened_after_read.st_gid, stat.S_IMODE(opened_after_read.st_mode),
-        ) != identity_before:
-            raise RuntimeError("manifest identity changed while reading")
-        for line in manifest_bytes.decode("utf-8", errors="strict").splitlines():
-            rec = json.loads(line)
-            if rec.get("type") == "delete" and not rec.get("backup"):
-                print("Permanently deleted file cannot be restored; skipping.")
-                continue
-            if rec.get("type") == "quarantine":
-                src = Path(rec["to"])
-                dest = Path(rec["from"])
-                if src.exists():
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.move(str(src), str(dest))
-            elif rec.get("type") == "delete" and rec.get("backup"):
-                src = Path(rec["backup"])
-                dest = Path(rec["from"])
-                if src.exists():
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(src, dest)
-                meta = Path(str(src) + ".cleanup.json")
-                if meta.exists():
-                    shutil.copy2(meta, Path(str(dest) + ".cleanup.json"))
-        opened_after = os.fstat(manifest_handle.fileno())
-        lexical_after = manifest.lstat()
-        opened_after_identity = (
-            opened_after.st_dev, opened_after.st_ino, opened_after.st_size,
-            opened_after.st_mtime_ns, opened_after.st_ctime_ns, opened_after.st_nlink,
-            opened_after.st_uid, opened_after.st_gid, stat.S_IMODE(opened_after.st_mode),
-        )
-        lexical_after_identity = (
-            lexical_after.st_dev, lexical_after.st_ino, lexical_after.st_size,
-            lexical_after.st_mtime_ns, lexical_after.st_ctime_ns, lexical_after.st_nlink,
-            lexical_after.st_uid, lexical_after.st_gid, stat.S_IMODE(lexical_after.st_mode),
-        )
-        if opened_after_identity != identity_before or lexical_after_identity != identity_before:
-            raise RuntimeError("manifest identity changed during restore")
-        complete_fd = os.open(complete_ref, exclusive_write_flags, 0o600)
-        with os.fdopen(complete_fd, "w", encoding="utf-8") as handle:
-            json.dump({
-                "schema": "codex-cleanup-restore-complete/v1",
-                "status": "complete",
-                "completedAt": datetime.now(timezone.utc).isoformat(),
-                "manifestSha256": hashlib.sha256(manifest_bytes).hexdigest(),
-            }, handle, sort_keys=True)
-            handle.write("\\n")
-finally:
-    active_ref.unlink(missing_ok=True)
-`;
-}
+function shellQuote(value) { return "'" + String(value).replaceAll("'", "'\"'\"'") + "'"; }

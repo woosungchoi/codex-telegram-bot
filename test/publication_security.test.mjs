@@ -22,7 +22,7 @@ globalThis.fetch=async(url, options={})=>{
  if(url.endsWith('/pulls/12')) result={state:'open',head:{sha:mode==='stale'?'old':'abc'}};
  else if(url.includes('/comments?')) result=mode==='existing'?[{id:123,user:{type:'Bot'},body:'<!-- codex-telegram-bot:pr-review -->\\nold'}]:[{id:321,user:{type:'User'},body:'<!-- codex-telegram-bot:pr-review -->\\nspoof'}];
  else if(url.includes('/git/commits/')&&!options.body)result={tree:{sha:'base-tree'}};
- else if(url.includes('/pulls?'))result=mode==='repeat'?[{number:15}]:mode==='pending'&&url.includes('base=main')?[{title:'Update Codex packages',user:{login:'fixture'},head:{ref:'automation/codex-'+'a'.repeat(20),repo:{full_name:'fixture/repo'}}}]:[];
+ else if(url.includes('/pulls?'))result=mode==='repeat'?[{number:15,head:{sha:'a'.repeat(40)}}]:mode==='pending'&&url.includes('base=main')?[{title:'Update Codex packages',user:{login:'fixture'},head:{ref:'automation/codex-'+'a'.repeat(20),repo:{full_name:'fixture/repo'}}}]:[];
  else if(url.includes('/git/matching-refs/'))result=[];
  else result={sha:'a'.repeat(40)};
  return {ok:true,status:200,text:async()=>JSON.stringify(result),json:async()=>result};
@@ -61,7 +61,7 @@ for (const mode of ["new", "repeat", "pending"]) test(`package publisher ${mode}
   await f.run("publish_package_update.mjs", [input]);
   const calls = await f.calls(), writes = calls.filter((c) => c.method !== "GET");
   assert.equal(writes.some((c) => c.url.endsWith("/pulls")), mode === "new");
-  if (mode !== "new") assert.equal(writes.length, 0);
+  if (mode !== "new") assert.equal(writes.some((c) => /git\/refs|\/pulls$/.test(c.url)), false);
   else {
     const tree = JSON.parse(writes.find((c) => c.url.endsWith("/git/trees")).body).tree;
     assert.deepEqual(tree.map((i) => i.path).sort(), ["package-lock.json", "package.json"]);

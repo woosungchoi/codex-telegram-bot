@@ -58,9 +58,10 @@ export function createChatOptionsController({
     return options;
   }
 
-  function getEffectiveOptions(chatKey) {
+  function getEffectiveOptions(chatKey, inputDirectories) {
     const chat = getChatState(chatKey);
     return { ...defaultChatOptions(), ...chat.options,
+      additionalDirectories: [...mergeAdditionalDirectories(settings.additionalDirectories, settings.uploadDir), ...(inputDirectories ?? settings.inputDirectories?.(chatKey) ?? [])],
       ...(chat.forumBinding?.cwd ? { workingDirectory: chat.forumBinding.cwd } : {}) };
   }
 

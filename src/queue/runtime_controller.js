@@ -173,7 +173,8 @@ export function createQueueRuntimeController({
     await persistence.save();
   }
 
-  function trackSideTurn(chatKey, abortController) {
+  function trackSideTurn(chatKey, abortController, preparedTurn) {
+    abortController.preparedTurn = preparedTurn;
     const controllers = sideTurns.get(chatKey) ?? new Set();
     controllers.add(abortController);
     sideTurns.set(chatKey, controllers);
@@ -276,6 +277,7 @@ export function createQueueRuntimeController({
     setQueuePaused,
     startPersistedQueues,
     startQueueDrainIfIdle,
+    sideTurnRecords: (chatKey) => [...(sideTurns.get(chatKey) || [])].map((controller) => controller.preparedTurn),
     stopSideTurns,
     trackSideTurn,
     untrackSideTurn

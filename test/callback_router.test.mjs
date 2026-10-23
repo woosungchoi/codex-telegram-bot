@@ -1,3 +1,5 @@
+import { rememberControlConfirmation } from "../src/operator_authorization.js";
+import { operatorCtx, operatorConfig } from "./helpers/security17.mjs";
 import { textFor } from "../src/i18n.js";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -17,7 +19,7 @@ function createFixture({ queueChanged = 1 } = {}) {
   };
   registerCallbackRoutes({
     bot,
-    settings: { config: { uploadDir: "/tmp/uploads" }, runtimeValue: () => true },
+    settings: { config: { ...operatorConfig, uploadDir: "/tmp/uploads" }, runtimeValue: () => true },
     state,
     threadCache: new Map(),
     pendingTurns: new Map(),
@@ -104,7 +106,7 @@ test("update callbacks forward the bound request ID and retain ordinary tool cal
   for (const data of [`tool:codex_update_start:${id}`, "tool:health"]) {
     const action = actions.find(({ trigger }) => trigger instanceof RegExp && trigger.test(data));
     assert.ok(action);
-    const ctx = { match: action.trigger.exec(data), answerCbQuery: async () => {} };
+    const ctx = { ...operatorCtx, match: action.trigger.exec(data), answerCbQuery: async () => {} };
     await action.handler(ctx);
     assert.deepEqual(calls.at(-1), data.includes(id) ? ["tool", ctx, "codex_update_start", id] : ["tool", ctx, "health"]);
   }
@@ -114,7 +116,7 @@ test("individual queue controls edit the original menu even when the item is gon
   for (const queueChanged of [0, 1]) {
     for (const action of ["cancel", "up", "next"]) {
       const { actions, calls } = createFixture({ queueChanged });
-      const ctx = { match: [`queue:${action}:turn`, action, "turn"], callbackQuery: { message: { message_id: 42 } }, answerCbQuery: async () => {} };
+      const ctx = { ...operatorCtx, match: [`queue:${action}:turn`, action, "turn"], callbackQuery: { message: { message_id: 42 } }, answerCbQuery: async () => {} };
       await route(actions, "^queue:(cancel|up|next):([a-zA-Z0-9_-]+)$")(ctx);
       assert.equal(calls.filter(([name]) => name === "reply").length, 0);
       const edits = calls.filter(([name]) => name === "edit");
@@ -141,8 +143,9 @@ test("standalone model callbacks preserve token and model arguments", async () =
 });
 
 test("queue clear confirmation edits the original panel with the cleared count", async () => {
-  const { actions, calls } = createFixture();
-  const ctx = { match: ["confirm:q_clear", "q_clear"], answerCbQuery: async () => {} };
+  const { actions, calls, state } = createFixture();
+  const ctx = { ...operatorCtx, match: ["confirm:q_clear", "q_clear"], answerCbQuery: async () => {} };
+  rememberControlConfirmation(state, ctx, "q_clear", []);
   await route(actions, "^confirm:(q_clear|forget|prefs_reset)$")(ctx);
   const edit = calls.find(([name]) => name === "edit");
   assert.match(edit[2], /3/);
@@ -151,8 +154,8 @@ test("queue clear confirmation edits the original panel with the cleared count",
 
 test("expired cleanup callback removes the stale plan and persists", async () => {
   const { actions, calls, state } = createFixture();
-  state.cleanup.plans.old = { id: "old", expiresAt: "2026-07-20T00:00:00Z" };
-  const ctx = { match: ["cleanup:ignore:old", "ignore", "old"] };
+  state.cleanup.plans.old = { id: "old", operator: { authorizationVersion: 1, requesterUserId: "7", botId: "12345", accountId: "default", chatId: "7", chatType: "private", isForum: false }, expiresAt: "2026-07-20T00:00:00Z" };
+  const ctx = { ...operatorCtx, match: ["cleanup:ignore:old", "ignore", "old"] };
   await route(actions, "^cleanup:(quarantine|delete|both|ignore):([a-zA-Z0-9_-]+)$")(ctx);
   assert.equal(state.cleanup.plans.old, undefined);
   assert.equal(calls.some(([name]) => name === "save"), true);
@@ -164,7 +167,7 @@ test("steer mode button reaches the queue mode handler", async () => {
   const data = "q:mode:steer";
   const action = actions.find(({ trigger }) => trigger instanceof RegExp && trigger.test(data));
   assert.ok(action);
-  const ctx = { match: action.trigger.exec(data), answerCbQuery: async () => {} };
+  const ctx = { ...operatorCtx, match: action.trigger.exec(data), answerCbQuery: async () => {} };
   await action.handler(ctx);
   assert.deepEqual(calls.at(-1), ["queue", ctx, "mode", "steer"]);
 });

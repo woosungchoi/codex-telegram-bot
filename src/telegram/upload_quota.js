@@ -21,12 +21,21 @@ export async function acquireUploadQuota(anchor, { quotaBytes = DEFAULT_UPLOAD_Q
       child.once("exit", () => reject(new Error("Upload quota is busy. Retry after the active upload completes.")));
       child.stdout.once("data", (data) => data.toString() === "locked\n" ? resolve() : reject(new Error("Quota lock failed.")));
     });
-    let committed = 0;
-    for (const name of await fs.readdir(anchor)) {
-      const stat = await fs.lstat(`${anchor}/${name}`);
-      if (!stat.isFile()) throw new Error("Upload inventory contains an unsupported entry; reconcile before uploading.");
-      committed += stat.size;
-    }
+    const count = async (directory, depth = 0) => {
+      if (depth > 1) throw new Error("Unexpected nested upload directory.");
+      let total = 0;
+      for (const name of await fs.readdir(directory)) {
+        const file = `${directory}/${name}`;
+        const stat = await fs.lstat(file);
+        if (stat.isFile() && stat.nlink === 1) total += stat.size;
+        else if (stat.isDirectory() && /^[a-f0-9-]{36}$/.test(name)) {
+          const handle = await fs.open(file, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+          try { total += await count(`/proc/self/fd/${handle.fd}`, depth + 1); } finally { await handle.close(); }
+        } else throw new Error("Upload inventory contains an unsupported entry; reconcile before uploading.");
+      }
+      return total;
+    };
+    const committed = await count(anchor);
     let reserved = 0;
     return {
       async grow(bytes) {

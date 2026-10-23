@@ -229,9 +229,13 @@ export function createTurnRuntimeController({
   async function processSideTurn(chatKey, preparedTurn) {
     settings.assertAuthorized?.(preparedTurn);
     await settings.prepareArtifacts?.(preparedTurn);
+    if (lifecycle.isAdmissionPaused?.() || lifecycle.isRestartScheduled() || lifecycle.isRecoveryActive(chatKey)) {
+      await queue.enqueueFront(chatKey, preparedTurn, { restore: true });
+      return;
+    }
     const ctx = context.ensureTurnContext(preparedTurn);
     const abortController = new AbortController();
-    sideTurns.track(chatKey, abortController);
+    sideTurns.track(chatKey, abortController, preparedTurn);
     let finalReaction = "";
     let typingInterval;
     const deadline = setTimeout(() => abortController.abort(new Error("Side reply timed out.")), 30 * 60_000);
@@ -245,7 +249,7 @@ export function createTurnRuntimeController({
         applySideThreadPrompt(preparedTurn.inputText),
         preparedTurn.imagePaths
       );
-      const thread = codex.startThread(chatKey);
+      const thread = codex.startThread(chatKey, preparedTurn.inputDirectories || []);
       const turn = await codex.runTurn(
         ctx,
         chatKey,
@@ -307,6 +311,7 @@ export function createTurnRuntimeController({
       text,
       inputText,
       imagePaths,
+      inputDirectories: ctx.state?.inputDirectories || [],
       enqueuedAt: enqueuedAt.toISOString(),
       expiresAt: new Date(
         enqueuedAt.getTime() + settings.pendingTurnMaxAgeSeconds() * 1000
@@ -459,7 +464,7 @@ export function createTurnRuntimeController({
         accountId: preparedTurn.accountId,
         threadId: codex.getChatThreadId(chatKey, preparedTurn.accountId) || ""
       } : undefined);
-    const thread = codex.getOrCreateThread(chatKey, threadContext);
+    const thread = codex.getOrCreateThread(chatKey, threadContext, preparedTurn.inputDirectories || []);
     await codex.maybeNotifyContextPressure(ctx, chatKey, thread, liveProgress);
     const turn = await codex.runTurn(
       ctx,

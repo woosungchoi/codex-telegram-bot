@@ -1,3 +1,5 @@
+import { requestProvenance } from "../authorization.js";
+import { captureUpdateApproval, persistUpdateApproval } from "./update_approval.js";
 import { approvedSdk, installedSdkVersion } from "./update_dependencies.js";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -32,6 +34,7 @@ export function createCodexUpdateController({
   async function launch(state) {
     await run("systemd-run", ["--user", `--unit=${state.unit}`, "--collect",
       "--property=Type=exec", "--property=Restart=on-failure", "--property=RestartSec=3",
+      `--setenv=MAINTENANCE_CONTROL_DIR=${config.maintenanceControlDir || "/var/lib/codex-telegram-bot-control"}`,
       "--property=StartLimitBurst=3", "--property=RuntimeMaxSec=7200",
       `--working-directory=${appRoot}`, "flock", "--exclusive", "--nonblock",
       path.join(state.installation.root, "install.lock"), process.execPath,
@@ -70,7 +73,7 @@ export function createCodexUpdateController({
     if (updatable && admin(ctx)) {
       for (const [id, entry] of previews) { if (entry.expiresAt < now()) previews.delete(id); }
       const id = randomUUID();
-      previews.set(id, { installation, target, sdk, sdkCurrent, owner: ownerKey(ctx), expiresAt: now() + 10 * 60_000 });
+      previews.set(id, { approval: await captureUpdateApproval(config, target), installation, target, sdk, sdkCurrent, owner: ownerKey(ctx), expiresAt: now() + 10 * 60_000 });
       rows.push([{ text: msg("ui.codexUpdateStart"), callback_data: `tool:codex_update_start:${id}`, style: "primary" }]);
     }
     await edit(ctx, [
@@ -112,10 +115,12 @@ export function createCodexUpdateController({
     if (!Number.isSafeInteger(messageId) || messageId <= 0) throw new Error("Update panel message ID required.");
     const state = {
       id, unit: `codex-cli-update-${id}.service`, phase: "launching",
+      approval: preview.approval,
       installation: observed, target: preview.target, sdk: preview.sdk, sdkCurrent: preview.sdkCurrent, requestedBy: String(ctx.from.id),
       language: language(), startedAt: new Date(now()).toISOString(),
-      origin: { botId: String(me.id), chatId: String(meta.chatId), threadId: String(meta.messageThreadId || ""), messageId: String(messageId) }
+      origin: { ...requestProvenance({ ...ctx, botInfo: me }), messageThreadId: meta.messageThreadId, botId: String(me.id), chatId: String(meta.chatId), threadId: String(meta.messageThreadId || ""), messageId: String(messageId) }
     };
+    await persistUpdateApproval(config, state);
     if (!await claimUpdate(config, state)) return edit(ctx, msg("ui.codexUpdateLocked"));
     previews.delete(id);
     try { await launch(state); }

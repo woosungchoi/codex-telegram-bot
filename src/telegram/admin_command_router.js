@@ -1,3 +1,4 @@
+import { requireOperator, verifyOperator, requireQueueOwner } from "../operator_authorization.js";
 import { fullBackupAuthorized, requireFullBackup, verifyBackupDestination } from "../maintenance/backup_authorization.js";
 import { readOperationalStatus } from "../operational_status.js";
 import { createMessageFormatter } from "../i18n.js";
@@ -117,6 +118,7 @@ export function registerAdminCommands({
   async function handleStopCommand(ctx) {
     const chatKey = telegram.getChatKey(ctx);
     const active = activeTurns.get(chatKey);
+    requireQueueOwner(ctx, settings.config, [...(pendingTurns.get(chatKey) || []), ...(active ? [active.currentPreparedTurn] : []), ...(queue.sideTurnRecords?.(chatKey) || [])], { sharedPolicy: !queue.sideTurnRecords && queue.sideTurnCount?.(chatKey) > 0 });
     const stoppedSideTurns = queue.stopSideTurns(chatKey);
     if (!active && stoppedSideTurns === 0) {
       await telegram.replyHtml(ctx, msg("ui.noActiveCodexTurn"));
@@ -135,13 +137,14 @@ export function registerAdminCommands({
     );
   }
 
-  bot.command("restart", recovery.handleRestartCommand);
-  bot.command("restart_continue", recovery.handleRestartCommand);
+  bot.command("restart", (ctx) => { requireOperator(ctx, settings.config); return recovery.handleRestartCommand(ctx); });
+  bot.command("restart_continue", (ctx) => { requireOperator(ctx, settings.config); return recovery.handleRestartCommand(ctx); });
   bot.command("recovery_status", async (ctx) => telegram.replyHtml(
     ctx,
     await recovery.formatStatus()
   ));
   bot.command("recovery_resume", async (ctx) => {
+    requireOperator(ctx, settings.config);
     const started = await recovery.scheduleStartup({ force: true, notifyCtx: ctx });
     await telegram.replyHtml(
       ctx,
@@ -151,6 +154,7 @@ export function registerAdminCommands({
     );
   });
   bot.command("recovery_cancel", async (ctx) => {
+    requireOperator(ctx, settings.config);
     await recovery.clearCompleted(settings.config.botRecoveryDir);
     await recovery.clearPendingTurns();
     await telegram.replyHtml(ctx, localization.text("recoveryCancelled"));
@@ -169,6 +173,7 @@ export function registerAdminCommands({
     const chatKey = telegram.getChatKey(ctx);
     const arg = (overrideArg ?? telegram.getCommandArgs(ctx).trim()).toLowerCase();
     const [subcommand, value] = arg.split(/\s+/, 2);
+    if (["pause", "resume", "mode"].includes(subcommand)) requireQueueOwner(ctx, settings.config, pendingTurns.get(chatKey) || [], { sharedPolicy: true });
     if (subcommand === "mode") {
       if (!value) {
         await telegram.replyHtml(ctx, queue.formatMode(chatKey));
@@ -221,6 +226,7 @@ export function registerAdminCommands({
   bot.command("cancelqueue", async (ctx) => {
     const chatKey = telegram.getChatKey(ctx);
     const arg = telegram.getCommandArgs(ctx).trim();
+    requireQueueOwner(ctx, settings.config, pendingTurns.get(chatKey) || []);
     const cleared = arg
       ? await queue.removePending(chatKey, arg)
       : await queue.clearPending(chatKey);
@@ -244,8 +250,9 @@ export function registerAdminCommands({
   bot.command("cleanup", (ctx) => handleCleanupCommand(ctx));
   bot.command("cleanup_status", (ctx) => handleCleanupCommand(ctx, "status"));
   bot.command("cleanup_uploads", async (ctx) => {
+    requireOperator(ctx, settings.config);
     const plan = await cleanup.createUploadPlan({ dryRun: true });
-    const record = cleanup.createUploadPlanRecord(plan);
+    const record = { ...cleanup.createUploadPlanRecord(plan), operator: requireOperator(ctx, settings.config) };
     state.uploadCleanup.plans[record.id] = record;
     await cleanup.appendLog(cleanup.createUploadPlanLogEntry(plan, {
       planId: record.id,
@@ -264,9 +271,11 @@ export function registerAdminCommands({
   ));
 
   async function handleCleanupCommand(ctx, overrideArg = null) {
+    const operator = requireOperator(ctx, settings.config);
     const arg = (overrideArg ?? telegram.getCommandArgs(ctx).trim()).toLowerCase();
     if (!arg || arg === "status" || arg === "dry-run") {
-      const plan = await cleanup.createPlan("manual");
+      const plan = await cleanup.createPlan("manual", operator);
+      verifyOperator(ctx, settings.config, operator);
       await persistence.save();
       await cleanup.sendPlan(ctx, plan);
       return;

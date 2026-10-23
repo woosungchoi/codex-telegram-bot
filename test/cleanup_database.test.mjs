@@ -265,6 +265,7 @@ function controller(f, candidates) {
       retentionDays: () => 14,
       quarantineDays: () => 7,
       artifactDir: f.config.cleanupArtifactDir,
+      controlDir: path.join(f.config.cleanupArtifactDir, "..", "control"),
       sessionsDir: f.config.codexSessionsDir,
       quarantineDir: f.config.cleanupQuarantineDir,
       notifyChatIds: [],

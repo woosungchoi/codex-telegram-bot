@@ -136,12 +136,15 @@ export function createTelegramRuntimeContext({
   }
 
   async function downloadTelegramFileRecord(ctx, fileId, ext) {
-    return downloadAttachment({
+    const record = await downloadAttachment({
       getLink: () => ctx.telegram.getFileLink(fileId), fetchImpl, agent,
       uploadDir: settings.uploadDir, maxBytes: settings.uploadMaxBytes,
       quotaBytes: settings.config?.uploadQuotaBytes, minFreeBytes: settings.config?.uploadMinFreeBytes,
       ext, formatBytes: formatting.bytes
     });
+    ctx.state ??= {};
+    ctx.state.inputDirectories = [...new Set([...(ctx.state.inputDirectories || []), path.dirname(record.path)])];
+    return record;
   }
 
   async function downloadTelegramFile(ctx, fileId, ext) {

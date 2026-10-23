@@ -1,4 +1,5 @@
-import { approvedArtifact, extractApprovedBinary } from "./update_artifact.js";
+import { verifyUpdateApproval } from "./update_approval.js";
+import { extractApprovedBinary } from "./update_artifact.js";
 import { buildCodexChildEnv } from "../codex/child_env.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -63,7 +64,7 @@ export async function stageCodexRelease(config, state, run = runUpdateProcess) {
   if (!STABLE_VERSION.test(state.target) || !/^[a-f0-9-]{36}$/.test(state.id || "")) throw new Error("Invalid update target or run ID.");
   // The trust file is supplied independently by the operator, never fetched
   // beside the download. No remote installer is executed, even as a fallback.
-  const entry = await approvedArtifact(config, state.target);
+  const entry = (await verifyUpdateApproval(config, state)).artifact;
   const runDir = await fs.mkdtemp(path.join(await fs.mkdir(config.codexUpdateDir, { recursive: true }).then(() => config.codexUpdateDir), "verified-"));
   const archive = path.join(runDir, "artifact.tar.gz");
   const release = path.join(runDir, "release");

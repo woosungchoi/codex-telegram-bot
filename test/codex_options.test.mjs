@@ -29,12 +29,12 @@ const MODELS = [
   }
 ];
 
-test("upload directory is included in Codex additional directories", () => {
-  assert.deepEqual(mergeAdditionalDirectories(["/workspace"], "/uploads"), ["/workspace", "/uploads"]);
+test("global upload directory is never granted as a Codex writable root", () => {
+  assert.deepEqual(mergeAdditionalDirectories(["/workspace"], "/uploads"), ["/workspace"]);
 });
 
 test("additional directory merge removes duplicates", () => {
-  assert.deepEqual(mergeAdditionalDirectories(["/uploads", "/workspace"], "/uploads"), ["/uploads", "/workspace"]);
+  assert.deepEqual(mergeAdditionalDirectories(["/uploads", "/workspace"], "/uploads"), ["/workspace"]);
 });
 
 test("model transition rejects Luna when configured ultra would become effective", () => {

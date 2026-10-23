@@ -69,11 +69,10 @@ async function main() {
   const digest = createHash("sha256").update(sha).update(data["package.json"]).update(data["package-lock.json"]).digest("hex");
   const branch = `automation/codex-${digest.slice(0, 20)}`;
   const existing = await api(`pulls?state=open&head=${encodeURIComponent(repo.split("/")[0] + ":" + branch)}`);
-  if (existing.length) return;
   // Keep one Codex update in flight across version/base changes. The merger
   // refreshes it against main; the next daily run can propose a newer version.
   const pending = await api("pulls?state=open&base=main&per_page=100");
-  if (pending.some((pr) => pr.head?.repo?.full_name === repo
+  if (!existing.length && pending.some((pr) => pr.head?.repo?.full_name === repo
     && /^automation\/codex-[a-f0-9]{20}$/.test(pr.head?.ref || "")
     && pr.title === "Update Codex packages" && pr.user?.login === repo.split("/")[0])) {
     console.log("Existing Codex update is awaiting checks or review; no duplicate PR created.");
@@ -86,10 +85,14 @@ async function main() {
     tree.push({ path: name, mode: "100644", type: "blob", sha: blob.sha });
   }
   const updated = await api("git/trees", "POST", { base_tree: baseCommit.tree.sha, tree });
-  const commit = await api("git/commits", "POST", { message: "Update Codex packages", tree: updated.sha, parents: [sha] });
+  const commit = await api("git/commits", "POST", { message: "Update Codex packages", tree: updated.sha, parents: [sha], author: baseCommit.author, committer: baseCommit.committer });
   // Content-bound branch: repeat runs do not open duplicate PRs. No force push.
   const refs = await api(`git/matching-refs/heads/${branch}`);
-  if (!refs.some((ref) => ref.ref === `refs/heads/${branch}`)) await api("git/refs", "POST", { ref: `refs/heads/${branch}`, sha: commit.sha });
+  const existingRef = refs.find((ref) => ref.ref === `refs/heads/${branch}`);
+  if (existingRef && existingRef.object.sha !== commit.sha) throw new Error("Existing update branch differs from the approved commit.");
+  if (existing.some((pr) => pr.head.sha !== commit.sha)) throw new Error("Existing update PR differs from the approved commit.");
+  if (existing.length) return;
+  if (!existingRef) await api("git/refs", "POST", { ref: `refs/heads/${branch}`, sha: commit.sha });
   await api("pulls", "POST", { head: branch, base: "main", title: "Update Codex packages",
     body: "Updates only the pinned Codex SDK/CLI packages. Installation and tests ran in a separate read-only job without publication credentials. Required PR checks and review still apply." });
 }

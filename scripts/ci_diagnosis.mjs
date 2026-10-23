@@ -235,20 +235,29 @@ function logExcerpt(log) {
   return escapeMarkdownFence(excerpt);
 }
 
+export function metadataText(value) {
+  return String(value ?? "").replace(/[\r\n\t\u0000-\u001f]/g, " ").slice(0, 300)
+    .replace(/@/g, "@\u200b").replace(/[\\`*_{}[\]()<>#!|~]/g, (char) => `\\${char}`);
+}
+function safeRunUrl(value) {
+  try { const url = new URL(value); return url.origin === "https://github.com" && /^\/[\w.-]+\/[\w.-]+\/actions\/runs\/\d+$/.test(url.pathname) ? url.href : "unknown"; }
+  catch { return "unknown"; }
+}
+
 export function generateDiagnosis({ run = {}, jobs = {}, log = "", runUrl = "", prNumber = "" } = {}) {
   const normalizedRun = normalizeRun(run, { runUrl });
   const failedJobs = normalizeJobs(jobs);
   const classifications = classifyFailure(log);
-  const rerunCommand = normalizedRun.id ? `gh run rerun --failed ${normalizedRun.id}` : "gh run rerun --failed <run-id>";
-  const prLine = prNumber ? `- PR: #${prNumber}` : "- PR: 연결된 PR을 찾지 못했습니다.";
+  const rerunCommand = /^\d+$/.test(String(normalizedRun.id)) ? `gh run rerun --failed ${normalizedRun.id}` : "gh run rerun --failed <run-id>";
+  const prLine = /^\d+$/.test(String(prNumber)) ? `- PR: #${prNumber}` : "- PR: 연결된 PR을 찾지 못했습니다.";
 
   const failedJobsMarkdown = failedJobs.length
     ? failedJobs
         .map((job) => {
           const steps = job.failedSteps.length
-            ? job.failedSteps.map((step) => `  - 실패 step: ${step.name} (${step.conclusion})`).join("\n")
+            ? job.failedSteps.map((step) => `  - 실패 step: ${metadataText(step.name)} (${metadataText(step.conclusion)})`).join("\n")
             : "  - 실패 step: GitHub API 응답에서 특정 step을 찾지 못했습니다.";
-          return `- ${job.name} (${job.conclusion})\n${steps}`;
+          return `- ${metadataText(job.name)} (${metadataText(job.conclusion)})\n${steps}`;
         })
         .join("\n")
     : "- 실패 job metadata를 찾지 못했습니다. 로그 excerpt를 확인하세요.";
@@ -269,7 +278,7 @@ export function generateDiagnosis({ run = {}, jobs = {}, log = "", runUrl = "", 
     }
   }
 
-  const markdown = `## CI 기본 진단\n\n### Run\n\n- Workflow: ${normalizedRun.name}\n- Title: ${normalizedRun.title}\n- Conclusion: ${normalizedRun.conclusion}\n- Status: ${normalizedRun.status}\n- Event: ${normalizedRun.event}\n- Head branch: ${normalizedRun.headBranch}\n- Head SHA: ${normalizedRun.headSha}\n- Run: ${normalizedRun.url || "unknown"}\n${prLine}\n\n### 실패 Job / Step\n\n${failedJobsMarkdown}\n\n### 결론 후보\n\n${classificationMarkdown}\n\n### 추천 다음 행동\n\n${formatList([...recommendedCommands])}\n\n### 실패 로그 Tail\n\n\`\`\`text\n${logExcerpt(log)}\n\`\`\`\n`;
+  const markdown = `## CI 기본 진단\n\n### Run\n\n- Workflow: ${metadataText(normalizedRun.name)}\n- Title: ${metadataText(normalizedRun.title)}\n- Conclusion: ${metadataText(normalizedRun.conclusion)}\n- Status: ${metadataText(normalizedRun.status)}\n- Event: ${metadataText(normalizedRun.event)}\n- Head branch: ${metadataText(normalizedRun.headBranch)}\n- Head SHA: ${metadataText(normalizedRun.headSha)}\n- Run: ${safeRunUrl(normalizedRun.url)}\n${prLine}\n\n### 실패 Job / Step\n\n${failedJobsMarkdown}\n\n### 결론 후보\n\n${classificationMarkdown}\n\n### 추천 다음 행동\n\n${formatList([...recommendedCommands])}\n\n### 실패 로그 Tail\n\n\`\`\`text\n${logExcerpt(log)}\n\`\`\`\n`;
 
   return {
     run: normalizedRun,

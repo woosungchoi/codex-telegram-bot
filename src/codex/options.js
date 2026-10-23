@@ -1,7 +1,7 @@
 import { findCodexModel, isReasoningEffortSupported } from "./models.js";
 
 export function mergeAdditionalDirectories(configuredDirectories = [], uploadDir = "") {
-  return [...new Set([...configuredDirectories, uploadDir].filter(Boolean))];
+  return [...new Set(configuredDirectories.filter((directory) => directory && directory !== uploadDir))];
 }
 
 export function planModelReasoningTransition({

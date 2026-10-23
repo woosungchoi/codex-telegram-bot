@@ -13,6 +13,7 @@ export async function runtimeRoutesFixture(t, options = {}) {
   const fixture = await workspaceFixture(t, {
     ...options,
     register(r, workspace) {
+      r.config.operatorUserIds = new Set(["1"]);
       const text = (key) => textFor(r.state.ui.language, key);
       const localization = { text, language: () => r.state.ui.language, timeZone: () => "Asia/Seoul", locale: () => "ko-KR" };
       const v = createRuntimeKeyboardViews({ text, hasActiveTurn: (key) => r.activeTurns.has(key), sideTurnCount: r.getSideTurnCount,

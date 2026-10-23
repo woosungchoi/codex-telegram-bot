@@ -96,7 +96,12 @@ export async function anchoredMove(root, file, identity, targetRoot, target, met
 }
 async function writeAt(directory, name, data) {
   const file = await fs.open(child(directory, name), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-  try { await file.chmod(0o600); await file.writeFile(data, "utf8"); }
+  try {
+    const stat = await file.stat();
+    if (!stat.isFile() || stat.nlink !== 1) throw new Error("Unsafe created file.");
+    await file.chmod(0o600); await file.writeFile(data, "utf8"); await file.sync();
+    if ((await file.stat()).nlink !== 1) throw new Error("Created file link count changed.");
+  }
   catch (error) { await fs.unlink(child(directory, name)).catch(() => {}); throw error; }
   finally { await file.close(); }
 }

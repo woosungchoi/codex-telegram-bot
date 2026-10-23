@@ -424,7 +424,10 @@ export function createWorkerRuntimeRecoveryController({
       const delivery = await runTelegramFinalDelivery({
         onReady: () => turn.recordTelegramReplyReady(chatKey, execution, replyText),
         onStarted: () => turn.recordTelegramReplyStarted(chatKey, execution, replyText),
-        send: () => telegram.replyCodexAnswer(ctx, replyText),
+        send: () => {
+          if (settings.isAuthorized && !settings.isAuthorized(active.currentPreparedTurn)) throw new Error("Recovery requester authorization was revoked.");
+          return telegram.replyCodexAnswer(ctx, replyText);
+        },
         onCompleted: () => turn.recordTelegramReplyCompleted(chatKey, execution, replyText),
         onFailed: (error, context) => turn.recordTelegramReplyFailed(
           chatKey,
@@ -483,6 +486,7 @@ export function createWorkerRuntimeRecoveryController({
 
 export function createWorkerRecoveryTurn(chatKey, snapshot, { now = Date.now } = {}) {
   return {
+    ...provenanceFields(snapshot),
     id: snapshot.queueItemId || `worker-recovery-${snapshot.workerJobId || now()}`,
     chatKey,
     chatId: snapshot.chatId ?? chatKey,

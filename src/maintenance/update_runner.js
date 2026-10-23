@@ -1,3 +1,4 @@
+import { verifyUpdateApproval } from "./update_approval.js";
 import { stageCodexDependencies, verifyDependencySource, activateCodexDependencies, restoreCodexDependencies, finishCodexDependencies, installedSdkVersion } from "./update_dependencies.js";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -31,6 +32,7 @@ export async function runCodexUpdate(config, id, {
     await releaseUpdate(config, id);
     return state;
   }
+  await verifyUpdateApproval(config, state);
   const owner = JSON.parse(await fs.readFile(path.join(updateLockPath(config), "owner.json"), "utf8"));
   if (owner.id !== id) throw new Error("Update lock owner mismatch.");
   const setPhase = async (phase, patch = {}) => {

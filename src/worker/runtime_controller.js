@@ -53,7 +53,7 @@ export function createWorkerRuntimeController({
 }) {
   function createWorkerJobPayload(chatKey, preparedTurn) {
     const chat = chatStore.get(chatKey);
-    const effectiveOptions = chatStore.getEffectiveOptions(chatKey);
+    const effectiveOptions = { ...chatStore.getEffectiveOptions(chatKey, preparedTurn.inputDirectories || []) };
     const accountId = preparedTurn.accountId || preparedTurn.recovery?.accountId || selectedAccountId(chat);
     const id = preparedTurn.id || turn.createQueueItemId();
     return {
