@@ -1,3 +1,4 @@
+import { requestProvenance } from "./authorization.js";
 import { normalizeTelegramId } from "./telegram/context.js";
 
 export function restartCommandRequestFromContext(ctx) {
@@ -6,6 +7,7 @@ export function restartCommandRequestFromContext(ctx) {
     requestedBy: String(ctx.from?.id ?? "telegram"),
     reason: "self_restart",
     notify: {
+      ...requestProvenance(ctx),
       chatId: ctx.chat?.id ?? ctx.from?.id,
       ...telegramMessageMeta(ctx)
     }

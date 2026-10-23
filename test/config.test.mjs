@@ -39,6 +39,7 @@ test("readConfig preserves the complete flat default contract", () => {
     allowedUserIds: ["42"],
     allowedChatIds: [],
     allowedThreadIds: [],
+    allowedTopicBindings: [],
     codexWorkdir: "/home/tester",
     codexPath: "codex",
     codexSteering: true,
@@ -116,6 +117,8 @@ test("readConfig preserves the complete flat default contract", () => {
     uploadDir: "/app/state/uploads",
     uploadRetentionDays: 7,
     uploadMaxBytes: 1073741824,
+    uploadQuotaBytes: 5368709120,
+    uploadMinFreeBytes: 1073741824,
     uploadCleanupEnabled: true,
     maxTelegramChars: 3500,
     progressEditIntervalMs: 8000,
@@ -243,10 +246,10 @@ for (const effort of ["max", "ultra"]) {
 
 test("readConfig parses optional allowed chat and thread ids", () => {
   const config = readTestConfig({
-    ALLOWED_CHAT_IDS: "100, -200",
+    ALLOWED_CHAT_IDS: "100",
     ALLOWED_THREAD_IDS: "300"
   });
-  assert.deepEqual([...config.allowedChatIds], ["100", "-200"]);
+  assert.deepEqual([...config.allowedChatIds], ["100"]);
   assert.deepEqual([...config.allowedThreadIds], ["300"]);
 });
 

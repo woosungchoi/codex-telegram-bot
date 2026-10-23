@@ -58,6 +58,12 @@ export function createQueueRuntimeController({
 
   async function dequeuePendingTurn(chatKey, ctx = null) {
     if (settings.admissionPaused?.()) return null;
+    const pending = getPendingTurns(chatKey)[0];
+    if (pending && settings.isAuthorized && !settings.isAuthorized(pending)) {
+      pending.authorizationStatus = "quarantined_authorization";
+      await persistPendingTurns(chatKey);
+      return null;
+    }
     const result = dequeueNextTurn(getPendingTurns(chatKey), queueExpiryOptions());
     replaceQueue(chatKey, result.queue);
     await persistPendingTurns(chatKey);

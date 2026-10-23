@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { stageCodexDependencies, activateCodexDependencies, restoreCodexDependencies, finishCodexDependencies, verifyDependencySource, installedSdkVersion, approvedSdk, validateDependencyLock } from "../src/maintenance/update_dependencies.js";
+import { stageCodexDependencies, activateCodexDependencies, restoreCodexDependencies, finishCodexDependencies, verifyDependencySource, installedSdkVersion, approvedSdk, validateDependencyLock, dependencyGraphDigest } from "../src/maintenance/update_dependencies.js";
 import { runUpdateProcess } from "../src/maintenance/update_install.js";
 import { tarFixture } from "./helpers/tar_fixture.mjs";
 
@@ -15,6 +15,7 @@ const lock = (version = "0.151.0") => ({ lockfileVersion: 3, packages: {
   "node_modules/@openai/codex": { version },
   "node_modules/other": { version: "1.0.0", integrity: "original" }
 } });
+sdk.lockSha256 = dependencyGraphDigest(lock(sdk.version));
 async function writeSdk(root, version) {
   const dir = path.join(root, "node_modules/@openai/codex-sdk");
   await fs.mkdir(dir, { recursive: true });
@@ -38,6 +39,7 @@ async function fixture(t) {
   const calls = [];
   const run = async (cmd, args, options) => {
     calls.push({ cmd, args, options });
+    if (cmd === "/usr/bin/bwrap") return { stdout: "isolated fixture passed" };
     if (cmd !== "npm") return runUpdateProcess(cmd, args, options);
     assert.equal(options.env.HOME.startsWith(path.join(root, ".codex-update-deps")), true);
     assert.equal(options.env.CODEX_HOME, options.env.HOME);
@@ -57,7 +59,7 @@ test("paired preparation isolates credentials, verifies and leaves the running i
   const tx = await stageCodexDependencies(f.config, f.state, f.run);
   assert.equal(await installedSdkVersion(f.root), "0.151.0");
   assert.equal(tx.version, sdk.version);
-  assert.deepEqual(f.calls.filter((c) => c.cmd === "npm").map((c) => c.args[0]), ["install", "ci", "run"]);
+  assert.deepEqual(f.calls.filter((c) => c.cmd === "npm").map((c) => c.args[0]), ["install", "ci", "audit"]);
   await activateCodexDependencies(f.root, tx);
   assert.equal(await installedSdkVersion(f.root), sdk.version);
   assert.equal(JSON.parse(await fs.readFile(path.join(f.root, "package.json"))).dependencies["@openai/codex-sdk"], sdk.version);
@@ -114,14 +116,14 @@ test("unapproved SDK integrity is rejected before installation or test execution
 test("unrelated dependency changes and wrong CLI are rejected", () => {
   const next = lock(sdk.version);
   next.packages["node_modules/other"].version = "2.0.0";
-  assert.throws(() => validateDependencyLock(lock(), next, sdk, sdk.version), /Unrelated dependency/);
+  assert.throws(() => validateDependencyLock(lock(), next, sdk, sdk.version), /dependency graph integrity/);
   assert.throws(() => validateDependencyLock(lock(), lock(sdk.version), sdk, "0.163.0"), /versions/);
 });
 
 test("failed tests remove preparation and preserve installed files", async (t) => {
   const f = await fixture(t);
   await assert.rejects(stageCodexDependencies(f.config, f.state, async (cmd, args, options) => {
-    if (cmd === "npm" && args[0] === "run") throw new Error("regression failed");
+    if (cmd === "/usr/bin/bwrap" && args.includes("lint")) throw new Error("regression failed");
     return f.run(cmd, args, options);
   }), /regression failed/);
   assert.equal(await installedSdkVersion(f.root), "0.151.0");
@@ -153,4 +155,20 @@ test("updater can load its environment parser when a crash leaves node_modules o
   const dotenv = await loadUpdateDotenv(f.root, f.state.id);
   assert.equal(dotenv.parse().fixture, "backup");
   await assert.rejects(loadUpdateDotenv(f.root, "../../escape"), /run ID/);
+});
+
+test("unavailable namespace isolation stops before npm or candidate execution", async (t) => {
+  const f = await fixture(t);
+  const run = async (command, args, options) => {
+    if (command === "/usr/bin/bwrap") {
+      assert.ok(args.includes("--unshare-all"));
+      assert.ok(args.includes("--ro-bind"));
+      throw new Error("isolation denied");
+    }
+    assert.notEqual(command, "npm");
+    return f.run(command, args, options);
+  };
+  await assert.rejects(stageCodexDependencies(f.config, f.state, run), /isolation denied/);
+  assert.equal(await installedSdkVersion(f.root), "0.151.0");
+  assert.deepEqual(await fs.readdir(path.join(f.root, ".codex-update-deps")), []);
 });

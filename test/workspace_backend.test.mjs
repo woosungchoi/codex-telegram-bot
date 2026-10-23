@@ -1,3 +1,4 @@
+import { registerSessionOwner } from "../src/codex/session_owners.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -13,10 +14,11 @@ test("session requests are read-only, paginated and use the chosen account home"
     seen = c;
     return { request: async (method, args) => { calls.push({ method, args }); return { data: [], thread: { id: "test" } }; }, close: async () => closed++ };
   } });
-  await backend.listSessions(account.id, { cursor: "opaque", query: "needle" });
+  registerSessionOwner(config, "1", account.id, "test");
+  await backend.listSessions(account.id, { chatKey: "1", cursor: "opaque", query: "needle" });
   assert.match(seen.codexHome, new RegExp(account.id));
   assert.equal(calls[0].args.cursor, "opaque"); assert.equal(calls[0].args.searchTerm, "needle");
-  await backend.readSession(account.id, "test");
+  await backend.readSession(account.id, "test", { chatKey: "1" });
   assert.deepEqual(calls.map((c) => c.method), ["thread/list", "thread/read"]);
   assert.equal(calls[1].args.includeTurns, false); assert.equal(closed, 2);
 });

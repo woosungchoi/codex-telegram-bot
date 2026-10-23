@@ -1,3 +1,5 @@
+import { assertStoredRequest } from "../authorization.js";
+import { assertSessionOwner } from "../codex/session_owners.js";
 import { authorizeWorkerRequest, createWorkerCredential, questionCapability } from "./auth.js";
 import { inspectWorkerJob } from "./inspection.js";
 import { recoverCompletedInput } from "./input_recovery.js";
@@ -174,6 +176,7 @@ async function startJob({ config, store, controllers, chatReservations, codexCli
   if (!job?.id) throw new Error("job/start requires job.id.");
   if (typeof job.id !== "string" || !/^[a-zA-Z0-9._:-]{1,120}$/.test(job.id)) throw new Error("job/start requires a safe job ID of at most 120 characters.");
   if (!job.chatKey) throw new Error("job/start requires job.chatKey.");
+  if (config.allowedUserIds) { assertStoredRequest(job, config); assertSessionOwner(config, job.chatKey, job.accountId, job.threadId); }
   const active = await store.readActiveJobs();
   const requestHash = createHash("sha256").update(JSON.stringify(canonicalJob({ ...job, transport: job.transport || config.codexTransport }))).digest("hex");
   const existing = await store.readJobState(job.id);

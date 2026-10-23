@@ -160,3 +160,15 @@ test("steer mode persists and reads back independently for each topic", async ()
   assert.equal(f.controller.getQueueMode("chat:topic:2"), "steer");
   assert.equal(f.saves(), 1);
 });
+
+test("revoked persisted queue is retained in quarantine without execution or Telegram notices", async () => {
+  let executed = 0, sent = 0;
+  const f = createFixture({ settings: { maxPendingTurns: () => 3, maxPendingAgeSeconds: () => 3600, isAuthorized: () => false },
+    turns: { runPreparedQueue: async () => { executed++; } },
+    telegram: { notifyExpired: async () => { sent++; }, createSyntheticContext: () => ({}), replyHtml: async () => { sent++; } }
+  });
+  await f.controller.enqueuePendingTurn("chat", { id: "saved", text: "work", inputText: "work" });
+  assert.equal(await f.controller.startQueueDrainIfIdle("chat"), false);
+  assert.equal(executed, 0); assert.equal(sent, 0);
+  assert.equal(f.state.queues.chat[0].authorizationStatus, "quarantined_authorization");
+});

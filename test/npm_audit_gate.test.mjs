@@ -6,8 +6,25 @@ import {
   runAuditGate,
 } from "../scripts/npm_audit_gate.mjs";
 
+const cleanReport = JSON.stringify({
+  auditReportVersion: 2,
+  metadata: {
+    vulnerabilities: {
+      info: 0,
+      low: 0,
+      moderate: 0,
+      high: 0,
+      critical: 0,
+      total: 0,
+    },
+  },
+});
+
 test("classifies successful audits and vulnerability reports", () => {
-  assert.equal(classifyAuditAttempt({ code: 0 }).kind, "passed");
+  assert.equal(
+    classifyAuditAttempt({ code: 0, stdout: cleanReport }).kind,
+    "passed",
+  );
   assert.equal(
     classifyAuditAttempt({
       code: 1,
@@ -64,7 +81,7 @@ test("retries transient failures and succeeds when the registry recovers", async
       stdout: JSON.stringify({ statusCode: 503 }),
       stderr: "Service Unavailable",
     },
-    { code: 0, stdout: JSON.stringify({ auditReportVersion: 2 }), stderr: "" },
+    { code: 0, stdout: cleanReport, stderr: "" },
   ];
   const waits = [];
   const outcome = await runAuditGate({
@@ -82,7 +99,7 @@ test("retries transient failures and succeeds when the registry recovers", async
   assert.deepEqual(waits, [1]);
 });
 
-test("reports a soft failure after bounded registry retries", async () => {
+test("fails closed after bounded registry retries", async () => {
   let calls = 0;
   const warnings = [];
   const outcome = await runAuditGate({
@@ -101,11 +118,11 @@ test("reports a soft failure after bounded registry retries", async () => {
     write: () => {},
   });
 
-  assert.equal(outcome.ok, true);
-  assert.equal(outcome.softFailed, true);
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.softFailed, undefined);
   assert.equal(outcome.attempts, 2);
   assert.equal(calls, 2);
-  assert.ok(warnings.some((message) => message.startsWith("::warning ")));
+  assert.ok(warnings.some((message) => message.startsWith("::error ")));
 });
 
 test("does not retry or mask reported vulnerabilities", async () => {
@@ -132,3 +149,31 @@ test("does not retry or mask reported vulnerabilities", async () => {
   assert.equal(outcome.kind, "vulnerabilities");
   assert.equal(calls, 1);
 });
+
+for (const stdout of [
+  "",
+  "not json",
+  "{}",
+  JSON.stringify({ auditReportVersion: 2 }),
+]) {
+  test(`zero exit status with incomplete audit report cannot pass: ${stdout}`, () => {
+    assert.equal(classifyAuditAttempt({ code: 0, stdout }).kind, "error");
+  });
+}
+for (const response of [
+  { code: 1, stdout: JSON.stringify({ statusCode: 503 }) },
+  { code: 1, stderr: "ETIMEDOUT" },
+  { code: 1, stderr: "Invalid package tree" },
+])
+  test(`unavailable audit never grants success: ${JSON.stringify(response)}`, async () => {
+    const result = await runAuditGate({
+      attempts: 2,
+      retryDelayMs: 0,
+      run: async (args) => (args[0] === "ls" ? { code: 0 } : response),
+      wait: async () => {},
+      warn: () => {},
+      write: () => {},
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.attempts, 2);
+  });

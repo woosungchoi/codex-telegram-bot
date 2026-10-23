@@ -1,3 +1,4 @@
+import { registerSessionOwner } from "./session_owners.js";
 import { createMessageFormatter } from "../i18n.js";
 import {
   appServerThreadReadEvents,
@@ -55,6 +56,7 @@ export function createCodexRuntimeExecutor({
         const result = await thread.run(input, codexOptions);
         if (turnOptions.rememberThreadId !== false && thread.id && thread.accountId) {
           const chat = chats.get(chatKey);
+          if (settings.config?.allowedUserIds) registerSessionOwner(settings.config, chatKey, thread.accountId, thread.id);
           rememberAccountThread(chat, thread.id, thread.accountId);
           applyAccountEvent(chat, { type: "account.selected", fromAccountId: originAccountId, accountId: thread.accountId });
           await chats.save();
@@ -120,6 +122,7 @@ export function createCodexRuntimeExecutor({
         if (update.type === "thread_started") {
           if (turnOptions.rememberThreadId !== false) {
             const chat = chats.get(chatKey);
+            if (settings.config?.allowedUserIds) registerSessionOwner(settings.config, chatKey, event.accountId || thread.accountId || "default", update.threadId);
             rememberAccountThread(chat, update.threadId, event.accountId || thread.accountId || "default");
             await chats.save();
             await recovery.recordThreadStarted(chatKey, update.threadId);

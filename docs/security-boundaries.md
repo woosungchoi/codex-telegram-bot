@@ -1,6 +1,10 @@
 # Security boundaries and verified updates
 
-The seven follow-up findings are addressed in the process environment, full-state
+The October 23 follow-up and migration policy is documented in
+[Security Cloud 12 remediation](security-cloud-12-20261023.md). It supersedes
+the older review and SDK-only approval behavior described in previous releases.
+
+The seven earlier follow-up findings are addressed in the process environment, full-state
 backup authorization, maintenance filesystem operations, and CI/update paths.
 
 ## Codex process environment
@@ -69,7 +73,8 @@ Example schema (replace placeholders after independent verification):
     "sha256": "REPLACE_WITH_64_LOWERCASE_HEX_DIGEST",
     "sdk": {
       "version": "0.160.0",
-      "integrity": "REPLACE_WITH_INDEPENDENTLY_REVIEWED_NPM_SHA512_SRI"
+      "integrity": "REPLACE_WITH_INDEPENDENTLY_REVIEWED_NPM_SHA512_SRI",
+      "lockSha256": "REPLACE_WITH_APPROVED_CANONICAL_COMPLETE_LOCK_SHA256"
     }
   }]
 }
@@ -86,25 +91,20 @@ remain in force. Existing installed Codex continues to run without a manifest.
 
 ## GitHub Actions
 
-PR review fetches a bounded diff as data on the trusted base, never checks out PR
-code, and never runs a PR-owned helper. Fork PRs receive no Codex OAuth secret.
-Review has read-only repository permission. Publication runs on a separate runner
-with the helper from the immutable base SHA, no Codex credentials, bounded regular
-text input, and a current-head check. Existing bot comments are updated without
-executing artifact text. Model output remains untrusted review text, not authority
-to merge or execute. The reviewer OAuth file is still a credential in the review
-runner; read-only sandboxing is not same-UID read isolation. Use a narrowly scoped
-review account or leave optional `CODEX_ACCESS_TOKEN` unset if that exposure is
-unacceptable. Repository write credentials never enter that runner.
+The optional OAuth-backed PR reviewer is disabled. No credentialed CLI is
+installed or executed and no review verdict is published by that workflow.
+Re-enabling it requires a reviewed isolation design and independently verified
+executable provenance; version-only validation and a separate HOME are insufficient.
 
 Dependency installation, tests and CLI smoke checks run without publication
 credentials, with read-only repository permissions and nonpersistent checkout
 authentication. Only two bounded JSON files cross into a new publication runner.
-The trusted publisher validates version-only package changes and registry lock
-entries, then uses GitHub's data API to create a content-bound branch and PR. It
+The trusted publisher requires independently approved exact package and lock
+file hashes, validates version-only changes and registry lock entries, then uses GitHub's data API to create a content-bound branch and PR. It
 never installs packages, executes artifact content, force-pushes main, or bypasses
 required review/checks. Repeated identical updates reuse the same branch/PR.
-Actions used by these two workflows are pinned to full commit hashes.
+All external Actions are pinned to full commit hashes. Codex dependency changes
+are excluded from automatic merging, including Dependabot proposals.
 
 Regression evidence is in `test/security_seven.test.mjs`, account transport,
 backup, cleanup, handoff, updater, and publication helper tests. Tests use temporary

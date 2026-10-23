@@ -11,10 +11,7 @@ export function validatedPhotoContents(photo) {
   if (!contents) throw new Error("Photo artifact was not validated.");
   return contents;
 }
-export const DEFAULT_PHOTO_ARTIFACT_ROOTS = [
-  "/home/openclaw/.openclaw/workspace/reports/codex",
-  "/home/openclaw/.openclaw/workspace"
-];
+export const DEFAULT_PHOTO_ARTIFACT_ROOTS = [];
 
 export async function extractTelegramPhotoArtifacts(text, options = {}) {
   const source = String(text ?? "");
@@ -95,6 +92,10 @@ export async function resolvePhotoArtifactCandidates(candidates, options = {}) {
   for (const candidate of candidates) {
     const resolved = path.resolve(String(candidate.path ?? ""));
     const extension = path.extname(resolved).toLowerCase();
+    if (options.registeredPaths && !options.registeredPaths.has(resolved)) {
+      rejected.push({ ...candidate, path: "[unregistered image]", reason: "outside_allowed_roots" });
+      continue;
+    }
 
     if (!path.isAbsolute(candidate.path ?? "")) {
       rejected.push({ ...candidate, reason: "not_absolute_path" });
@@ -168,7 +169,7 @@ export function formatRejectedPhotoArtifacts(rejected, text) {
   const msg = createMessageFormatter(text);
   if (!rejected?.length) return "";
   return rejected
-    .map((item) => msg("ui.photoArtifactRejected", { path: `\`${item.path}\``, reason: msg(`photoRejection.${item.reason}`) }))
+    .map((item) => msg("ui.photoArtifactRejected", { path: "[image]", reason: msg(`photoRejection.${item.reason}`) }))
     .join("\n");
 }
 

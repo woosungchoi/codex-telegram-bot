@@ -1,3 +1,4 @@
+import { provenanceFields } from "../authorization.js";
 import { createHash } from "node:crypto";
 import { progressTurnId } from "../telegram/progress_store.js";
 import { STREAM_IDLE_TIMEOUT_MESSAGE } from "../codex/watchdog.js";
@@ -53,6 +54,7 @@ export function createTurnRecoveryJournal({
     const timestamp = now().toISOString();
     const snapshot = {
       chatKey,
+      ...provenanceFields(turn),
       chatId: turn.chatId ?? chatKey,
       messageThreadId: turn.messageThreadId,
       replyToMessageId: turn.replyToMessageId,

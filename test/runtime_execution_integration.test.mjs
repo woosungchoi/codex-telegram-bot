@@ -26,7 +26,7 @@ async function fixture(t, { sidecar, transport, rejectDelivery = false, streamEv
     ] }), cancelJob: async () => {} };
   const noop = async () => {};
   const runtime = {
-    config: { ...config, codexWorkdir: root, botRecoveryDir: `${root}/recovery`, botRestartRecoveryEnabled: false,
+    config: { ...config, telegramBotToken: "123:test", allowedUserIds: new Set(["1"]), codexWorkdir: root, botRecoveryDir: `${root}/recovery`, botRestartRecoveryEnabled: false,
       codexContextGuardEnabled: false }, state, activeTurns: new Map(), pendingTurns: new Map(), threadCache: new Map(),
     getChatState, getEffectiveOptions: () => options, defaultChatOptions: options,
     runtimeValue: (key) => ({ telegramLiveProgressMode: "brief", maxTelegramChars: 4096 }[key] ?? false),
@@ -68,6 +68,7 @@ for (const sidecar of [false, true]) {
     const original = JSON.parse(JSON.stringify(streamEvents));
     const f = await fixture(t, { sidecar, transport: "app-server-direct", streamEvents });
     await f.controller.runPreparedTurnQueue("1", {
+      chatId: 1, authorizationVersion: 1, botId: "123", requesterUserId: "1", accountId: "default", chatType: "private",
       id: "job-test", ctx: { chat: { id: 1 }, sendChatAction: async () => {} },
       inputText: "hello", imagePaths: []
     }, { abortController: new AbortController() });
@@ -88,7 +89,7 @@ for (const transport of ["sdk", "app-server-direct"]) {
     test(`execution composition delivers once through ${transport}/${sidecar ? "worker" : "inline"}`, async (t) => {
       const f = await fixture(t, { sidecar, transport });
       const ctx = { chat: { id: 1, type: "private" }, sendChatAction: async () => {} };
-      const turn = { id: "job-test", ctx, chatId: 1, accountId: "default", text: "hello", inputText: "hello", imagePaths: [] };
+      const turn = { authorizationVersion: 1, botId: "123", requesterUserId: "1", chatType: "private", id: "job-test", ctx, chatId: 1, accountId: "default", text: "hello", inputText: "hello", imagePaths: [] };
       const active = { abortController: new AbortController() };
       f.runtime.activeTurns.set("1", active);
       await f.controller.runPreparedTurnQueue("1", turn, active);
@@ -107,7 +108,8 @@ for (const transport of ["sdk", "app-server-direct"]) {
 
 test("execution composition applies destination checks before final delivery", async (t) => {
   const f = await fixture(t, { sidecar: true, transport: "sdk", rejectDelivery: true });
-  await f.controller.runPreparedTurnQueue("1", { id: "job-test", ctx: { sendChatAction: async () => {} }, inputText: "hello" }, { abortController: new AbortController() });
+  await f.controller.runPreparedTurnQueue("1", {
+      chatId: 1, authorizationVersion: 1, botId: "123", requesterUserId: "1", accountId: "default", chatType: "private", id: "job-test", ctx: { sendChatAction: async () => {} }, inputText: "hello" }, { abortController: new AbortController() });
   assert.deepEqual(f.answers, []);
   assert.equal(f.outcomes[0].delivered, false);
   assert.notEqual(Object.values(f.runtime.state.worker.deliveries)[0].deliveryStatus, "delivery_sent");

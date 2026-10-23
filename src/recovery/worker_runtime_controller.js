@@ -1,3 +1,4 @@
+import { provenanceFields } from "../authorization.js";
 import { errorText } from "../i18n.js";
 import { runTelegramFinalDelivery, summarizeTelegramError } from "../telegram/api.js";
 import { b, code } from "../telegram/html.js";
@@ -107,6 +108,7 @@ export function createWorkerRuntimeRecoveryController({
       if (candidate.reason !== "already_sent") continue;
       const snapshot = candidate.snapshot ?? workerRecoverySnapshot(candidate.chatKey, candidate.job);
       const recoveredTurn = createWorkerRecoveryTurn(candidate.chatKey, snapshot);
+      if (settings.isAuthorized && !settings.isAuthorized(recoveredTurn)) continue;
       const progress = turn.createLiveProgressState({ currentPreparedTurn: recoveredTurn }, candidate.chatKey);
       progress.chatKey = candidate.chatKey;
       if (turn.shouldDeleteLiveProgress(progress, true)) {
@@ -155,6 +157,7 @@ export function createWorkerRuntimeRecoveryController({
         ...workerRecoverySnapshot(entry.chatKey, job),
         recoveryReason: "active_worker_snapshot_mismatch"
       };
+      if (settings.isAuthorized && !settings.isAuthorized(createWorkerRecoveryTurn(entry.chatKey, repairedSnapshot))) continue;
       await replaceActiveTurnSnapshot(settings.recoveryDir, entry.chatKey, repairedSnapshot);
       if (startWorkerJobRecovery(
         entry.chatKey,
@@ -213,6 +216,7 @@ export function createWorkerRuntimeRecoveryController({
         recoveryReason: WORKER_RESTART_FAILURE_REASON,
         lastKnownStatus: "worker_restart_recovery_armed"
       };
+      if (settings.isAuthorized && !settings.isAuthorized(createWorkerRecoveryTurn(chatKey, armed))) continue;
       snapshots[chatKey] = armed;
       await replaceActiveTurnSnapshot(settings.recoveryDir, chatKey, armed);
       await turn.appendRecoveryEvent({
@@ -266,6 +270,7 @@ export function createWorkerRuntimeRecoveryController({
       recoveryReason: options.reason || snapshot.recoveryReason || "worker_recovery"
     };
     const recoveryTurn = createWorkerRecoveryTurn(chatKey, preparedSnapshot);
+    if (settings.isAuthorized && !settings.isAuthorized(recoveryTurn)) return false;
     const ctx = turn.createSyntheticCtx(recoveryTurn);
     const active = {
       abortController: new AbortController(),
@@ -292,6 +297,7 @@ export function createWorkerRuntimeRecoveryController({
   function workerRecoverySnapshot(chatKey, job) {
     return {
       chatKey,
+      ...provenanceFields(job),
       chatId: job?.chatId ?? chatKey,
       chatType: job?.chatType,
       messageThreadId: job?.messageThreadId,

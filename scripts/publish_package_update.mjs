@@ -41,8 +41,17 @@ export async function readCandidate(directory) {
   }
   return data;
 }
+export function requirePackageApproval(data, approval) {
+  for (const [name, key] of [["package.json", "packageSha256"], ["package-lock.json", "lockSha256"]]) {
+    if (!/^[a-f0-9]{64}$/.test(approval?.[key] || "")
+      || createHash("sha256").update(data[name]).digest("hex") !== approval[key]) {
+      throw new Error("Independent exact package/lock approval required before publication.");
+    }
+  }
+}
 async function main() {
   const data = await readCandidate(process.argv[2]);
+  requirePackageApproval(data, { packageSha256: process.env.CODEX_APPROVED_PACKAGE_SHA256, lockSha256: process.env.CODEX_APPROVED_LOCK_SHA256 });
   const base = JSON.parse(await fs.readFile("package.json", "utf8"));
   validatePackageUpdate(base, JSON.parse(data["package.json"]), JSON.parse(data["package-lock.json"]));
   const repo = process.env.GITHUB_REPOSITORY;

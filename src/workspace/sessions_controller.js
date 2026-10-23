@@ -1,4 +1,5 @@
 // @ts-check
+import { assertSessionOwner, ownsSession } from "../codex/session_owners.js";
 import { b, code, escapeHtml } from "../telegram/html.js";
 import { editOrReplyTelegramHtml } from "../telegram/api.js";
 import { authorizeTelegramUpdate } from "../security.js";
@@ -48,12 +49,16 @@ export function createSessionsController({
     const firstPage = { ...view, cursor: null, cursors: [] };
     const result = await backend.listSessions(accountId, {
       cwd,
+      chatKey: chats.key(ctx),
       query: view.query,
       cursor: view.cursor,
       ...(args.fresh === true ? { fresh: true } : {}),
     });
     const timeZone =
       settings.ui?.timeZone || settings.config.telegramTimeZone || "UTC";
+    result.data = (result.data || []).filter((s) =>
+      ownsSession(settings.config, chats.key(ctx), accountId, s.id),
+    );
     const rows = (result.data || []).map((s) => [
       btn(
         sessionButtonLabel(
@@ -154,7 +159,10 @@ export function createSessionsController({
     view = { accountId },
   ) {
     await accounts.get(accountId);
-    const session = await backend.readSession(accountId, listed.id);
+    assertSessionOwner(settings.config, chats.key(ctx), accountId, listed.id);
+    const session = await backend.readSession(accountId, listed.id, {
+      chatKey: chats.key(ctx),
+    });
     const { html } = await sessionHtml(accountId, session);
     return ui.show(
       ctx,
@@ -192,10 +200,17 @@ export function createSessionsController({
         t("searchPrompt"),
       );
     if (a.type === "session-resume") {
+      assertSessionOwner(
+        settings.config,
+        chats.key(ctx),
+        a.accountId,
+        a.session.id,
+      );
       assertIdle(ctx);
       await readyAccount(a.accountId);
       const session = await backend.readSession(a.accountId, a.session.id, {
         fresh: true,
+        chatKey: chats.key(ctx),
       });
       await validateDirectory(session.cwd);
       const tail = await readTail(
@@ -262,6 +277,13 @@ export function createSessionsController({
         )
           continue;
         try {
+          assertSessionOwner(
+            settings.config,
+            flow.chatKey ||
+              `${flow.chatId}${flow.messageThreadId ? `:topic:${flow.messageThreadId}` : ""}`,
+            flow.data.accountId,
+            flow.data.session.id,
+          );
           const { html } = await sessionHtml(
             flow.data.accountId,
             flow.data.session,

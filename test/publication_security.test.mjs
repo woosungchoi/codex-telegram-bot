@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -27,6 +28,8 @@ globalThis.fetch=async(url, options={})=>{
  return {ok:true,status:200,text:async()=>JSON.stringify(result),json:async()=>result};
 };`);
   const env = { PATH: process.env.PATH, GITHUB_TOKEN: "fake-token", GH_TOKEN: "fake-token", GITHUB_REPOSITORY: "fixture/repo", EXPECTED_HEAD: "abc", BASE_SHA: "b".repeat(40) };
+  env.CODEX_APPROVED_PACKAGE_SHA256 = createHash("sha256").update(await fs.readFile(path.join(repo, "package.json"))).digest("hex");
+  env.CODEX_APPROVED_LOCK_SHA256 = createHash("sha256").update(await fs.readFile(path.join(repo, "package-lock.json"))).digest("hex");
   const calls = async () => (await fs.readFile(log, "utf8").catch(() => "")).trim().split("\n").filter(Boolean).map(JSON.parse);
   return { root, body, calls, run: (script, args) => exec(process.execPath, ["--import", mock, path.join(repo, "scripts", script), ...args], { cwd: repo, env }) };
 }

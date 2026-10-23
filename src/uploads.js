@@ -108,6 +108,7 @@ export async function deleteUploadCandidates(candidates, options = {}) {
   const result = { deleted: 0, skipped: 0, errors: [] };
   for (const candidate of candidates) {
     const candidatePath = path.resolve(candidate.path);
+    if (path.basename(candidatePath) === ".upload-quota.lock") { result.skipped += 1; continue; }
     if (rootDir && !isPathInside(candidatePath, rootDir)) {
       result.skipped += 1;
       result.errors.push({ path: candidate.path, message: "upload cleanup candidate is outside upload directory" });
@@ -153,6 +154,7 @@ async function listFilesRecursive(root) {
   const entries = [];
   const dirents = await fs.readdir(root, { withFileTypes: true });
   for (const dirent of dirents) {
+    if (dirent.name === ".upload-quota.lock") continue;
     const entryPath = path.join(root, dirent.name);
     if (dirent.isDirectory()) {
       entries.push(...await listFilesRecursive(entryPath));

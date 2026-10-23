@@ -1,3 +1,4 @@
+import { assertSessionOwner, ownsSession } from "../codex/session_owners.js";
 import { LocalizedError } from "../i18n.js";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -17,18 +18,27 @@ export function createWorkspaceBackend(config, { connect = connectAppServer, now
     const client = await connect(accountConfig(config, accountId));
     try { return await action(client); } finally { await client.close(); }
   }
-  async function listSessions(accountId, { cursor = null, query = "", cwd = null, fresh = false } = {}) {
-    const result = await cached(accountId, "list", { cursor, query, cwd }, () => using(accountId, (c) => c.request("thread/list", {
-      limit: 8, cursor, sortKey: "updated_at", sortDirection: "desc", searchTerm: query || null, cwd,
-      sourceKinds: ["cli", "vscode", "exec", "appServer", "unknown"]
-    })), fresh);
-    return { ...result, data: await Promise.all((result.data || []).map((s) => describeSession(accountId, s))) };
+  async function listSessions(accountId, { cursor = null, query = "", cwd = null, fresh = false, chatKey } = {}) {
+    if (!chatKey) throw new Error("Session scope required.");
+    const data = [], seen = new Set();
+    do {
+      const result = await cached(accountId, "list", { cursor, query, cwd, chatKey }, () => using(accountId, (c) => c.request("thread/list", {
+        limit: 8, cursor, sortKey: "updated_at", sortDirection: "desc", searchTerm: query || null, cwd,
+        sourceKinds: ["cli", "vscode", "exec", "appServer", "unknown"]
+      })), fresh);
+      data.push(...(result.data || []).filter((s) => ownsSession(config, chatKey, accountId, s.id)));
+      cursor = result.nextCursor || null;
+      if (cursor && seen.has(cursor)) throw new Error("Repeated session cursor.");
+      seen.add(cursor);
+    } while (cursor && data.length < 8 && seen.size < 100);
+    return { data: await Promise.all(data.map((s) => describeSession(accountId, s))), nextCursor: cursor };
   }
   async function describeSession(accountId, session) {
     const request = session.name?.trim() ? "" : await readSessionRequest(session.path, accountConfig(config, accountId).codexSessionsDir).catch(() => "");
     return { ...session, displayTitle: sessionTitle(session, request) };
   }
-  async function readSession(accountId, id, { fresh = false } = {}) {
+  async function readSession(accountId, id, { fresh = false, chatKey } = {}) {
+    assertSessionOwner(config, chatKey, accountId, id);
     const session = await cached(accountId, "read", id, () => using(accountId, async (c) => (await c.request("thread/read", { threadId: id, includeTurns: false })).thread), fresh);
     return describeSession(accountId, session);
   }

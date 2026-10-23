@@ -50,7 +50,7 @@ export function createTaskScheduler(r, { accounts, now = Date.now } = {}) {
     if (atCapacity()) throw new LocalizedError("errors.threeScheduledRunsAreAlreadyPendingWaitForOne");
     if (String(r.bot.botInfo?.id) !== String(task.destination.botId)) throw new LocalizedError("errors.theOriginatingTelegramBotDoesNotMatch");
     const authorization = authorizeTelegramUpdate({
-      from: { id: task.userId }, chat: { id: task.destination.chatId },
+      from: { id: task.userId }, chat: { id: task.destination.chatId, type: task.destination.chatType, is_forum: task.destination.isForum },
       message: { message_thread_id: task.destination.messageThreadId }
     }, r.config);
     if (!authorization.ok) throw new LocalizedError("errors.theTaskOwnerOrDestinationIsNoLongerAuthorized");
@@ -76,6 +76,7 @@ export function createTaskScheduler(r, { accounts, now = Date.now } = {}) {
       r.threadCache.delete(key);
       const text = `⏰ ${task.name}\n\n${task.prompt}`;
       const prepared = {
+        authorizationVersion: 1, botId: String(task.destination.botId), requesterUserId: String(task.userId), isForum: task.destination.isForum === true,
         id, kind: "scheduled", accountId: task.accountId, chatKey: key, chatId: task.destination.chatId, chatType: task.destination.chatType,
         messageThreadId: task.destination.messageThreadId, text,
         inputText: r.applyPersonaPrompt(text), imagePaths: [],

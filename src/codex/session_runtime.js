@@ -1,3 +1,4 @@
+import { assertSessionOwner, ownsSession, registerSessionOwner } from "./session_owners.js";
 import { createMessageFormatter, LocalizedError } from "../i18n.js";
 import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
@@ -50,6 +51,7 @@ export function createCodexSessionRuntime({
   }
 
   function createCodexThread(chatKey, threadId = "", accountId = selectedAccountId(chats.get(chatKey)), attemptState = {}) {
+    assertSessionOwner(settings.config, chatKey, accountId, threadId);
     return createCodexThreadForTransport({
       transport: codexTransport(),
       threadId,
@@ -58,6 +60,7 @@ export function createCodexSessionRuntime({
       effectiveOptions: chats.getEffectiveOptions(chatKey),
       config: {
         ...settings.config,
+        sessionChatKey: String(chatKey),
         codexAppServerDirectTimeoutMs: settings.runtimeValue("codexAppServerDirectTimeoutMs")
       },
       codexClients
@@ -71,12 +74,13 @@ export function createCodexSessionRuntime({
   function getOrCreateThread(chatKey, recovery) {
     if (recovery?.accountId) return createCodexThread(chatKey, recovery.threadId || "", recovery.accountId, recovery.accountAttemptState || {});
     const cached = threadCache.get(chatKey);
+    if (cached?.id) assertSessionOwner(settings.config, chatKey, cached.accountId || selectedAccountId(chats.get(chatKey)), cached.id);
     if (cached && threadTransport(cached) === codexTransport()
       && (cached.accountId || "default") === selectedAccountId(chats.get(chatKey))) return cached;
     if (cached) threadCache.delete(chatKey);
 
     const savedThreadId = accountThreadId(chats.get(chatKey));
-    const thread = savedThreadId
+    const thread = savedThreadId && ownsSession(settings.config, chatKey, selectedAccountId(chats.get(chatKey)), savedThreadId)
       ? resumeCodexThread(chatKey, savedThreadId)
       : startCodexThread(chatKey);
     threadCache.set(chatKey, thread);
@@ -86,6 +90,7 @@ export function createCodexSessionRuntime({
   async function rememberThread(chatKey, thread) {
     if (!thread.id) return;
     const chat = chats.get(chatKey);
+    registerSessionOwner(settings.config, chatKey, thread.accountId || selectedAccountId(chat), thread.id);
     rememberAccountThread(chat, thread.id, thread.accountId || selectedAccountId(chat));
     chat.updatedAt = new Date().toISOString();
     await persistence.save();
@@ -139,8 +144,7 @@ export function createCodexSessionRuntime({
     const sessions = [];
     for (const file of files.filter((entry) => entry.endsWith(".jsonl")).sort().reverse()) {
       const meta = await readSessionMeta(file);
-      if (meta) sessions.push(meta);
-      if (sessions.length >= Math.max(limit, 20)) break;
+      if (meta && ownsSession(settings.config, chatKey, selectedAccountId(chats.get(chatKey)), meta.id)) sessions.push(meta);
     }
     return sessions
       .sort((left, right) => right.timestamp.localeCompare(left.timestamp))

@@ -1,3 +1,4 @@
+import { requestProvenance } from "../authorization.js";
 import { errorText, createMessageFormatter } from "../i18n.js";
 import { buildInput, mergeReplyContext } from "./input.js";
 import { isStreamIdleTimeout, STREAM_IDLE_TIMEOUT_MESSAGE } from "./watchdog.js";
@@ -226,6 +227,8 @@ export function createTurnRuntimeController({
   }
 
   async function processSideTurn(chatKey, preparedTurn) {
+    settings.assertAuthorized?.(preparedTurn);
+    await settings.prepareArtifacts?.(preparedTurn);
     const ctx = context.ensureTurnContext(preparedTurn);
     const abortController = new AbortController();
     sideTurns.track(chatKey, abortController);
@@ -297,7 +300,7 @@ export function createTurnRuntimeController({
       id: queue.createItemId(),
       ctx,
       chatKey: context.getChatKey(ctx),
-      requesterUserId: ctx.from?.id ? String(ctx.from.id) : null,
+      ...requestProvenance(ctx, settings.selectedAccount?.(context.getChatKey(ctx)) || "default"),
       chatId: ctx.chat?.id ?? ctx.from?.id,
       ...messageMeta,
       kind: "user",
@@ -320,7 +323,13 @@ export function createTurnRuntimeController({
       }
       active.interruptBeforeStart = false;
       active.abortController = new AbortController();
-      await processPreparedTurn(chatKey, nextTurn, active);
+      try { await processPreparedTurn(chatKey, nextTurn, active); }
+      catch (error) {
+        if (error.code !== "quarantined_authorization") throw error;
+        await recovery.recordActiveTurnFailed(chatKey, error.message);
+        await queue.enqueueFront(chatKey, nextTurn, { restore: true });
+        break;
+      }
       if (active.stopRequested) break;
       if (queue.isPaused(chatKey)) break;
       nextTurn = await queue.dequeue(chatKey, nextTurn.ctx);
@@ -331,6 +340,8 @@ export function createTurnRuntimeController({
   }
 
   async function processPreparedTurn(chatKey, preparedTurn, active) {
+    settings.assertAuthorized?.(preparedTurn);
+    await settings.prepareArtifacts?.(preparedTurn);
     const startedAt = now();
     let finalReaction = "";
     const ctx = context.ensureTurnContext(preparedTurn);

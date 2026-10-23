@@ -1,3 +1,4 @@
+import { registerSessionOwner } from "../../src/codex/session_owners.js";
 import { Telegraf } from "telegraf";
 import { registerWorkspaceFlowBoundary, registerWorkspaceMenus } from "../../src/workspace/controller.js";
 import { editOrReplyTelegramHtml } from "../../src/telegram/api.js";
@@ -31,7 +32,7 @@ export async function workspaceFixture(t, options = {}) {
   const state = options.state || { ui: { language: "ko", timeZone: "Asia/Seoul" }, chats: {} };
   const queue = new Map();
   const r = {
-    bot, state, config: { ...storage.config, codexWorkdir: storage.root, allowedUserIds: new Set(["1", "2"]),
+    bot, state, config: { ...storage.config, telegramBotToken: "123:test", botRecoveryDir: `${storage.root}/recovery`, codexWorkdir: storage.root, allowedUserIds: new Set(["1", "2"]),
       codexAccountAdminUserIds: new Set(["1"]), telegramLanguage: "ko", telegramTimeZone: "Asia/Seoul" },
     threadCache: new Map(), activeTurns: new Map(), getChatKey: telegramChatKey,
     getChatState: (key) => state.chats[key] ||= { options: {}, accountId: "default", threadId: "original" },
@@ -60,6 +61,7 @@ export async function workspaceFixture(t, options = {}) {
     cancelWorkerJobOnce: async () => {}
   };
   const sessions = [{ id: "session-one", cwd: storage.root, name: "First session", preview: "hello", path: null, updatedAt: clock.now / 1000, status: { type: "idle" } }];
+  registerSessionOwner(r.config, "1", "default", "session-one");
   const backend = options.backend || {
     listSessions: async (id, args) => { backendCalls.push({ method: "listSessions", id, args }); return { data: sessions, nextCursor: args.cursor ? null : "page2" }; },
     readSession: async (id, sessionId) => { backendCalls.push({ method: "readSession", id, sessionId }); return sessions[0]; },

@@ -28,12 +28,35 @@ export function classifyAuditAttempt({
   stdout = "",
   stderr = "",
   packageTreeValid = null,
+  auditLevel = "moderate",
 } = {}) {
+  const payload = parseJson(stdout);
   if (code === 0) {
+    const counts = payload?.metadata?.vulnerabilities;
+    const levels = ["info", "low", "moderate", "high", "critical"];
+    if (
+      payload?.auditReportVersion !== 2 ||
+      !levels.includes(auditLevel) ||
+      !counts ||
+      ![...levels, "total"].every(
+        (level) => Number.isSafeInteger(counts[level]) && counts[level] >= 0,
+      )
+    ) {
+      return { kind: "error", reason: "incomplete-audit-report" };
+    }
+    if (
+      levels
+        .slice(levels.indexOf(auditLevel))
+        .some((level) => counts[level] > 0)
+    ) {
+      return {
+        kind: "vulnerabilities",
+        reason: "audit-report-found-vulnerabilities",
+      };
+    }
     return { kind: "passed", reason: "audit-passed" };
   }
 
-  const payload = parseJson(stdout);
   if (payload?.auditReportVersion || payload?.metadata?.vulnerabilities) {
     return {
       kind: "vulnerabilities",
@@ -122,6 +145,7 @@ export async function runAuditGate({
     const classification = classifyAuditAttempt({
       ...result,
       packageTreeValid,
+      auditLevel,
     });
     if (classification.kind === "passed") {
       write(result);
@@ -141,9 +165,9 @@ export async function runAuditGate({
     }
 
     warn(
-      `::warning title=npm audit unavailable::Security audit could not reach a healthy registry endpoint after ${attempts} attempts (${classification.reason}).`,
+      `::error title=npm audit unavailable::Security audit could not reach a healthy registry endpoint after ${attempts} attempts (${classification.reason}).`,
     );
-    return { ok: true, attempts: attempt, softFailed: true, ...classification };
+    return { ok: false, attempts: attempt, ...classification };
   }
 
   return { ok: false, attempts: 0, kind: "error", reason: "audit-not-run" };

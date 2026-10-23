@@ -74,6 +74,7 @@ export function registerWorkspaceMenus(
   const meta = (ctx) => ({
     chatId: ctx.chat.id,
     chatType: ctx.chat.type,
+    isForum: ctx.chat.is_forum === true,
     messageThreadId: topicId(ctx),
     chatKey: r.getChatKey(ctx),
     botId: r.bot.botInfo.id,

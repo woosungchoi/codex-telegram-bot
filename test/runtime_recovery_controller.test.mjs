@@ -21,6 +21,7 @@ async function createHarness(t, {
   workerJob = null,
   workerResult = null,
   workerEvents = [],
+  isAuthorized = undefined,
   turnOverrides = {}
 } = {}) {
   const recoveryDir = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-recovery-"));
@@ -42,7 +43,7 @@ async function createHarness(t, {
   const chat = { threadId: "" };
   const controller = createRuntimeRecoveryController({
     settings: {
-      enabled,
+      enabled, isAuthorized,
       recoveryDir,
       recoveryStaleSeconds: 3600,
       recoverySuspendAfter: 3,
@@ -527,3 +528,22 @@ for (const mode of ["running", "completed", "already_sent", "backfill"]) {
     assert.equal(harness.activeTurns.size, 0);
   });
 }
+
+for (const workerEnabled of [false, true]) test(`unauthorized startup recovery stays quarantined before backfill, notice or execution: worker=${workerEnabled}`, async (t) => {
+  let backfills = 0;
+  const h = await createHarness(t, { workerEnabled, isAuthorized: () => false,
+    workerJob: { id: "blocked-job", chatKey: "chat-1", status: "running" },
+    turnOverrides: { tryBackfillCompletedStream: async () => { backfills++; return true; } }
+  });
+  await replaceActiveTurnSnapshot(h.recoveryDir, "chat-1", {
+    chatKey: "chat-1", chatId: "chat-1", threadId: "thread-1", recoveryEligible: true,
+    startedAt: new Date().toISOString(), ...(workerEnabled ? { workerJobId: "blocked-job" } : {})
+  });
+  await h.controller.scheduleStartupRecovery({ source: "startup" });
+  assert.equal(backfills, 0);
+  assert.deepEqual(h.startedPreparedTurns, []);
+  assert.deepEqual(h.answerReplies, []);
+  assert.deepEqual(h.replies, []);
+  assert.equal(h.activeTurns.size, 0);
+  assert.ok((await readActiveTurnSnapshots(h.recoveryDir)).turns["chat-1"]);
+});

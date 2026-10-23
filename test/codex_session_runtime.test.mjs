@@ -1,3 +1,4 @@
+import { registerSessionOwner } from "../src/codex/session_owners.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -10,9 +11,11 @@ async function createFixture(t) {
   t.after(() => fs.rm(sessionsDir, { recursive: true, force: true }));
   const replies = [];
   const activeTurns = new Map();
+  const config = { codexSessionsDir: sessionsDir, telegramBotToken: "123:test", botRecoveryDir: path.join(sessionsDir, "owners") };
+  registerSessionOwner(config, "chat", "default", "thread");
   const runtime = createCodexSessionRuntime({
     settings: {
-      config: { codexSessionsDir: sessionsDir },
+      config,
       runtimeValue(key) {
         if (key === "codexTransport") return "sdk";
         if (key === "codexWorkerMode") return "inline";
@@ -42,7 +45,7 @@ test("session runtime reads and orders nested Codex session metadata", async (t)
     type: "session_meta",
     payload: { id: "thread", timestamp: "2026-07-21T00:00:00Z", cwd: "/tmp" }
   })}\n{"type":"event"}\n`);
-  assert.equal((await runtime.listRecentCodexSessions(1))[0].id, "thread");
+  assert.equal((await runtime.listRecentCodexSessions(1, "chat"))[0].id, "thread");
   assert.equal(await runtime.findCodexSessionFile("thread"), file);
 });
 

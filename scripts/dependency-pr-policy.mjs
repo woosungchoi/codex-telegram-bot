@@ -4,7 +4,6 @@ export const REQUIRED_CHECKS = [
   ...[18, 20, 22, 24, 26].map((version) => `Check Node ${version}`),
   "Integration coverage",
   "Security audit",
-  "Review PR",
 ];
 const SHA = /^[0-9a-f]{40}$/;
 const VERSION = /^[~^]?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -130,6 +129,9 @@ export function manifestAllowed(before, after, source) {
     )
   )
     return false;
+  // Codex changes require an explicit maintainer decision, including Dependabot.
+  if (before.dependencies?.["@openai/codex-sdk"] !== after.dependencies?.["@openai/codex-sdk"]
+    || before.devDependencies?.["@openai/codex"] !== after.devDependencies?.["@openai/codex"]) return false;
   if (source !== "codex") return true;
   const stripCodex = (pkg) => ({
     ...pkg,
@@ -140,6 +142,14 @@ export function manifestAllowed(before, after, source) {
 }
 
 export function lockfileAllowed(before, after, manifest) {
+  for (const key of new Set([...Object.keys(before.packages || {}), ...Object.keys(after.packages || {})])) {
+    if (/(?:^|\/)node_modules\/@openai\/codex(?:$|[-/])/.test(key)
+      && !isDeepStrictEqual(before.packages?.[key], after.packages?.[key])) return false;
+  }
+  for (const key of new Set([...Object.keys(before.dependencies || {}), ...Object.keys(after.dependencies || {})])) {
+    if (/^@openai\/codex(?:$|[-/])/.test(key)
+      && !isDeepStrictEqual(before.dependencies?.[key], after.dependencies?.[key])) return false;
+  }
   if (
     !isDeepStrictEqual(
       without(before, ["packages", "dependencies"]),
@@ -173,6 +183,7 @@ export function lockfileAllowed(before, after, manifest) {
 }
 
 export function actionRefsOnly(before, after) {
+  if (/uses:\s*[\w.-]+\/[\w./-]+@(?![a-f0-9]{40}(?:\s|$))/m.test(after)) return false;
   let changes = 0;
   const normalize = (text) =>
     text.replace(

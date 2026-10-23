@@ -1,3 +1,6 @@
+import { ownsSession } from "../codex/session_owners.js";
+import { prepareTurnArtifacts } from "../telegram/turn_artifacts.js";
+import { assertStoredRequest, authorizeStoredRequest, guardTelegramContext, authorizationError } from "../authorization.js";
 import { createNativeControls } from "../telegram/native_controls.js";
 import { createSteeringUi } from "../telegram/steering.js";
 import { createQuestionUi } from "../telegram/questions.js";
@@ -12,6 +15,13 @@ import { accountThreadId } from "../accounts/context.js";
 import { updateAdmissionPaused } from "../maintenance/update_state.js";
 
 export function createExecutionComposition(r) {
+  const assertAuthorized = (record) => {
+    assertStoredRequest(record, r.config, r.bot?.botInfo?.id);
+    if (!isAuthorized(record)) throw authorizationError();
+  };
+  const isAuthorized = (record) => authorizeStoredRequest(record, r.config, r.bot?.botInfo?.id)
+    && (!record.recovery?.threadId || ownsSession(r.config, record.chatKey,
+      record.recovery.accountId || record.accountId, record.recovery.threadId));
   const steering = createSteeringUi({ getClient: r.getWorkerClient, getChatKey: r.getChatKey, text: r.text,
     admissionPaused: () => updateAdmissionPaused(r.config),
     queue: { get: r.getPendingTurns, persist: r.persistPendingTurns, remove: r.removePendingTurn, startDrain: r.startQueueDrainIfIdle }
@@ -56,6 +66,12 @@ export function createExecutionComposition(r) {
   });
 
   const manualDelivery = createManualDeliveryController({
+    authorizeJob: (ctx, job) => {
+      assertAuthorized(job);
+      if (String(ctx.from?.id) !== String(job.requesterUserId)) throw authorizationError();
+      ctx.authorizationRecord = job;
+      return guardTelegramContext(ctx, () => assertAuthorized(job));
+    },
     state: r.state,
     activeTurns: r.activeTurns,
     getWorkerClient: r.getWorkerClient,
@@ -116,6 +132,7 @@ export function createExecutionComposition(r) {
     questions: r.config.codexInteractiveQuestions ? questions : null,
     settings: {
       recoveryEnabled: r.config.botRestartRecoveryEnabled,
+      config: r.config,
       interactiveQuestions: r.config.codexInteractiveQuestions || r.config.codexSteering,
       recoveryDir: r.config.botRecoveryDir,
       workerRestartRecoveryAttempts: r.config.botRecoverySuspendAfter,
@@ -166,6 +183,9 @@ export function createExecutionComposition(r) {
   const turn = createTurnRuntimeController({
     steering: r.config.codexSteering ? steering : null,
     settings: {
+      assertAuthorized,
+      prepareArtifacts: (record) => prepareTurnArtifacts(record, r.config),
+      selectedAccount: (key) => r.getChatState(key).accountId || "default",
       maxPendingTurns: () => r.runtimeValue("telegramPendingTurnsMax"),
       pendingTurnMaxAgeSeconds: () => r.runtimeValue("telegramPendingTurnMaxAgeSeconds"),
       thinkingReaction: r.config.telegramThinkingReaction,
@@ -248,6 +268,7 @@ export function createExecutionComposition(r) {
     settings: {
       enabled: r.config.botRestartRecoveryEnabled,
       recoveryDir: r.config.botRecoveryDir,
+      assertAuthorized, isAuthorized,
       recoveryStaleSeconds: r.config.botRecoveryStaleSeconds,
       recoverySuspendAfter: r.config.botRecoverySuspendAfter,
       recoveryTurnTtlSeconds: r.config.botRecoveryTurnTtlSeconds,

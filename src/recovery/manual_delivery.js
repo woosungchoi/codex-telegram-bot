@@ -5,6 +5,7 @@ import { reconstructCompletedWorkerJob } from "../worker/replay.js";
 
 export function createManualDeliveryController({
   state,
+  authorizeJob = null,
   activeTurns,
   getWorkerClient,
   journal,
@@ -60,6 +61,7 @@ export function createManualDeliveryController({
         await telegram.replyHtml(ctx, text("deliveryJobUnavailable"));
         return;
       }
+      if (authorizeJob) ctx = authorizeJob(ctx, job);
       const reconstructed = await reconstructCompletedWorkerJob(client, jobId);
       const replyText = formatTurn(reconstructed.turn) || text("ui.completedWithoutMessage");
       if (!entry.responseDigest || !workerDeliveryDigestMatches(entry.responseDigest, journal.digestText(replyText))) {

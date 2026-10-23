@@ -1,3 +1,4 @@
+import { authorizeStoredRequest } from "../authorization.js";
 import { b, code, escapeHtml } from "../telegram/html.js";
 import { editOrReplyTelegramHtml } from "../telegram/api.js";
 import { nativeControlsKeyboard, panelControlsKeyboard } from "../telegram/native_controls.js";
@@ -15,6 +16,7 @@ export function createTaskDashboard(r, { accounts, text: t, now = Date.now }) {
   function activeFor(meta) {
     return [...r.activeTurns.entries()].filter(([key, a]) => {
       const p = a.currentPreparedTurn;
+      if (r.config.allowedUserIds && !authorizeStoredRequest(p, r.config, r.bot.botInfo?.id)) return false;
       return destinationKey(p || telegramMetaFromChatKey(key)) === destinationKey(meta);
     });
   }
@@ -96,6 +98,7 @@ export function createTaskDashboard(r, { accounts, text: t, now = Date.now }) {
   }
   const delivered = (runs) => runs.length > 0 && runs.every((run) => run.delivery === "delivery_sent");
   async function updatePanel(key, panel, runs, running) {
+    if (r.config.allowedUserIds && !authorizeStoredRequest(panel.authorization, r.config, r.bot.botInfo?.id)) return;
     if (delivered(runs)) {
       panel.runs = runs;
       panel.finished = !running;
@@ -122,7 +125,7 @@ export function createTaskDashboard(r, { accounts, text: t, now = Date.now }) {
     const destinations = new Map();
     for (const [, active] of r.activeTurns) {
       const meta = active.currentPreparedTurn;
-      if (meta?.chatId) destinations.set(destinationKey(meta), meta);
+      if (meta?.chatId && (!r.config.allowedUserIds || authorizeStoredRequest(meta, r.config, r.bot.botInfo?.id))) destinations.set(destinationKey(meta), meta);
     }
     for (const [key, panel] of Object.entries(state.panels)) {
       if (panel.botId !== r.bot.botInfo.id) { delete state.panels[key]; await r.saveState(); continue; }
@@ -145,13 +148,14 @@ export function createTaskDashboard(r, { accounts, text: t, now = Date.now }) {
       const runs = all.map(([chatKey, a]) => refreshDelivery(snapshot(chatKey, a, labels)));
       let panel = state.panels[key];
       if (panel?.cleanupPending) continue;
+      if (panel && r.config.allowedUserIds && !authorizeStoredRequest(panel.authorization, r.config, r.bot.botInfo?.id)) continue;
       if (delivered(runs)) {
         if (panel) await cleanup(key, panel);
         continue; // The turn may remain in activeTurns until its finally block returns.
       }
       if (!panel) {
         const message = await r.replyHtml(r.createSyntheticCtx(meta), render(runs), keyboard(runs, running));
-        panel = { botId: r.bot.botInfo.id, chatId: meta.chatId, messageThreadId: meta.messageThreadId, messageId: message.message_id, pinned: false, runs };
+        panel = { authorization: { ...meta, ctx: undefined }, botId: r.bot.botInfo.id, chatId: meta.chatId, messageThreadId: meta.messageThreadId, messageId: message.message_id, pinned: false, runs };
         state.panels[key] = panel;
         await r.saveState();
       }

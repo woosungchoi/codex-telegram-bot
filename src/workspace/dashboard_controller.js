@@ -46,6 +46,17 @@ export function createDashboardController({
     }
     if (a.type === "stop") {
       for (const [key, active] of dashboard.activeFor(meta(ctx))) {
+        const prepared = active.currentPreparedTurn;
+        if (
+          !prepared?.requesterUserId ||
+          String(prepared.requesterUserId) !== String(ctx.from?.id)
+        )
+          continue;
+        const ownedTask = Object.values(state.tasks).find(
+          (x) => taskChatKey(x.id) === key,
+        );
+        if (ownedTask && ownedTask.owner !== scopeKey(ctx)) continue;
+        if (active.stopRequested) continue;
         active.stopRequested = true;
         active.abortController?.abort();
         if (active.workerJobId)

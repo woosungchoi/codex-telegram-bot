@@ -34,7 +34,7 @@ async function fixture(t) {
   await fs.symlink(old, path.join(root, "current"));
   config.codexPath = bin;
   const installation = { bin, real: path.join(old, "bin", "codex"), root, current: "0.158.0", supported: true };
-  const state = { id: randomUUID(), unit: "test-update.service", phase: "launching", target: "0.159.0", sdk: { version: "0.159.0", integrity: `sha512-${Buffer.alloc(64).toString("base64")}` }, installation };
+  const state = { id: randomUUID(), unit: "test-update.service", phase: "launching", target: "0.159.0", sdk: { version: "0.159.0", lockSha256: "a".repeat(64), integrity: `sha512-${Buffer.alloc(64).toString("base64")}` }, installation };
   const calls = [];
   let workerBusy = false, failVerify = false, failRollback = false;
   const run = async (command, args) => {

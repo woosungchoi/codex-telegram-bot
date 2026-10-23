@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { workspaceFixture } from "./helpers/workspace_fixture.mjs";
 
 function active(id = "turn", thread = undefined) {
-  return { currentText: "Task <unsafe> SECRET", currentPreparedTurn: { id, chatId: 1, requesterUserId: "1", messageThreadId: thread },
+  return { currentText: "Task <unsafe> SECRET", currentPreparedTurn: { authorizationVersion: 1, botId: "123", accountId: "default", chatType: "private", id, chatId: 1, requesterUserId: "1", messageThreadId: thread },
     workerJobId: id, nativeProgress: { status: "active", plan: [{ step: "Inspect <script>", status: "inProgress" }], files: ["file.js"], tokenUsage: { last: { inputTokens: 10, outputTokens: 5 }, modelContextWindow: 100 } } };
 }
 function receipt(f, job, status, chatKey = "1") {
