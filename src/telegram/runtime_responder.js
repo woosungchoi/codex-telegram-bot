@@ -1,3 +1,4 @@
+import { turnArtifactOptions } from "./turn_artifacts.js";
 import { createMessageFormatter } from "../i18n.js";
 import path from "node:path";
 import { replyFormattedCodexAnswer } from "./codex_answer.js";
@@ -21,6 +22,8 @@ export function createTelegramRuntimeResponder({ bot, settings, localization, pr
 
   async function replyCodexAnswer(ctx, text) {
     await replyFormattedCodexAnswer(ctx, text, {
+      artifactOptions: settings.config && ctx.authorizationRecord
+        ? await turnArtifactOptions(ctx.authorizationRecord, settings.config) : { allowedRoots: [] },
       format: settings.runtimeValue("telegramFormatCodexAnswers"),
       maxTelegramChars: settings.runtimeValue("maxTelegramChars"),
       replyHtml,

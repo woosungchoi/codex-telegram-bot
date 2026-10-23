@@ -55,6 +55,8 @@ export function readUploadConfig(env, paths) {
       7,
       "UPLOAD_RETENTION_DAYS"
     ),
+    uploadQuotaBytes: parseNonnegativeInteger(env.UPLOAD_QUOTA_BYTES, 5 * 1024 ** 3, "UPLOAD_QUOTA_BYTES"),
+    uploadMinFreeBytes: parseNonnegativeInteger(env.UPLOAD_MIN_FREE_BYTES, 1024 ** 3, "UPLOAD_MIN_FREE_BYTES"),
     uploadMaxBytes: parseNonnegativeInteger(
       env.UPLOAD_MAX_BYTES,
       1_073_741_824,

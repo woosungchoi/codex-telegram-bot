@@ -1,3 +1,5 @@
+import { assertStoredRequest } from "../authorization.js";
+import { assertSessionOwner, registerSessionOwner } from "../codex/session_owners.js";
 import { assertWorkerExecutionBoundary } from "./auth.js";
 import { updateNativeProgress } from "../codex/native_progress.js";
 import process from "node:process";
@@ -20,6 +22,10 @@ export async function runWorkerJob({
   now = () => new Date()
 } = {}) {
   if (!job?.id) throw new Error("worker job id is required.");
+  if (config.allowedUserIds) {
+    assertStoredRequest(job, config);
+    assertSessionOwner(config, job.chatKey, job.accountId, job.threadId);
+  }
   await store.appendJobEvent(job.id, {
     type: "worker.job.started",
     status: "running",
@@ -39,6 +45,7 @@ export async function runWorkerJob({
     : buildInput(job.inputText || job.text || "", job.imagePaths || []);
   const turnOptions = { signal, onUserInput, onSteerReady, clientUserMessageId: `telegram:${job.id}` };
   turnOptions.onThreadReady = async ({ threadId }) => {
+    if (config.allowedUserIds) registerSessionOwner(config, job.chatKey, job.accountId, threadId);
     job.threadId = threadId;
     job.inputReceipt = { clientId: turnOptions.clientUserMessageId, threadId, accountId: job.accountId || "default", status: "sending" };
     await store.writeJobState({ id: job.id, threadId, inputReceipt: job.inputReceipt });
@@ -58,7 +65,8 @@ export async function runWorkerJob({
       accountId: job.accountId || "default",
       attemptState: job.accountAttemptState || {},
       effectiveOptions: job.effectiveOptions || {},
-      config: config.codexInteractiveQuestions ? questionConfig(config, job.id) : config,
+      config: { ...(config.codexInteractiveQuestions ? questionConfig(config, job.id) : config),
+        ...(config.allowedUserIds ? { sessionChatKey: job.chatKey } : {}) },
       codexClients
     });
     const { events } = await thread.runStreamed(input, turnOptions);
@@ -83,6 +91,7 @@ export async function runWorkerJob({
       }
       if (update.type === "thread_started") {
         job.threadId = update.threadId || job.threadId || "";
+        if (config.allowedUserIds && job.threadId) registerSessionOwner(config, job.chatKey, job.accountId, job.threadId);
         await store.writeJobState({ ...job, status: "running", threadId: job.threadId });
       }
       await store.appendJobEvent(job.id, {

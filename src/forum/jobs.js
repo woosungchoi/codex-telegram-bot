@@ -42,7 +42,7 @@ export function createForumJobs(r, { service, accounts, text: t, now = Date.now 
       const job = { id: jobId, groupId: group.chatId, targetTopicId: id, targetKey: key, topicName: topic.name,
         bindingId: topic.bindingId, accountId, userId: ctx.from.id, prompt: prompt.trim(), createdAt: at, status: "queued",
         origin: { ...forumDestination(group, forumTopicId(ctx)), originMessageId: ctx.message?.message_id ?? ctx.callbackQuery?.message?.message_id } };
-      const prepared = { id: jobId, kind: "forum", chatKey: key, ...forumDestination(group, id), accountId,
+      const prepared = { authorizationVersion: 1, botId: String(r.bot.botInfo.id), requesterUserId: String(job.userId), isForum: forumChatType(group) === "supergroup", id: jobId, kind: "forum", chatKey: key, ...forumDestination(group, id), accountId,
         text: job.prompt, inputText: r.applyPersonaPrompt(job.prompt), imagePaths: [],
         enqueuedAt: new Date(at).toISOString(), expiresAt: new Date(at + 86400_000).toISOString() };
       state.jobs[job.id] = job;
@@ -101,7 +101,7 @@ export function createForumJobs(r, { service, accounts, text: t, now = Date.now 
       await r.saveState();
       const url = forumTopicUrl(group, job.targetTopicId);
       const extra = url ? { reply_markup: { inline_keyboard: [[{ text: t("open"), url }]] } } : {};
-      const ctx = r.createSyntheticCtx({ ...job.origin, userId: job.userId });
+      const ctx = r.createSyntheticCtx({ ...job.origin, authorizationVersion: 1, botId: String(job.origin.botId), accountId: job.accountId, requesterUserId: String(job.userId), isForum: forumChatType(group) === "supergroup" });
       const message = await r.replyHtml(ctx, reportHtml(job), extra);
       job.report = "sent"; job.reportMessageId = message?.message_id; job.reportedAt = now(); delete job.reportError;
     } catch (error) {

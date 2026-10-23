@@ -43,13 +43,13 @@ test("public package metadata and assets stay intact", async () => {
 test("public CI keeps baseline verification commands", async () => {
   const workflow = await fs.readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
   const pkg = await readJson("package.json");
-  assert.match(workflow, /npm ci --audit=false/);
+  assert.match(workflow, /npm ci --ignore-scripts --audit=false/);
   assert.match(workflow, /npm run verify/);
   assert.match(workflow, /name: Security audit/);
   assert.match(workflow, /node-version: 24/);
   assert.match(workflow, /npm install --global npm@11\.17\.0/);
   assert.match(workflow, /npm run audit:ci/);
-  assert.match(workflow, /raven-actions\/actionlint@v2/);
+  assert.match(workflow, /raven-actions\/actionlint@[a-f0-9]{40}/);
   assert.match(workflow, /npm pack --dry-run --json/);
   assert.match(workflow, /npm run build --if-present/);
   assert.match(workflow, /node-version: \[18, 20, 22, 24, 26\]/);
@@ -72,12 +72,8 @@ test("optional Codex workflows degrade gracefully", async () => {
   assert.doesNotMatch(ciDiagnosis, /cp ci-logs\/failed-tail\.log ci-logs\/failed-tail\.redacted\.log/);
   assert.doesNotMatch(ciDiagnosis, /cp codex-ai-diagnosis\.md codex-ai-diagnosis\.redacted\.md/);
   assert.match(ciDiagnosis, /PR comment upsert failed; writing diagnosis to step summary instead/);
-  assert.match(prReview, /OAuth is not configured/);
-  assert.match(prReview, /head.repo.full_name == github.repository/);
-  assert.match(prReview, /ref: \$\{\{ github.event.pull_request.base.sha \}\}/);
-  assert.match(prReview, /needs: review/);
-  assert.match(prReview, /Codex access token rejected/);
-  assert.match(prReview, /malformed, expired, or revoked/);
+  assert.match(prReview, /review-disabled:/);
+  assert.doesNotMatch(prReview, /secrets\.|codex login|npm install/);
 
   assert.match(dependencyUpdate, /npm view @openai\/codex version 2>\/dev\/null \|\| true/);
   assert.match(dependencyUpdate, /sdk_available/);

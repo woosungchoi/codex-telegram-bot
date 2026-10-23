@@ -179,7 +179,7 @@ test("MCP is restricted to account administrators", async (t) => {
 });
 test("dashboard unpins but retains an unverified outcome when a turn disappears", async (t) => {
   const f = await workspaceFixture(t);
-  f.r.activeTurns.set("1", { currentText: "Task", currentTurnStartedAt: new Date(f.clock.now).toISOString(), currentPreparedTurn: { chatId: 1 } });
+  f.r.activeTurns.set("1", { currentText: "Task", currentTurnStartedAt: new Date(f.clock.now).toISOString(), currentPreparedTurn: { authorizationVersion: 1, botId: "123", requesterUserId: "1", accountId: "default", chatType: "private", chatId: 1 } });
   await f.controller.dashboard.tick(); await f.controller.dashboard.tick();
   assert.equal(f.apiCalls.filter((c) => c.method === "pinChatMessage").length, 1);
   const panel = f.state.workspace.panels["1:0"];
@@ -232,7 +232,7 @@ test("dashboard falls back to an ordinary card when pinning is unavailable", asy
     if (method === "pinChatMessage") throw new Error("not enough rights");
     return callApi(method, payload);
   };
-  f.r.activeTurns.set("1", { currentPreparedTurn: { chatId: 1 }, currentText: "work" });
+  f.r.activeTurns.set("1", { currentPreparedTurn: { authorizationVersion: 1, botId: "123", requesterUserId: "1", accountId: "default", chatType: "private", chatId: 1 }, currentText: "work" });
   await f.controller.dashboard.tick();
   assert.equal(f.state.workspace.panels["1:0"].pinFailed, true);
   assert.match(f.messages.at(-1).text, /고정 권한/);

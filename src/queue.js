@@ -1,3 +1,4 @@
+import { provenanceFields } from "./authorization.js";
 export function planIncomingTurn({ active, pendingDelivery, paused, pendingCount, queueMode }) {
   if (pendingDelivery) return "enqueue_back";
   if (active) {
@@ -108,6 +109,8 @@ export function normalizePendingTurn(turn, options = {}) {
     chatKey: options.chatKey,
     ...(turn.steerTarget ? { steerTarget: turn.steerTarget } : {}),
     ...(turn.steering ? { steering: turn.steering } : {}),
+    ...provenanceFields(turn),
+    ...(turn.authorizationStatus ? { authorizationStatus: turn.authorizationStatus } : {}),
     chatId: turn.chatId ?? options.chatKey,
     ...(turn.requesterUserId ? { requesterUserId: String(turn.requesterUserId) } : {}),
     ...(turn.chatType ? { chatType: turn.chatType } : {}),
@@ -133,6 +136,8 @@ export function serializePendingTurn(turn) {
     ...(turn.steerTarget ? { steerTarget: turn.steerTarget } : {}),
     ...(turn.steering ? { steering: turn.steering } : {}),
     chatKey: turn.chatKey,
+    ...provenanceFields(turn),
+    ...(turn.authorizationStatus ? { authorizationStatus: turn.authorizationStatus } : {}),
     chatId: turn.chatId,
     ...(turn.requesterUserId ? { requesterUserId: String(turn.requesterUserId) } : {}),
     ...(turn.chatType ? { chatType: turn.chatType } : {}),

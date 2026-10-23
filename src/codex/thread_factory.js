@@ -1,3 +1,4 @@
+import { assertSessionOwner } from "./session_owners.js";
 import { buildCodexChildEnv } from "./child_env.js";
 import { Codex } from "@openai/codex-sdk";
 import { createAppServerThread } from "./app_server.js";
@@ -76,6 +77,7 @@ export function createCodexThread({
   attemptState = {}
 } = {}) {
   if (!config) throw new Error("config is required to create a Codex thread.");
+  if (config.sessionChatKey) assertSessionOwner(config, config.sessionChatKey, config.codexAccountId || accountId, threadId);
   if (config.codexAccountsDir && !config.codexAccountId) {
     return createAccountThread({
       config, accountId, threadId, transport, attemptState,

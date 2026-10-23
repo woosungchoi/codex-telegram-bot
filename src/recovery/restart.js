@@ -1,3 +1,4 @@
+import { provenanceFields } from "../authorization.js";
 import {
   createRestartId,
   readActiveTurnSnapshots,
@@ -40,6 +41,7 @@ export function normalizeNotify(notify = {}) {
   if (!notify || typeof notify !== "object") return null;
   if (notify.chatId == null) return null;
   return {
+    ...provenanceFields(notify),
     chatId: notify.chatId,
     messageThreadId: notify.messageThreadId,
     replyToMessageId: notify.replyToMessageId

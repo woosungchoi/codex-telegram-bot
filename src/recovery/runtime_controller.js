@@ -187,6 +187,10 @@ export function createRuntimeRecoveryController({
         });
       }
       for (const recoveryTurn of actions.turns) {
+        if (settings.isAuthorized && !settings.isAuthorized(recoveryTurn)) {
+          await turn.appendRecoveryEvent({ type: "quarantined_authorization", chatKey: recoveryTurn.chatKey });
+          continue;
+        }
         const candidate = recoveryTurn.recovery;
         const recoveryCtx = turn.createSyntheticCtx(recoveryTurn);
         try {
@@ -342,7 +346,7 @@ export function createRuntimeRecoveryController({
 
   async function notifyRestartMarker(marker) {
     const notify = marker?.notify;
-    if (!notify?.chatId) return;
+    if (!notify?.chatId || (settings.isAuthorized && !settings.isAuthorized(notify))) return;
     try {
       const message = await telegram.sendHtmlMessage(
         notify.chatId,

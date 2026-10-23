@@ -8,7 +8,11 @@ export function authorizeTelegramUpdate(ctx, config) {
   }
 
   const threadId = threadIdForUpdate(ctx);
-  if (config.allowedThreadIds?.size > 0 && !config.allowedThreadIds.has(String(threadId))) {
+  if (config.allowedTopicBindings?.size > 0 && !config.allowedTopicBindings.has(JSON.stringify([String(chatId), String(threadId)]))) {
+    return { ok: false, reason: "disallowed_thread" };
+  }
+  if (config.allowedThreadIds?.size > 0 && (config.allowedChatIds?.size !== 1
+    || !config.allowedChatIds.has(String(chatId)) || !config.allowedThreadIds.has(String(threadId)))) {
     return { ok: false, reason: "disallowed_thread" };
   }
 
@@ -23,8 +27,9 @@ function chatIdForUpdate(ctx) {
 }
 
 function threadIdForUpdate(ctx) {
+  const chat = ctx.chat ?? ctx.message?.chat ?? ctx.callbackQuery?.message?.chat;
   return ctx.message?.message_thread_id
     ?? ctx.callbackQuery?.message?.message_thread_id
-    ?? (ctx.chat?.is_forum ? 1 : undefined)
+    ?? (chat?.is_forum ? 1 : undefined)
     ?? "";
 }

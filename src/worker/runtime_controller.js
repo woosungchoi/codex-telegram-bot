@@ -1,3 +1,5 @@
+import { ownsSession } from "../codex/session_owners.js";
+import { provenanceFields } from "../authorization.js";
 import { nativeUsageSample } from "../codex/native_usage.js";
 import { LocalizedError, localizedErrorDetails, restoreLocalizedError } from "../i18n.js";
 import { progressTurnId } from "../telegram/progress_store.js";
@@ -58,6 +60,7 @@ export function createWorkerRuntimeController({
       id,
       progressTurnId: progressTurnId(preparedTurn) || id,
       chatKey,
+      ...provenanceFields(preparedTurn),
       ...(preparedTurn.requesterUserId ? { requesterUserId: String(preparedTurn.requesterUserId) } : {}),
       chatId: preparedTurn.chatId ?? chatKey,
       chatType: preparedTurn.chatType,
@@ -95,6 +98,10 @@ export function createWorkerRuntimeController({
       Number(settings.workerRestartRecoveryAttempts ?? 3) || 0
     );
     const initialJob = createWorkerJobPayload(chatKey, preparedTurn);
+    if (settings.config && initialJob.threadId && !ownsSession(settings.config, chatKey, initialJob.accountId, initialJob.threadId)) {
+      if (preparedTurn.recovery) throw new Error("Session unavailable for this conversation.");
+      initialJob.threadId = "";
+    }
     initialJob.requesterUserId ||= ctx.from?.id ? String(ctx.from.id) : null;
     try {
       await turn.maybeNotifyContextPressure(ctx, chatKey, { id: initialJob.threadId }, liveProgress);
@@ -480,6 +487,7 @@ export function createWorkerRuntimeController({
     deliveryStore.set(
       deliveryKey,
       markWorkerDeliveryStreaming(currentDelivery, {
+        ...provenanceFields(job), chatId: job.chatId, messageThreadId: job.messageThreadId,
         chatKey,
         jobId: job.id || "",
         seq: currentDelivery?.seq || 0
@@ -489,6 +497,7 @@ export function createWorkerRuntimeController({
     if (!settings.recoveryEnabled) return;
     await recovery.write(async () => {
       await upsertActiveTurnSnapshot(settings.recoveryDir, chatKey, {
+        ...provenanceFields(job),
         progressTurnId: job.progressTurnId || job.id || "",
         threadId: job.threadId || "",
         accountId: job.accountId || "default",

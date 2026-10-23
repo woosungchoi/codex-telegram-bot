@@ -24,7 +24,7 @@ export async function replyFormattedCodexAnswer(ctx, text, options = {}) {
   if (typeof replyLong !== "function") throw new TypeError("replyLong option is required.");
 
   let answerText = String(text ?? "");
-  const artifactResult = await extractPhotoArtifacts(answerText);
+  const artifactResult = await extractPhotoArtifacts(answerText, options.artifactOptions || {});
   answerText = appendRejectedPhotoArtifacts(artifactResult.text, artifactResult.rejected, options.text);
 
   if (format === "off") {

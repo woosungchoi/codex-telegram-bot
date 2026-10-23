@@ -19,15 +19,26 @@ export function readTelegramAccessConfig(env) {
 
   const allowedUserIds = new Set(parseTelegramIdCsv(env.ALLOWED_USER_IDS, "ALLOWED_USER_IDS"));
   if (allowedUserIds.size === 0) throw new Error("ALLOWED_USER_IDS is required.");
+  const allowedChatIds = new Set(parseTelegramIdCsv(env.ALLOWED_CHAT_IDS, "ALLOWED_CHAT_IDS", { allowNegative: true }));
+  const allowedThreadIds = new Set(parseTelegramIdCsv(env.ALLOWED_THREAD_IDS, "ALLOWED_THREAD_IDS"));
+  const allowedTopicBindings = new Set();
+  if (env.ALLOWED_TOPIC_BINDINGS?.trim()) {
+    const pairs = JSON.parse(env.ALLOWED_TOPIC_BINDINGS);
+    if (!Array.isArray(pairs)) throw new Error("ALLOWED_TOPIC_BINDINGS must be a JSON array of [chatId, topicId] pairs.");
+    for (const pair of pairs) {
+      if (!Array.isArray(pair) || pair.length !== 2 || !/^-?[1-9]\d*$/.test(String(pair[0]))
+        || !/^[1-9]\d*$/.test(String(pair[1]))) throw new Error("Invalid ALLOWED_TOPIC_BINDINGS pair.");
+      allowedTopicBindings.add(JSON.stringify(pair.map(String)));
+    }
+  }
+  if (allowedThreadIds.size && (allowedChatIds.size !== 1 || allowedTopicBindings.size)) {
+    throw new Error("Legacy ALLOWED_THREAD_IDS requires exactly one ALLOWED_CHAT_IDS entry and no ALLOWED_TOPIC_BINDINGS. Configure explicit chat/topic pairs.");
+  }
+  if (allowedThreadIds.size) console.warn("ALLOWED_THREAD_IDS is bound to the single allowed chat; migrate to ALLOWED_TOPIC_BINDINGS.");
   return {
     telegramBotToken,
     allowedUserIds,
-    allowedChatIds: new Set(parseTelegramIdCsv(
-      env.ALLOWED_CHAT_IDS,
-      "ALLOWED_CHAT_IDS",
-      { allowNegative: true }
-    )),
-    allowedThreadIds: new Set(parseTelegramIdCsv(env.ALLOWED_THREAD_IDS, "ALLOWED_THREAD_IDS"))
+    allowedChatIds, allowedThreadIds, allowedTopicBindings
   };
 }
 

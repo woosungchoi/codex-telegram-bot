@@ -1,3 +1,4 @@
+import { provenanceFields } from "../authorization.js";
 import { buildRecoveryPrompt } from "./prompt.js";
 import {
   clearRestartMarker,
@@ -175,6 +176,7 @@ export function createRecoveryTurn(candidate, options = {}) {
   return {
     id: `recovery:${options.restartId || "startup"}:${candidate.chatKey}`,
     chatKey: candidate.chatKey,
+    ...provenanceFields(candidate),
     chatId: candidate.chatId ?? candidate.chatKey,
     messageThreadId: candidate.messageThreadId,
     replyToMessageId: candidate.replyToMessageId,

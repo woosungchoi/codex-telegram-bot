@@ -1,3 +1,4 @@
+import { assertStoredRequest, guardTelegramContext } from "../authorization.js";
 import path from "node:path";
 import fetch from "node-fetch";
 import { buildStyleInstructionPrompt } from "../codex/prompts.js";
@@ -45,9 +46,10 @@ export function createTelegramRuntimeContext({
     const chatId = Number.isNaN(Number(rawChatId)) ? rawChatId : Number(rawChatId);
     if (!meta.chatType && /^-100\d+$/.test(String(chatId))) meta.chatType = "supergroup";
     const message = telegramSyntheticMessageFromMeta(meta);
-    return {
+    const ctx = {
+      authorizationRecord: input,
       chat: { id: chatId, type: meta.chatType, ...(meta.chatType === "supergroup" ? { is_forum: true } : {}) },
-      from: { id: meta.userId ?? chatId },
+      from: { id: meta.requesterUserId ?? meta.userId },
       botInfo: bot.botInfo,
       message,
       msg: message,
@@ -63,10 +65,17 @@ export function createTelegramRuntimeContext({
         telegramChatActionExtraFromMeta(meta)
       )
     };
+    return settings?.config ? guardTelegramContext(ctx, () => assertStoredRequest(input, settings.config, bot.botInfo?.id)) : ctx;
   }
 
   function ensureTurnContext(turn) {
-    if (turn.ctx) return turn.ctx;
+    if (turn.ctx) {
+      if (settings?.config && !turn.ctx.authorizationRecord) {
+        turn.ctx.authorizationRecord = turn;
+        turn.ctx = guardTelegramContext(turn.ctx, () => assertStoredRequest(turn, settings.config, bot.botInfo?.id));
+      }
+      return turn.ctx;
+    }
     turn.ctx = createSyntheticCtx(turn);
     return turn.ctx;
   }
@@ -130,6 +139,7 @@ export function createTelegramRuntimeContext({
     return downloadAttachment({
       getLink: () => ctx.telegram.getFileLink(fileId), fetchImpl, agent,
       uploadDir: settings.uploadDir, maxBytes: settings.uploadMaxBytes,
+      quotaBytes: settings.config?.uploadQuotaBytes, minFreeBytes: settings.config?.uploadMinFreeBytes,
       ext, formatBytes: formatting.bytes
     });
   }

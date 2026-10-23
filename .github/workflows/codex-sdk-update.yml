@@ -132,4 +132,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.CODEX_AUTOMATION_TOKEN || github.token }}
           BASE_SHA: ${{ github.sha }}
+          CODEX_APPROVED_PACKAGE_SHA256: ${{ vars.CODEX_APPROVED_PACKAGE_SHA256 }}
+          CODEX_APPROVED_LOCK_SHA256: ${{ vars.CODEX_APPROVED_LOCK_SHA256 }}
         run: node scripts/publish_package_update.mjs "$RUNNER_TEMP/package-update"

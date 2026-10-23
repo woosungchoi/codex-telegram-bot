@@ -1,3 +1,4 @@
+import { registerSessionOwner } from "../src/codex/session_owners.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -85,18 +86,20 @@ test("session queries deduplicate per account/filter and refresh explicitly", as
     },
   });
   await Promise.all([
-    backend.listSessions("default"),
-    backend.listSessions("default"),
+    backend.listSessions("default", { chatKey: "1" }),
+    backend.listSessions("default", { chatKey: "1" }),
   ]);
   assert.equal(opened, 1);
-  await backend.listSessions(other.id);
-  await backend.listSessions("default", { cwd: "/other" });
-  await backend.listSessions("default", { fresh: true });
+  await backend.listSessions(other.id, { chatKey: "1" });
+  await backend.listSessions("default", { chatKey: "1", cwd: "/other" });
+  await backend.listSessions("default", { chatKey: "1", fresh: true });
   assert.equal(opened, 4);
-  await backend.readSession("default", "t");
-  await backend.readSession("default", "t");
+  registerSessionOwner(config, "1", "default", "t");
+  await backend.readSession("default", "t", { chatKey: "1" });
+  registerSessionOwner(config, "1", "default", "t");
+  await backend.readSession("default", "t", { chatKey: "1" });
   assert.equal(opened, 5);
-  await backend.readSession("default", "t", { fresh: true });
+  await backend.readSession("default", "t", { chatKey: "1", fresh: true });
   assert.equal(opened, 6);
   assert.equal(closed, opened);
 });

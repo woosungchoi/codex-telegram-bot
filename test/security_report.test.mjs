@@ -85,7 +85,7 @@ test("attachment limits count actual streamed bytes, abort, and remove partial f
   }));
   assert.equal(aborted, true);
   assert.equal(body.destroyed, true);
-  assert.deepEqual(await fs.readdir(uploadDir), []);
+  assert.deepEqual((await fs.readdir(uploadDir)).filter((name) => name !== ".upload-quota.lock"), []);
 });
 
 test("attachment parent symlinks are rejected and random exclusive uploads stay separate", async (t) => {

@@ -12,7 +12,7 @@ export function telegramTopicId(meta = {}) {
 
 export function telegramContextMeta(ctx) {
   const message = ctx.message ?? ctx.callbackQuery?.message ?? ctx.msg ?? {};
-  return { chatId: ctx.chat?.id ?? ctx.from?.id, chatType: ctx.chat?.type,
+  return { chatId: ctx.chat?.id ?? ctx.from?.id, chatType: ctx.chat?.type, isForum: ctx.chat?.is_forum === true,
     messageThreadId: telegramTopicId({ chatType: ctx.chat?.type, messageThreadId: message.message_thread_id }) };
 }
 

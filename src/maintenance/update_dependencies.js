@@ -1,3 +1,4 @@
+import { isolatedUpdateCommand, verifyIsolatedUpdate } from "./update_isolation.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -24,7 +25,14 @@ export async function approvedSdk(config, target) {
   if (!sdk || !STABLE_VERSION.test(sdk.version) || !/^sha512-[A-Za-z0-9+/]{86}==$/.test(sdk.integrity || "")) {
     throw new Error("Paired update requires an independently reviewed SDK version and sha512 integrity in the trust manifest.");
   }
-  return { version: sdk.version, integrity: sdk.integrity };
+  if (!/^[a-f0-9]{64}$/.test(sdk.lockSha256 || "")) throw new Error("Paired update requires independently approved complete lockSha256 (v2); legacy SDK-only approval is insufficient.");
+  return { version: sdk.version, integrity: sdk.integrity, lockSha256: sdk.lockSha256 };
+}
+
+export function dependencyGraphDigest(lock) {
+  const canonical = (v) => Array.isArray(v) ? v.map(canonical) : v && typeof v === "object"
+    ? Object.fromEntries(Object.keys(v).sort().map((key) => [key, canonical(v[key])])) : v;
+  return digest(JSON.stringify(canonical(lock)));
 }
 
 export function validateDependencyLock(previous, next, sdk, cliVersion) {
@@ -33,6 +41,7 @@ export function validateDependencyLock(previous, next, sdk, cliVersion) {
     || next.packages?.["node_modules/@openai/codex"]?.version !== cliVersion) {
     throw new Error("Prepared Codex package versions or SDK integrity do not match approval.");
   }
+  if (!sdk.lockSha256 || dependencyGraphDigest(next) !== sdk.lockSha256) throw new Error("Unapproved complete dependency graph integrity (CLI, platform packages or metadata changed).");
   // A Codex update may not silently update unrelated dependencies.
   for (const key of new Set([...Object.keys(previous.packages || {}), ...Object.keys(next.packages || {})])) {
     if (!key || /^node_modules\/@openai\/codex(?:$|[-/])/.test(key)) continue;
@@ -76,7 +85,7 @@ export async function stageCodexDependencies(config, state, run = runUpdateProce
   // Preparation is repeatable; activation recovery never calls this function.
   await fs.rm(directory, { recursive: true, force: true });
   await fs.mkdir(directory, { mode: 0o700 });
-  const transaction = { directory, head, previousVersion, version: sdk.version, originals: {}, prepared: {} };
+  const transaction = { approval: { trustFile: config.codexUpdateTrustFile, sdk, target: state.target }, directory, head, previousVersion, version: sdk.version, originals: {}, prepared: {} };
   const { staged, backup } = transactionPaths(root, transaction);
   try {
     await fs.mkdir(staged); await fs.mkdir(backup);
@@ -110,18 +119,22 @@ export async function stageCodexDependencies(config, state, run = runUpdateProce
     env.npm_config_globalconfig = path.join(home, "empty-global-npmrc");
     env.npm_config_ignore_scripts = "true";
     const options = { cwd: staged, env, timeout: 20 * 60_000, maxBuffer: 16 * 1024 * 1024 };
+    // Unsupported namespace isolation holds the update before downloading or executing candidate code.
+    const preflight = isolatedUpdateCommand(staged, home, ["-e", "process.exit(0)"]);
+    await run(preflight.command, preflight.args, options);
     await run("npm", ["install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund"], options);
     validateDependencyLock(before, JSON.parse(await fs.readFile(path.join(staged, "package-lock.json"), "utf8")), sdk, state.target);
     await run("npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], options);
     if (await installedSdkVersion(staged) !== sdk.version) throw new Error("Staged SDK version mismatch.");
-    const verified = await run("npm", ["run", "verify"], options);
+    await verifyIsolatedUpdate(staged, home, run, options);
+    const verified = await run("npm", ["audit", "--audit-level=moderate", "--ignore-scripts"], options);
     await fs.writeFile(path.join(directory, "verification.log"), verified.stdout || "Verification passed.\n", { mode: 0o600 });
-    // Exercise the actual ESM entry and construction without making a model call.
-    await run(process.execPath, ["--input-type=module", "-e", 'import { Codex } from "@openai/codex-sdk"; new Codex({codexPathOverride:process.execPath});'], options);
+    // SDK import and test commands ran only inside the isolated mount/PID/network namespace.
     const verifiedPackage = JSON.parse(await fs.readFile(pkgPath, "utf8"));
     if (verifiedPackage.dependencies?.["@openai/codex-sdk"] !== sdk.version || verifiedPackage.devDependencies?.["@openai/codex"] !== state.target) throw new Error("Package pins changed during verification.");
     validateDependencyLock(before, JSON.parse(await fs.readFile(path.join(staged, "package-lock.json"), "utf8")), sdk, state.target);
     for (const name of manifests) transaction.prepared[name] = digest(await fs.readFile(path.join(staged, name)));
+    if (JSON.stringify(await approvedSdk(config, state.target)) !== JSON.stringify(sdk)) throw new Error("Approval changed during verification.");
     await verifyDependencySource(root, transaction, run);
     await fs.rm(path.join(directory, "npm-cache"), { recursive: true, force: true });
     return transaction;
@@ -140,6 +153,9 @@ export async function verifyDependencySource(root, transaction, run = runUpdateP
 }
 
 export async function activateCodexDependencies(root, transaction) {
+  if (!transaction.approval) throw new Error("Legacy dependency transaction requires fresh independent approval.");
+  const approved = await approvedSdk({ codexUpdateTrustFile: transaction.approval.trustFile }, transaction.approval.target);
+  if (JSON.stringify(approved) !== JSON.stringify(transaction.approval.sdk)) throw new Error("Approval changed before activation.");
   const { staged, backup } = transactionPaths(root, transaction);
   for (const name of manifests) {
     if (digest(await fs.readFile(path.join(staged, name))) !== transaction.prepared[name]) throw new Error("Prepared dependency manifest changed.");

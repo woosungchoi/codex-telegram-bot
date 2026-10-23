@@ -1,3 +1,4 @@
+import { acquireUploadQuota } from "./upload_quota.js";
 import fs from "node:fs/promises";
 import { constants } from "node:fs";
 import path from "node:path";
@@ -8,13 +9,13 @@ let activeDownloads = 0;
 const MAX_DOWNLOADS = 4;
 const HARD_MAX_BYTES = 1024 * 1024 * 1024;
 
-export async function downloadAttachment({ getLink, fetchImpl, agent, uploadDir, maxBytes, ext, formatBytes }) {
+export async function downloadAttachment({ getLink, fetchImpl, agent, uploadDir, maxBytes, quotaBytes, minFreeBytes, ext, formatBytes }) {
   if (activeDownloads >= MAX_DOWNLOADS) throw new Error("Attachment download capacity reached. Retry after an active download completes.");
   activeDownloads++;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 120_000);
   timer.unref?.();
-  let response, directory, handle, storedPath, complete = false;
+  let response, directory, handle, storedPath, quota, complete = false;
   const limit = maxBytes > 0 ? Math.min(maxBytes, HARD_MAX_BYTES) : HARD_MAX_BYTES;
   const tooLarge = (bytes) => new LocalizedError("errors.telegramUploadLimit", { size: formatBytes(bytes), limit: formatBytes(limit) });
   try {
@@ -32,6 +33,8 @@ export async function downloadAttachment({ getLink, fetchImpl, agent, uploadDir,
     // Fail closed on platforms without this primitive instead of reopening a path.
     const anchor = `/proc/self/fd/${directory.fd}`;
     if (await fs.realpath(anchor) !== root) throw new Error("Upload directory changed.");
+    quota = await acquireUploadQuota(anchor, { quotaBytes, minFreeBytes });
+    await quota.grow(0);
     const suffix = /^\.[a-zA-Z0-9]{1,10}$/.test(ext) ? ext.toLowerCase() : ".bin";
     const name = `${randomUUID()}${suffix}`;
     storedPath = path.join(anchor, name);
@@ -41,6 +44,7 @@ export async function downloadAttachment({ getLink, fetchImpl, agent, uploadDir,
       if (controller.signal.aborted) throw new Error("Attachment download timed out.");
       bytes += chunk.byteLength;
       if (bytes > limit) throw tooLarge(bytes);
+      await quota.grow(chunk.byteLength);
       await handle.writeFile(chunk);
     }
     if (await fs.realpath(anchor) !== root) throw new Error("Upload directory moved during download.");
@@ -52,6 +56,7 @@ export async function downloadAttachment({ getLink, fetchImpl, agent, uploadDir,
     response?.body?.destroy?.();
     await handle?.close().catch(() => {});
     if (!complete && storedPath) await fs.unlink(storedPath).catch(() => {});
+    await quota?.release();
     await directory?.close().catch(() => {});
     activeDownloads--;
   }

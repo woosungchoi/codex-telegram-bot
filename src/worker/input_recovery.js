@@ -1,3 +1,5 @@
+import { assertStoredRequest } from "../authorization.js";
+import { assertSessionOwner } from "../codex/session_owners.js";
 import { readAppServerThread, appServerThreadReadEvents } from "../codex/app_server.js";
 import { accountConfig } from "../accounts/context.js";
 
@@ -6,6 +8,10 @@ import { accountConfig } from "../accounts/context.js";
 export async function recoverCompletedInput(job, { config, store, readThread = readAppServerThread }) {
   const receipt = job.inputReceipt;
   if (!receipt?.clientId || !receipt.threadId) return false;
+  if (config.allowedUserIds) {
+    try { assertStoredRequest(job, config); assertSessionOwner(config, job.chatKey, receipt.accountId, receipt.threadId); }
+    catch { return false; }
+  }
   let response;
   try {
     response = await readThread({ ...accountConfig(config, receipt.accountId || "default"), threadId: receipt.threadId, includeTurns: true });

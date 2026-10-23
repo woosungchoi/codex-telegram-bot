@@ -161,12 +161,8 @@ test("publisher rejects extra executable artifacts and symbolic package files", 
 test("credential-bearing workflow jobs never run PR helpers or new dependency code", async () => {
   const read = async (name) => fs.readFile(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8");
   const review = await read("codex-pr-review"), update = await read("codex-sdk-update");
-  const [reviewJob, reviewPublish] = review.split("  publish:");
-  assert.match(reviewJob, /head.repo.full_name == github.repository/);
-  assert.match(reviewJob, /ref: \$\{\{ github.event.pull_request.base.sha \}\}/);
-  assert.doesNotMatch(reviewJob, /pull-requests: write|GITHUB_TOKEN:|run: node scripts\/github_comment/);
-  assert.doesNotMatch(reviewPublish, /CODEX_ACCESS_TOKEN|npm (ci|install)|codex exec/);
-  assert.match(reviewPublish, /EXPECTED_HEAD:/);
+  assert.match(review, /review-disabled:/);
+  assert.doesNotMatch(review, /secrets\.|CODEX_ACCESS_TOKEN|npm (ci|install)|codex exec|pull-requests: write/);
   const [installJob, publishJob] = update.split("  publish:");
   assert.doesNotMatch(installJob, /contents: write|pull-requests: write|secrets\.|GH_TOKEN:|GITHUB_TOKEN:/);
   assert.match(installJob, /persist-credentials: false/);

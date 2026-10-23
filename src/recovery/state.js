@@ -1,3 +1,4 @@
+import { provenanceFields } from "../authorization.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -159,6 +160,7 @@ export function recoveryCandidateFromSnapshot(snapshot, reason = "self_restart")
   if (!snapshot || snapshot.recoveryEligible === false) return null;
   return {
     chatKey: snapshot.chatKey,
+    ...provenanceFields(snapshot),
     chatId: snapshot.chatId,
     messageThreadId: snapshot.messageThreadId,
     replyToMessageId: snapshot.replyToMessageId,

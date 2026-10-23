@@ -1,3 +1,4 @@
+import { authorizeStoredRequest } from "./authorization.js";
 import "dotenv/config";
 
 // Importing this module initializes state and starts the Telegram polling loop.
@@ -194,7 +195,7 @@ const {
   bot,
   progressStore: progressMessageStore,
   settings: {
-    runtimeValue
+    runtimeValue, config
   },
   localization: {
     text: t
@@ -220,6 +221,7 @@ const {
   bot,
   agent: telegramApiAgent,
   settings: {
+    config,
     personaPrompt: config.codexPersonaPrompt,
     uploadMaxBytes: config.uploadMaxBytes,
     uploadDir: config.uploadDir
@@ -272,6 +274,7 @@ const {
   pendingTurns,
   sideTurns,
   settings: {
+    isAuthorized: (record) => authorizeStoredRequest(record, config, bot.botInfo?.id),
     maxPendingTurns: () => runtimeValue("telegramPendingTurnsMax"),
     admissionPaused: () => updateAdmissionPaused(config),
     maxPendingAgeSeconds: () => runtimeValue("telegramPendingTurnMaxAgeSeconds")

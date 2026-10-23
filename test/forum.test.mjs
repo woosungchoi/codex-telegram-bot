@@ -289,7 +289,7 @@ test("disconnect and topic close require idle state and keep files and other top
 });
 
 test("restricted thread lists do not silently create unapproved topics", async (t) => {
-  const f = await fixture(t, { configure: (r) => { r.config.allowedThreadIds = new Set(["1", "40"]); } });
+  const f = await fixture(t, { configure: (r) => { r.config.allowedChatIds = new Set([String(GROUP)]); r.config.allowedThreadIds = new Set(["1", "40"]); } });
   await f.send("/forum_setup"); assert.equal(f.group().aiTopicId, undefined);
   const p = await f.add();
   await assert.rejects(f.forum.service.create(f.ctx(), "App", p), /ALLOWED_THREAD_IDS/);
@@ -318,9 +318,9 @@ test("topic keys preserve private chats and General; General replies omit topic 
   assert.equal(telegramReplyExtraFromMeta({ chatType: "private", messageThreadId: 1 }).message_thread_id, 1);
 });
 
-test("topic dashboard includes new-session turns before prepared metadata is available", async (t) => {
+test("topic dashboard holds turns until authorized prepared metadata is available", async (t) => {
   const f = await fixture(t);
   f.r.activeTurns.set(`${GROUP}:topic:40`, {});
-  assert.equal(f.controller.dashboard.activeFor({ chatId: GROUP, messageThreadId: 40 }).length, 1);
+  assert.equal(f.controller.dashboard.activeFor({ chatId: GROUP, messageThreadId: 40 }).length, 0);
   assert.equal(f.controller.dashboard.activeFor({ chatId: GROUP, messageThreadId: 41 }).length, 0);
 });

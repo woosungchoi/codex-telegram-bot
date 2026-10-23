@@ -5,6 +5,7 @@ import { telegramReplyExtraFromMeta } from "../src/telegram/context.js";
 
 function restartCtx(overrides = {}) {
   return {
+    botInfo: { id: 123 },
     chat: { id: overrides.chatId ?? 100, type: overrides.chatType ?? "private" },
     from: { id: overrides.fromId ?? 200 },
     message: {
@@ -57,6 +58,7 @@ test("/restart with no active turns schedules a restart and replies", async () =
       requestedBy: "200",
       reason: "self_restart",
       notify: {
+        authorizationVersion: 1, botId: "123", requesterUserId: "200", accountId: "default", isForum: false,
         chatId: 100,
         chatType: "private",
         messageThreadId: undefined,
@@ -98,6 +100,7 @@ test("/restart in a Telegram topic preserves topic notify routing", async () => 
     requestedBy: "200",
     reason: "self_restart",
     notify: {
+      authorizationVersion: 1, botId: "123", requesterUserId: "200", accountId: "default", isForum: false,
       chatId: -100123,
       chatType: "supergroup",
       messageThreadId: 777,
