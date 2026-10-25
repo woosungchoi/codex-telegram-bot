@@ -52,7 +52,7 @@ test("public CI keeps baseline verification commands", async () => {
   assert.match(workflow, /raven-actions\/actionlint@[a-f0-9]{40}/);
   assert.match(workflow, /npm pack --dry-run --json/);
   assert.match(workflow, /npm run build --if-present/);
-  assert.match(workflow, /node-version: \[18, 20, 22, 24, 26\]/);
+  assert.match(workflow, /node-version: \[22\.23\.4, 24\.22\.1, 26\.12\.1\]/);
   assert.match(workflow, /node-version: \$\{\{ matrix\.node-version \}\}/);
   assert.doesNotMatch(pkg.scripts.verify, /npm audit/);
   assert.equal(pkg.scripts["audit:ci"], "node scripts/npm_audit_gate.mjs");
