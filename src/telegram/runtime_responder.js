@@ -15,9 +15,12 @@ import { sameRef } from "./progress_store.js";
 export function createTelegramRuntimeResponder({ bot, settings, localization, progressStore, logger = console }) {
   const msg = createMessageFormatter(localization?.text);
 
-  async function replyLong(ctx, text) {
+  async function replyLong(ctx, text, extra = {}) {
     const max = Math.max(500, settings.runtimeValue("maxTelegramChars"));
-    for (const chunk of splitText(text, max)) await ctx.reply(chunk);
+    const chunks = splitText(text, max);
+    for (const [index, chunk] of chunks.entries()) {
+      await ctx.reply(chunk, index === chunks.length - 1 ? extra : {});
+    }
   }
 
   async function replyCodexAnswer(ctx, text) {

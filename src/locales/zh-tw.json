@@ -1257,6 +1257,7 @@
   "ui.maintenanceWorktrees": "- 過期工作樹：{count}",
   "ui.maintenanceMetadata": "- 中繼資料過大：標題 {titles} / 預覽 {previews}",
   "ui.photoArtifactRejected": "圖片未傳送：{path}（{reason}）",
+  "ui.copyCodeNumber": "📋 複製程式碼 {number}",
   "ui.photoUploadFailed": "照片上傳失敗。檔案仍保留在磁碟中：",
   "photoRejection.not_absolute_path": "不是絕對路徑",
   "photoRejection.unsupported_extension": "不支援的副檔名",

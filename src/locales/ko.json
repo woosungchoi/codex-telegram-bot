@@ -1257,6 +1257,7 @@
   "ui.maintenanceWorktrees": "- 오래된 워크트리: {count}",
   "ui.maintenanceMetadata": "- 메타데이터 용량 초과: 제목 {titles} / 미리보기 {previews}",
   "ui.photoArtifactRejected": "이미지를 전송하지 못했습니다: {path} ({reason})",
+  "ui.copyCodeNumber": "📋 코드 {number} 복사",
   "ui.photoUploadFailed": "사진 업로드에 실패했습니다. 파일은 디스크에 남아 있습니다:",
   "photoRejection.not_absolute_path": "절대 경로가 아님",
   "photoRejection.unsupported_extension": "지원하지 않는 확장자",

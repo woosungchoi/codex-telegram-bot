@@ -532,6 +532,15 @@ messages are unavailable or rejected, the bot falls back to the existing
 Telegram HTML renderer. Raw HTML is escaped in the fallback path, and HTML parse
 failures fall back to plain text so malformed output cannot prevent delivery.
 
+Final answers automatically include numbered clipboard buttons for closed,
+top-level fenced code blocks containing 1–256 Unicode characters. Buttons copy
+only the code, without the language label or fences, and never execute it.
+Oversized, empty, unclosed and nested blocks keep their original presentation
+without a copy button; code is never truncated to fit. At most 20 buttons are
+attached to the final text message, including HTML and plain-text fallbacks.
+Button numbers refer to the original fenced-block order. Existing messages are
+not retroactively updated; client support is required to use clipboard buttons.
+
 ## Runtime Overrides
 
 `.env` defines startup defaults. Safe user-facing settings can also be changed

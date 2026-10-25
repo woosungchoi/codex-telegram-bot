@@ -1257,6 +1257,7 @@
   "ui.maintenanceWorktrees": "- stale worktrees: {count}",
   "ui.maintenanceMetadata": "- metadata bloat: title {titles} / preview {previews}",
   "ui.photoArtifactRejected": "Image artifact not sent: {path} ({reason})",
+  "ui.copyCodeNumber": "📋 Copy code {number}",
   "ui.photoUploadFailed": "Photo upload failed. File remains on disk:",
   "photoRejection.not_absolute_path": "not_absolute_path",
   "photoRejection.unsupported_extension": "unsupported_extension",

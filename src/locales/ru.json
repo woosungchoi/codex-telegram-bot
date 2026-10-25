@@ -1257,6 +1257,7 @@
   "ui.maintenanceWorktrees": "- устаревшие рабочие деревья: {count}",
   "ui.maintenanceMetadata": "- избыточные метаданные: заголовки {titles} / превью {previews}",
   "ui.photoArtifactRejected": "Изображение не отправлено: {path} ({reason})",
+  "ui.copyCodeNumber": "📋 Копировать код {number}",
   "ui.photoUploadFailed": "Не удалось загрузить фото. Файл сохранён на диске:",
   "photoRejection.not_absolute_path": "путь не является абсолютным",
   "photoRejection.unsupported_extension": "неподдерживаемое расширение",
