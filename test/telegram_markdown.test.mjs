@@ -53,7 +53,7 @@ test("public links next to local and rejected links keep their full URLs", () =>
 test("link examples inside code remain literal in the HTML fallback", () => {
   assert.equal(
     formatCodexAnswerMarkdownHtml('`[report](/tmp/file.md)`\n\n```md\n[bad](javascript:alert(1))\n[report](/tmp/file.md)\n```'),
-    '<code>[report](/tmp/file.md)</code>\n<pre>md\n[bad](javascript:alert(1))\n[report](/tmp/file.md)\n</pre>'
+    '<code>[report](/tmp/file.md)</code>\n<pre><code class="language-md">[bad](javascript:alert(1))\n[report](/tmp/file.md)\n</code></pre>'
   );
 });
 
@@ -71,7 +71,7 @@ test("markdown renderer escapes raw script tags", () => {
 
 test("markdown renderer preserves fenced code blocks as Telegram pre", () => {
   const html = formatCodexAnswerMarkdownHtml("```js\nconst x = 1 < 2;\n```");
-  assert.equal(html, "<pre>js\nconst x = 1 &lt; 2;\n</pre>");
+  assert.equal(html, '<pre><code class="language-js">const x = 1 &lt; 2;\n</code></pre>');
 });
 
 test("markdown renderer keeps two-column tables readable in HTML fallback", () => {
@@ -107,10 +107,20 @@ test("markdown renderer formats wider tables as preformatted fallback", () => {
 
 test("markdown renderer leaves pipe tables inside fences as Telegram pre", () => {
   const html = formatCodexAnswerMarkdownHtml("```md\n| A | B |\n|---|---|\n| 1 | 2 |\n```");
-  assert.equal(html, "<pre>md\n| A | B |\n|---|---|\n| 1 | 2 |\n</pre>");
+  assert.equal(html, '<pre><code class="language-md">| A | B |\n|---|---|\n| 1 | 2 |\n</code></pre>');
 });
 
 test("safe renderer preserves fenced code blocks and inline code only", () => {
   const html = formatCodexAnswerSafeHtml("**bold** `x < y`\n```sh\necho \"hi\"\n```");
-  assert.equal(html, "**bold** <code>x &lt; y</code>\n<pre>sh\necho &quot;hi&quot;\n</pre>");
+  assert.equal(html, '**bold** <code>x &lt; y</code>\n<pre><code class="language-sh">echo &quot;hi&quot;\n</code></pre>');
 });
+
+for (const render of [formatCodexAnswerMarkdownHtml, formatCodexAnswerSafeHtml]) {
+  test(`${render.name} renders language metadata and keeps unlabelled code plain`, () => {
+    for (const language of ["bash", "python", "json", "yaml", "javascript"]) {
+      assert.equal(render(`\`\`\`${language}\n  x < y\n\`\`\``), `<pre><code class="language-${language}">  x &lt; y\n</code></pre>`);
+    }
+    assert.equal(render("```\nplain text\n```"), "<pre>plain text\n</pre>");
+    assert.equal(render('```python"\nx < y\n```'), '<pre>x &lt; y\n</pre>');
+  });
+}

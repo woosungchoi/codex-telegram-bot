@@ -29,7 +29,8 @@ export function buildRichMarkdownPayload(ctx, markdown, extra = {}) {
     chat_id: extra.chat_id ?? ctx?.chat?.id,
     message_thread_id: extra.message_thread_id ?? telegramThreadIdFromContext(ctx),
     rich_message: { markdown: preparedMarkdown },
-    reply_parameters: replyParameters
+    reply_parameters: replyParameters,
+    reply_markup: extra.reply_markup
   });
 }
 

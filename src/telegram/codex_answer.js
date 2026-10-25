@@ -1,6 +1,7 @@
 import { createMessageFormatter } from "../i18n.js";
 import { extractTelegramPhotoArtifacts, formatRejectedPhotoArtifacts } from "./attachments.js";
 import { summarizeTelegramError } from "./api.js";
+import { codeCopyReplyMarkup } from "./copy.js";
 import { formatCodexAnswerMarkdownHtml, formatCodexAnswerSafeHtml } from "./markdown.js";
 import { replyTelegramPhotos } from "./photo.js";
 import { tryReplyRichMarkdown } from "./rich.js";
@@ -25,17 +26,19 @@ export async function replyFormattedCodexAnswer(ctx, text, options = {}) {
 
   let answerText = String(text ?? "");
   const artifactResult = await extractPhotoArtifacts(answerText, options.artifactOptions || {});
+  const replyMarkup = codeCopyReplyMarkup(artifactResult.text, options.text);
+  const copyExtra = replyMarkup ? { reply_markup: replyMarkup } : {};
   answerText = appendRejectedPhotoArtifacts(artifactResult.text, artifactResult.rejected, options.text);
 
   if (format === "off") {
-    if (answerText) await replyLong(ctx, answerText);
+    if (answerText) await replyLong(ctx, answerText, copyExtra);
     await replyPhotosWithFallback(ctx, artifactResult.photos, replyPhotos, replyHtml, msg);
     return;
   }
 
   if (format === "markdown") {
     const richResult = answerText
-      ? await tryRichMarkdown(ctx, answerText, { logger: richLogger })
+      ? await tryRichMarkdown(ctx, answerText, { logger: richLogger, ...copyExtra })
       : { sent: false };
     if (richResult.sent) {
       await replyPhotosWithFallback(ctx, artifactResult.photos, replyPhotos, replyHtml, msg);
@@ -45,11 +48,12 @@ export async function replyFormattedCodexAnswer(ctx, text, options = {}) {
 
   const max = Math.max(500, maxTelegramChars);
   if (answerText) {
-    for (const chunk of splitMarkdownAware(answerText, max)) {
+    const chunks = splitMarkdownAware(answerText, max);
+    for (const [index, chunk] of chunks.entries()) {
       const html = format === "markdown"
         ? formatCodexAnswerMarkdownHtml(chunk)
         : formatCodexAnswerSafeHtml(chunk);
-      await replyHtml(ctx, html);
+      await replyHtml(ctx, html, index === chunks.length - 1 ? copyExtra : {});
     }
   }
   await replyPhotosWithFallback(ctx, artifactResult.photos, replyPhotos, replyHtml, msg);

@@ -412,6 +412,10 @@ Steering은 기본 활성화되며(`CODEX_STEERING=true`), sidecar worker와 dir
 
 `/help`, `/status`, `/options`, `/config`, `/threads`, cleanup prompt 같은 bot-owned message는 Telegram HTML formatting으로 전송됩니다. Dynamic value는 `<code>` 또는 `<pre>`로 감싸기 전에 중앙에서 escape됩니다. Free-form Codex answer는 기본적으로 `TELEGRAM_FORMAT_CODEX_ANSWERS=markdown`을 사용합니다. 모든 Codex turn에는 선택한 언어의 내장 지침이 함께 들어가서 제목, 표, list, preformatted code block, 구분자, bold, inline code, fenced code block을 필요할 때 적극 활용하도록 요청합니다. 이 서식 지침은 `CODEX_PERSONA_PROMPT`로 기본 말투를 override해도 계속 추가되며, 사용자가 명시한 다른 형식 요청이 있으면 그 요청을 우선합니다. Markdown mode는 answer Markdown을 Telegram rich message로 먼저 보내므로 table, divider, heading, list, bold/italic, inline code, fenced code block이 Telegram native rich formatting으로 표시될 수 있습니다. 한 줄 전체가 짧은 inline code 하나인 경우에는 Telegram이 배경 있는 compact block으로 렌더링할 수 있도록 1줄 rich code block으로 승격합니다. Rich message를 사용할 수 없거나 거부되면 기존 Telegram HTML renderer로 fallback합니다. Fallback 경로에서는 raw HTML을 escape하고, HTML parse failure가 발생하면 plain text로 fallback하여 malformed output 때문에 delivery가 막히지 않게 합니다.
 
+최종 답변의 닫힌 최상위 코드 블록에는 복사 버튼을 자동으로 붙입니다. 1–256자인 블록만 지원하며, 긴 코드나 닫히지 않은 블록은 잘라서 복사하지 않습니다. 최대 20개 버튼을 마지막 텍스트 메시지에 표시하고, 번호는 원래 코드 블록 순서를 따릅니다. 버튼 문구는 선택한 UI 언어(한국어·영어·러시아어·번체 중국어)를 따르며, 복사 시 언어명과 코드 펜스는 제외됩니다. 버튼은 코드를 실행하지 않습니다. 기존 메시지는 소급 변경하지 않으며 Telegram 클라이언트의 복사 버튼 지원이 필요합니다.
+
+HTML fallback에서도 프로그래밍 언어를 코드 첫 줄에 넣지 않고 Telegram의 `pre`/`code` 언어 속성으로 전달합니다. 언어를 지정하지 않은 블록은 일반 코드로 표시하며, 구문 강조 지원은 Telegram 클라이언트와 언어에 따라 달라집니다.
+
 클릭할 결과·이미지 링크에는 실제 HTTP(S) 주소가 필요합니다. 서버 내부 경로는 Telegram에서 열 수 없으므로, `[보고서](/path/report.md)` 같은 inline 링크는 rich/HTML 양쪽에서 제목과 복사 가능한 경로로 표시합니다. 공백이 있는 `<...>` 경로와 `:줄번호`도 보존하며 코드 예제는 변환하지 않습니다. 봇은 로컬 파일을 자동 공개하거나 URL을 만들어내지 않습니다. 보고서가 공개 이미지 링크를 담고 있다면 답변에 해당 공개 주소를 직접 제공하도록 기본 지침에도 명시합니다.
 
 ## Runtime Overrides

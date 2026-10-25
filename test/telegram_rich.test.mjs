@@ -269,7 +269,7 @@ test("markdown answer format falls back to existing HTML renderer on rich reject
   assert.doesNotMatch(htmlReplies[0], /항목값/);
   assert.match(htmlReplies[0], /- <b>항목:<\/b> <b>굵게<\/b>/);
   assert.match(htmlReplies[0], /  <b>값:<\/b> <i>기울임<\/i>/);
-  assert.match(htmlReplies[0], /<pre>sh\necho &quot;wide block&quot;\n<\/pre>/);
+  assert.match(htmlReplies[0], /<pre><code class="language-sh">echo &quot;wide block&quot;\n<\/code><\/pre>/);
 });
 
 test("safe answer format keeps existing safe HTML renderer without rich path", async () => {

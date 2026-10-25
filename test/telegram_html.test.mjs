@@ -27,3 +27,18 @@ test("Telegram href allowlist only accepts safe absolute protocols", () => {
 test("escapeHtmlAttribute escapes quote-delimited href values", () => {
   assert.equal(escapeHtmlAttribute("https://example.com/?q=\"a&b\""), "https://example.com/?q=&quot;a&amp;b&quot;");
 });
+
+test("pre carries language metadata without adding text to copied code", () => {
+  for (const language of ["bash", "python", "json", "yaml", "javascript", "c++", "c#"]) {
+    const html = pre('  print("<>&")\n', language);
+    assert.equal(html, `<pre><code class="language-${language}">  print(&quot;&lt;&gt;&amp;&quot;)\n</code></pre>`);
+    assert.equal(stripHtml(html).trimEnd(), '  print("<>&")');
+  }
+  assert.equal(pre("x", "PYTHON title=example"), '<pre><code class="language-python">x</code></pre>');
+});
+
+test("pre rejects unsafe language attributes without losing the code", () => {
+  for (const language of ['python"', '<script>', '&quot;', 'a'.repeat(65), '']) {
+    assert.equal(pre("x < y", language), '<pre>x &lt; y</pre>');
+  }
+});
