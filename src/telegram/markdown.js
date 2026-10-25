@@ -18,8 +18,7 @@ export function formatCodexAnswerSafeHtml(text) {
     html += formatInlineCodeSafeHtml(text.slice(index, match.index));
     const language = match[1]?.trim();
     const body = match[2] ?? "";
-    const label = language ? `${language}\n` : "";
-    html += pre(`${label}${body}`);
+    html += pre(body, language);
     index = match.index + match[0].length;
   }
 
@@ -97,7 +96,7 @@ function renderMarkdownTokens(tokens) {
     } else if (token.type === "fence") {
       if (html && !html.endsWith("\n")) html += "\n";
       const language = token.info?.trim().split(/\s+/, 1)[0] ?? "";
-      html += pre(language ? `${language}\n${token.content}` : token.content);
+      html += pre(token.content, language);
       html += "\n";
     } else if (token.type === "code_block") {
       if (html && !html.endsWith("\n")) html += "\n";

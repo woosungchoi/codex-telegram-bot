@@ -6,8 +6,12 @@ export function code(value) {
   return `<code>${escapeHtml(String(value))}</code>`;
 }
 
-export function pre(value) {
-  return `<pre>${escapeHtml(String(value))}</pre>`;
+export function pre(value, language = "") {
+  const body = escapeHtml(String(value));
+  const name = String(language).trim().split(/\s+/, 1)[0].toLowerCase();
+  // Fence info is untrusted metadata, not text to prepend to executable code.
+  if (!/^[a-z0-9][a-z0-9_+.#-]{0,63}$/.test(name)) return `<pre>${body}</pre>`;
+  return `<pre><code class="language-${name}">${body}</code></pre>`;
 }
 
 export function escapeHtml(value) {

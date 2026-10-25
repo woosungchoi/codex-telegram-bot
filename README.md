@@ -540,6 +540,12 @@ without a copy button; code is never truncated to fit. At most 20 buttons are
 attached to the final text message, including HTML and plain-text fallbacks.
 Button numbers refer to the original fenced-block order. Existing messages are
 not retroactively updated; client support is required to use clipboard buttons.
+Copy button labels follow the selected UI language (English, Korean, Russian,
+or Traditional Chinese). In HTML fallback, a fence's programming language is
+sent as native `pre`/`code` metadata, following the
+[Telegram HTML specification](https://core.telegram.org/bots/api#html-style),
+instead of being inserted into the code itself. Syntax highlighting depends on
+the Telegram client and its supported languages. Unlabelled blocks remain plain.
 
 ## Runtime Overrides
 

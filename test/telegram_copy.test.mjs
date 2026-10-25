@@ -77,3 +77,12 @@ test("plain answer routes copy keyboard through runtime chunking", async () => {
   assert.ok(replies.slice(0, -1).every(({ extra }) => !extra.reply_markup));
   assert.deepEqual(values(replies.at(-1).extra.reply_markup), ["echo ok"]);
 });
+
+test("copy labels follow every supported UI locale without changing clipboard text", () => {
+  const labels = { en: "📋 Copy code 1", ko: "📋 코드 1 복사", ru: "📋 Копировать код 1", "zh-tw": "📋 複製程式碼 1" };
+  for (const [locale, label] of Object.entries(labels)) {
+    const markup = codeCopyReplyMarkup(fence("echo hello"), (key) => textFor(locale, key));
+    assert.equal(markup.inline_keyboard[0][0].text, label);
+    assert.deepEqual(values(markup), ["echo hello"]);
+  }
+});
