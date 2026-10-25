@@ -2,6 +2,50 @@
 
 Released versions are listed below, newest first.
 
+## 1.4.7 - 2026-10-25
+
+### Telegram code blocks
+
+- Add numbered clipboard buttons for complete code blocks of up to 256 Unicode
+  characters, with English, Korean, Russian and Traditional Chinese labels.
+- Preserve code whitespace and quotes without copying the fence or language
+  label. Oversized, nested and incomplete blocks are never truncated into
+  executable fragments; split replies attach buttons only to the final message.
+- Carry programming-language metadata in HTML fallback for native code display
+  instead of inserting the language name into the code body. Client support
+  determines available syntax highlighting.
+
+### Connection reliability
+
+- Allow bounded session initialization and restore delays, support cancellation
+  during startup, and add timing diagnostics without replaying uncertain input.
+- Wait for authenticated worker readiness before submitting sidecar turns and
+  tolerate slow recovery before admitting new work.
+
+### Security and operator controls
+
+- Recheck persisted request provenance and session ownership during execution,
+  recovery, queue control and result delivery; bind forum access to chat/topic pairs.
+- Enforce per-turn attachment access and aggregate upload quotas, authenticated
+  cleanup/restore receipts, bounded state reads and operator-only shared mutations.
+- Strengthen independent update approval, staged-tree integrity and release-tag
+  provenance checks before executing or publishing repository content.
+
+### Upgrade notes
+
+- Review [operator migration](docs/security-cloud-17-20261023.md#operator-migration)
+  and [security boundaries](docs/security-boundaries.md) before upgrading from 1.4.6.
+  Configure operator roles and trusted maintenance control storage explicitly.
+- Preserve sessions, quarantine data and maintenance receipts. Incomplete legacy
+  authorization records remain blocked until an administrator reviews them.
+- Copy buttons apply to new final answers; existing Telegram messages are unchanged.
+
+### Repository maintenance
+
+- Include the approved Codex CLI/SDK 0.164.0 update and dependency refreshes.
+- Publish and merge independently approved dependency updates after exact-head
+  CI validation, while keeping approval separate from CI success.
+
 ## 1.4.6 - 2026-10-15
 
 ### Paired Codex updates
