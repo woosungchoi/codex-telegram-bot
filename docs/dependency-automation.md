@@ -21,9 +21,15 @@ package/lock approval hashes for the public workflows.
    `CODEX_AUTOMATION_TOKEN` so normal PR CI is triggered.
 4. `Dependency Auto Merge` runs after CI and every 15 minutes. It uses trusted
    `main` code, reads candidate files through GitHub's API, and revalidates the
-   package policy. It merges only the latest eligible Codex PR, with all nine
-   current-head checks successful: Node 18/20/22/24/26, Security audit, Integration
+   package policy. It merges only the latest eligible Codex PR, with all
+   current-head checks successful: every Node version in the trusted `main`
+   `.github/workflows/ci.yml` check-job matrix, Security audit, Integration
    coverage, Upload workflow data fixture, and Artifact transport compatibility.
+   Node check names are derived at startup, so changing the literal Node version
+   list in CI automatically updates the merge requirements without a second edit.
+   Missing, empty, duplicate or unsupported matrices stop automation. The supported
+   format is the existing single-axis inline numeric version list; expressions,
+   extra axes and include/exclude entries require an explicit parser update.
    Checks must come from the GitHub Actions app; skipped required checks do not
    count. Additional failed or pending checks/statuses also block merging.
 5. Behind branches are updated with an expected-head guard and wait for fresh CI.

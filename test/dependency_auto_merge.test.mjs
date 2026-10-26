@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { updateKind, validateVersions, validateActions, checksPass, reconcile, REQUIRED_CHECKS } from "../scripts/merge_dependency_updates.mjs";
+import { updateKind, validateVersions, validateActions, checksPass, reconcile, REQUIRED_CHECKS, requiredChecksFromWorkflow } from "../scripts/merge_dependency_updates.mjs";
 const repo = "owner/repo", head = "a".repeat(40), base = "b".repeat(40);
 const pr = { number: 1, state: "open", draft: false, title: "Update Codex packages", changed_files: 2,
   user: { login: "owner", type: "User" }, head: { ref: `automation/codex-${"a".repeat(20)}`, sha: head, repo: { full_name: repo } },
@@ -9,8 +9,30 @@ const pr = { number: 1, state: "open", draft: false, title: "Update Codex packag
 const pkg = { name: "test", version: "1.0.0", scripts: { test: "node --test" }, dependencies: { "@openai/codex-sdk": "0.160.1", dotenv: "^18.0.5" }, devDependencies: { "@openai/codex": "0.160.1" } };
 const newer = () => { const p = globalThis.structuredClone(pkg); p.dependencies["@openai/codex-sdk"] = "0.162.1"; return p; };
 const checks = () => REQUIRED_CHECKS.map((name) => ({ name, app: { id: 15368, slug: "github-actions" }, head_sha: head, status: "completed", conclusion: "success" }));
+const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+const matrixLine = /^        node-version: \[[^\]\n]+\]$/m;
+test("Node version bumps and additions update required checks without editing the merger", () => {
+  const next = workflow.replace(matrixLine, '        node-version: [22.99.1, "24.99.2", \'28.1.0\']');
+  assert.deepEqual(requiredChecksFromWorkflow(next), [
+    "Check Node 22.99.1", "Check Node 24.99.2", "Check Node 28.1.0",
+    "Security audit", "Integration coverage", "Upload workflow data fixture", "Artifact transport compatibility"
+  ]);
+  assert.deepEqual(requiredChecksFromWorkflow(next.replace(/\n/g, "\r\n")), requiredChecksFromWorkflow(next));
+});
+test("missing, ambiguous or unsupported CI definitions fail closed", () => {
+  for (const replacement of [
+    "        node-version: []", "        node-version: [24.1.0, 24.1.0]",
+    "        node-version: [lts/*]", "        node-version: [${{ inputs.node }}]",
+    "        node-version: [24.1.0,]", "        node-version: ['24.1.0\"]",
+    "        node-version: [24.1.0]\n        exclude: []",
+    "        node-version: [24.1.0]\n        os: [ubuntu-latest]"
+  ]) assert.throws(() => requiredChecksFromWorkflow(workflow.replace(matrixLine, replacement)));
+  assert.throws(() => requiredChecksFromWorkflow(""));
+  assert.throws(() => requiredChecksFromWorkflow(workflow.replace("  check:", "  unrelated:")));
+  assert.throws(() => requiredChecksFromWorkflow(workflow + "\n  check:\n    name: other\n"));
+  assert.throws(() => requiredChecksFromWorkflow(workflow.replace("name: Check Node", "name: Other Node")));
+});
 test("auto-merge requires every Node version actually run by CI", () => {
-  const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
   const matrix = workflow.match(/^        node-version: \[([^\]\n]+)\]$/m);
   assert.ok(matrix, "Update this guard if the CI matrix format changes.");
   assert.match(workflow, /name: Check Node \$\{\{ matrix.node-version \}\}/);
