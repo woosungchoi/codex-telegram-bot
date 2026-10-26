@@ -1,14 +1,36 @@
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { validatePackageUpdate } from "./publish_package_update.mjs";
 import { validateRegistryLockUpdate, registryMetadata } from "./codex_registry_policy.mjs";
 
-export const REQUIRED_CHECKS = [
-  // Keep exact names aligned with ci.yml; the regression test rejects drift.
-  "Check Node 22.23.4", "Check Node 24.22.1", "Check Node 26.12.1",
-  "Security audit", "Integration coverage", "Upload workflow data fixture", "Artifact transport compatibility"
-];
+export function requiredChecksFromWorkflow(workflow) {
+  // Deliberately support the literal, single-axis matrix used by CI, not general
+  // YAML or expressions. Unknown layouts must stop automation, never drop checks.
+  const jobs = [...workflow.replace(/\r\n/g, "\n").matchAll(/^  check:\n((?:(?!^  \S)[\s\S])*)/gm)];
+  if (jobs.length !== 1) throw new Error("Expected one CI check job.");
+  const job = jobs[0][1];
+  if (!/^    name: Check Node \$\{\{ matrix.node-version \}\}\s*$/m.test(job)) throw new Error("Unsupported CI check name.");
+  const matrices = [...job.matchAll(/^      matrix:\n((?: {8,}[^\n]*\n|\n)*)/gm)];
+  if (matrices.length !== 1) throw new Error("Expected one literal CI Node matrix.");
+  const lines = matrices[0][1].split("\n").filter(line => line.trim() && !line.trim().startsWith("#"));
+  const list = lines.length === 1 && /^        node-version: \[([^\]]+)\]\s*(?:#.*)?$/.exec(lines[0]);
+  if (!list) throw new Error("Unsupported CI Node matrix layout.");
+  const versions = list[1].split(",").map(value => {
+    const match = /^(?:(["'])(\d+(?:\.\d+){0,2})\1|(\d+(?:\.\d+){0,2}))$/.exec(value.trim());
+    if (!match) throw new Error("CI Node versions must be literal numeric versions.");
+    return match[2] || match[3];
+  });
+  if (new Set(versions).size !== versions.length) throw new Error("Duplicate CI Node versions.");
+  return [...versions.map(version => `Check Node ${version}`),
+    "Security audit", "Integration coverage", "Upload workflow data fixture", "Artifact transport compatibility"];
+}
+// The privileged workflow checks out trusted main, never the candidate PR.
+// Resolve relative to this module so a caller's working directory cannot swap CI.
+export const REQUIRED_CHECKS = requiredChecksFromWorkflow(
+  readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")
+);
 const SHA = /^[a-f0-9]{40}$/;
 const CODEX = /^automation\/codex-[a-f0-9]{20}$/;
 export function updateKind(pr, repo) {
