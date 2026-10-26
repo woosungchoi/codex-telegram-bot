@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { updateKind, validateVersions, validateActions, checksPass, reconcile, REQUIRED_CHECKS } from "../scripts/merge_dependency_updates.mjs";
 const repo = "owner/repo", head = "a".repeat(40), base = "b".repeat(40);
 const pr = { number: 1, state: "open", draft: false, title: "Update Codex packages", changed_files: 2,
@@ -8,6 +9,19 @@ const pr = { number: 1, state: "open", draft: false, title: "Update Codex packag
 const pkg = { name: "test", version: "1.0.0", scripts: { test: "node --test" }, dependencies: { "@openai/codex-sdk": "0.160.1", dotenv: "^18.0.5" }, devDependencies: { "@openai/codex": "0.160.1" } };
 const newer = () => { const p = globalThis.structuredClone(pkg); p.dependencies["@openai/codex-sdk"] = "0.162.1"; return p; };
 const checks = () => REQUIRED_CHECKS.map((name) => ({ name, app: { id: 15368, slug: "github-actions" }, head_sha: head, status: "completed", conclusion: "success" }));
+test("auto-merge requires every Node version actually run by CI", () => {
+  const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const matrix = workflow.match(/^        node-version: \[([^\]\n]+)\]$/m);
+  assert.ok(matrix, "Update this guard if the CI matrix format changes.");
+  assert.match(workflow, /name: Check Node \$\{\{ matrix.node-version \}\}/);
+  const versions = matrix[1].split(",").map(value => value.trim().replace(/^["']|["']$/g, ""));
+  assert.deepEqual(REQUIRED_CHECKS.filter(name => name.startsWith("Check Node ")).sort(),
+    versions.map(version => `Check Node ${version}`).sort(),
+    "Keep auto-merge requirements aligned with the CI Node matrix.");
+  for (const version of versions) {
+    assert.equal(checksPass(checks().filter(check => check.name !== `Check Node ${version}`), head), false);
+  }
+});
 test("only same-repository identified automation is eligible", () => {
   assert.equal(updateKind(pr, repo), "codex");
   for (const mutate of [p => p.draft = true, p => p.user.login = "outsider", p => p.head.repo.full_name = "fork/repo", p => p.base.ref = "release", p => p.state = "closed", p => p.title = "other"]) {
