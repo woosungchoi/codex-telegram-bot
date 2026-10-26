@@ -10,6 +10,22 @@ function receipt(f, job, status, chatKey = "1") {
   f.state.worker ||= { deliveries: {} };
   f.state.worker.deliveries[`${chatKey}:${job}`] = { chatKey, jobId: job, deliveryStatus: status };
 }
+test("dashboard shows fast only for the effective fast service tier", async (t) => {
+  const f = await workspaceFixture(t);
+  f.r.activeTurns.set("1", active());
+  const options = f.r.getChatState("1").options;
+  Object.assign(options, { model: "gpt-6-astra", modelReasoningEffort: "high" });
+  for (const serviceTier of ["fast", undefined, "flex", "fast"]) {
+    options.serviceTier = serviceTier;
+    await f.controller.dashboard.tick();
+    const html = f.state.workspace.panels["1:0"].html;
+    assert.match(html, /<code>gpt-6-astra<\/code> · <code>high<\/code>/);
+    assert.equal(html.includes(" · <code>fast</code>"), serviceTier === "fast");
+    const menu = await f.controller.dashboard.describe({ chatId: 1 });
+    assert.equal(menu.includes(" · <code>fast</code>"), serviceTier === "fast");
+  }
+  assert.equal(f.messages.length, 1);
+});
 test("one pinned card integrates native controls, finishes separately from delivery and deletes the card after confirmed delivery", async (t) => {
   const f = await workspaceFixture(t); const a = active(); f.r.activeTurns.set("1", a);
   await Promise.all([f.controller.dashboard.tick(), f.controller.dashboard.tick()]);

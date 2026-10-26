@@ -40,7 +40,7 @@ export function createTaskDashboard(r, { accounts, text: t, now = Date.now }) {
     const lines = [b(safe(a.currentText || t("running"), 90)),
       `${t("account")}: ${escapeHtml(safe(labels.get(account) || account, 80))}`,
       `${t("folder")}: ${code(safe(opts.workingDirectory, 180))}`,
-      `${t("model")}: ${code(safe(opts.model || "default", 70))} · ${code(opts.modelReasoningEffort || "default")}`,
+      `${t("model")}: ${code(safe(opts.model || "default", 70))} · ${code(opts.modelReasoningEffort || "default")}${opts.serviceTier === "fast" ? ` · ${code("fast")}` : ""}`,
       `${t("elapsed")}: ${Math.floor(elapsed / 60)}m ${elapsed % 60}s · ${t("queue")}: ${r.getPendingTurns(key).length}`];
     for (const step of (p.plan || []).slice(0, 4)) lines.push(`${step.status === "completed" ? "✅" : step.status === "inProgress" ? "▶️" : "▫️"} ${escapeHtml(safe(step.step, 110))}`);
     if (p.files?.length) lines.push(`${label("nativeFiles")}: ${code(safe(p.files.slice(0, 3).join(", "), 160))}`);
