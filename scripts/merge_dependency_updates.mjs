@@ -5,7 +5,8 @@ import { validatePackageUpdate } from "./publish_package_update.mjs";
 import { validateRegistryLockUpdate, registryMetadata } from "./codex_registry_policy.mjs";
 
 export const REQUIRED_CHECKS = [
-  "Check Node 18", "Check Node 20", "Check Node 22", "Check Node 24", "Check Node 26",
+  // Keep exact names aligned with ci.yml; the regression test rejects drift.
+  "Check Node 22.23.4", "Check Node 24.22.1", "Check Node 26.12.1",
   "Security audit", "Integration coverage", "Upload workflow data fixture", "Artifact transport compatibility"
 ];
 const SHA = /^[a-f0-9]{40}$/;
