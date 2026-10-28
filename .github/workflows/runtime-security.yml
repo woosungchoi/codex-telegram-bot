@@ -1,0 +1,45 @@
+name: Runtime security
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-security:
+    name: Node2Shell runtime security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+      - name: Verify patched runtime and declared minimum
+        shell: bash
+        run: |
+          node <<'JS'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { execFileSync } = require('node:child_process');
+          const zlib = require('node:zlib');
+          const globalRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim();
+          const semver = require(path.join(globalRoot, 'npm/node_modules/semver'));
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const pin = fs.readFileSync('.nvmrc', 'utf8').trim();
+          const floors = { 22: '22.23.4', 24: '24.22.1', 26: '26.12.1' };
+          const actual = process.versions.node;
+          assert(semver.valid(pin), 'Pin an exact stable Node.js version');
+          assert.equal(actual, pin);
+          assert(floors[semver.major(actual)], 'Review security support for this release line');
+          assert(semver.gte(actual, floors[semver.major(actual)]));
+          assert(semver.satisfies(pin, pkg.engines.node));
+          for (const unsafe of ['18.20.8', '20.20.0', '22.23.3', '24.22.0', '26.12.0']) {
+            assert(!semver.satisfies(unsafe, pkg.engines.node), `Engine range admits ${unsafe}`);
+          }
+          const plain = Buffer.from('benign Brotli roundtrip');
+          assert.deepEqual(zlib.brotliDecompressSync(zlib.brotliCompressSync(plain)), plain);
+          console.log(`Patched Node.js ${actual}; engine floor and Brotli roundtrip passed`);
+          JS
