@@ -16,7 +16,7 @@
   <a href="https://github.com/woosungchoi/codex-telegram-bot/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/woosungchoi/codex-telegram-bot/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/woosungchoi/codex-telegram-bot/releases"><img alt="Release" src="https://img.shields.io/github/v/release/woosungchoi/codex-telegram-bot"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green"></a>
-  <img alt="Node.js" src="https://img.shields.io/badge/Node.js-18%2B-339933">
+  <img alt="Node.js" src="https://img.shields.io/badge/Node.js-22.23.4%2B-339933">
   <img alt="Telegram" src="https://img.shields.io/badge/Telegram-Bot-26A5E4">
   <img alt="Codex SDK" src="https://img.shields.io/badge/Codex-SDK-111827">
   <img alt="Runtime settings" src="https://img.shields.io/badge/Runtime-settings-0EA5E9">
@@ -335,13 +335,13 @@ auto-merge.
 Recommended `main` branch protection keeps the deterministic CI matrix as the
 required gate and leaves helper workflows report-only:
 
-- Required status checks: `Check Node 18`, `Check Node 20`, `Check Node 22`, `Security audit`
+- Required status checks: `Check Node 22.23.4`, `Check Node 24.22.1`, `Check Node 26.12.1`, `Security audit`
 - Not required: `Codex PR Review`, `Codex CI Diagnosis`, `Dependency PR Auto Merge`
 
 The normal pull-request flow is:
 
 1. A PR opens or updates.
-2. `CI` runs the Node 18/20/22 verification matrix.
+2. `CI` runs the Node 22.23.4/24.22.1/26.12.1 verification matrix.
 3. If CI succeeds, the PR can merge after branch-protection checks pass.
 4. If CI fails, `Codex CI Diagnosis` posts an authless diagnosis comment on the PR.
 5. Optional Codex AI PR review runs only when `CODEX_ACCESS_TOKEN` is available.
@@ -678,3 +678,10 @@ journalctl --user -u codex-telegram-bot.service -f
 MIT License. See [LICENSE](LICENSE).
 
 Optional read-only server metrics: [Operational status (`/ops`)](docs/operational-status.md).
+
+### Node.js security baseline
+
+Use `nvm install` and `nvm use` to select the patched runtime in `.nvmrc`.
+CVE-2026-111497 affects the native Brotli decoder; updating npm dependencies
+alone does not patch Node.js. The security version requirement is ^22.23.4 || ^24.22.1 || ^26.12.1 (stable releases only).
+See [the Node.js security release](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases).

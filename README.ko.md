@@ -16,7 +16,7 @@
   <a href="https://github.com/woosungchoi/codex-telegram-bot/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/woosungchoi/codex-telegram-bot/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/woosungchoi/codex-telegram-bot/releases"><img alt="Release" src="https://img.shields.io/github/v/release/woosungchoi/codex-telegram-bot"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green"></a>
-  <img alt="Node.js" src="https://img.shields.io/badge/Node.js-18%2B-339933">
+  <img alt="Node.js" src="https://img.shields.io/badge/Node.js-22.23.4%2B-339933">
   <img alt="Telegram" src="https://img.shields.io/badge/Telegram-Bot-26A5E4">
   <img alt="Codex SDK" src="https://img.shields.io/badge/Codex-SDK-111827">
   <img alt="Runtime settings" src="https://img.shields.io/badge/Runtime-settings-0EA5E9">
