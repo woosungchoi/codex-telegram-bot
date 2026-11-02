@@ -97,7 +97,7 @@ async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
       if (result.stdout.trim() !== "true") throw new Error("Not a Git worktree.");
     } catch { throw new Error("Direct app-server requires a trusted Git worktree unless skipGitRepoCheck is enabled."); }
   }
-  const client = await connectAppServer(thread);
+  const client = await connectAppServer({ ...thread, codexConfig: thread.threadOptions?.codexConfig });
   const queue = createAsyncQueue((error) => {
     if (error) { client.fail(error); client.close(); }
   });
@@ -215,8 +215,16 @@ async function runAppServerThreadStreamed(thread, input, turnOptions = {}) {
   };
 }
 
-export async function connectAppServer({ codexPath = "codex", codexEnv = null, codexAuthFileStore = false, connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS } = {}) {
+export async function connectAppServer({ codexPath = "codex", codexEnv = null, codexAuthFileStore = false, codexConfig = null, connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS } = {}) {
   const args = appServerDirectArgs();
+  // MCP OAuth has a separate store from CLI login. Apply an explicit choice
+  // before initialize: waiting until thread/resume can already hit a keyring.
+  // Forward only this setting, not arbitrary session config or credentials.
+  const mcpStore = codexConfig?.mcp_oauth_credentials_store;
+  if (mcpStore !== undefined) {
+    if (!["auto", "file", "keyring"].includes(mcpStore)) throw new Error("mcp_oauth_credentials_store must be auto, file, or keyring.");
+    args.push("-c", `mcp_oauth_credentials_store=${JSON.stringify(mcpStore)}`);
+  }
   if (codexAuthFileStore) args.push("-c", 'cli_auth_credentials_store="file"', "-c", 'model_provider="openai"');
   const child = spawn(codexPath, args, {
     env: buildCodexChildEnv(codexEnv, { managed: codexAuthFileStore }),
