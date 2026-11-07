@@ -2,6 +2,30 @@
 
 Released versions are listed below, newest first.
 
+## 1.4.8 - 2026-11-08
+
+### Reliability and runtime security
+
+- Apply the configured MCP OAuth credential store before starting Codex app-server,
+  so headless hosts use the intended credential backend during initialization.
+- Show Fast service-tier selection in the task dashboard.
+- Require patched Node.js releases: 22.23.4+, 24.22.1+, or 26.12.1+ within their
+  supported major versions, and align CI with these runtime floors.
+
+### Dependency maintenance
+
+- Include the merged Codex CLI/SDK 0.167.0 update and dependency refreshes.
+- Derive required auto-merge Node checks from the trusted CI matrix, preventing
+  stale check names from blocking otherwise eligible dependency updates.
+- Continue to require successful security, coverage and artifact-transport checks
+  on the current PR head before automatic dependency merges.
+
+### Upgrade notes
+
+- Upgrade Node.js to a supported patched version before installing this release.
+- Preserve existing sessions, quarantine data and maintenance receipts. Public
+  package updates do not automatically update a separately managed private host.
+
 ## 1.4.7 - 2026-10-25
 
 ### Telegram code blocks
