@@ -30,6 +30,35 @@ installation. The bot service's working directory must match the running repo.
   `CODEX_UPDATE_APP_SERVER_SERVICE`: user systemd unit names. Worker restart is
   required in sidecar mode; the external app-server restarts only if active.
 
+Prepared releases expose both `bin/codex` and a relative `codex -> bin/codex`
+entry point. Services using `packages/standalone/current/codex` keep working
+after the atomic selection change; both paths resolve to the verified binary.
+
+## Trust and isolation prerequisites
+
+`CLI update disabled: configure an independently reviewed CODEX_UPDATE_TRUST_FILE first`
+means that operator approval metadata has not been configured. It is not a
+download failure. Set the variable to a regular JSON file that is not a symlink
+or group/world-writable, and restart the bot through its normal idle-safe workflow
+to load the setting. Do not commit host-specific approval files or credentials.
+
+The manifest's `artifacts` array must contain the exact target `version`,
+`platform`, `arch`, HTTPS `url`, archive `sha256`, `format: "tar.gz"`, and
+`binary` basename. Each entry must also include `sdk.version`, `sdk.integrity`
+(npm SHA-512 SRI), and `sdk.lockSha256`. The latter is the SHA-256 returned by
+`dependencyGraphDigest()` for the complete independently reviewed candidate
+lockfile, not the raw JSON file hash. Review every changed package's source and
+integrity; trusting only the SDK package is insufficient. Approval for one
+version or dependency graph does not authorize another. Keep approval records
+and dependency staging in `MAINTENANCE_CONTROL_DIR`, outside model workspaces.
+
+Verification requires Bubblewrap mount, PID and network isolation. On Ubuntu
+24.04, `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted` can mean
+the distribution's `bwrap-userns-restrict` AppArmor profile is missing. Follow
+the [official sandbox prerequisites](https://learn.chatgpt.com/docs/sandboxing)
+to install and load that profile while retaining the global user-namespace
+restriction. Confirm isolation works before retrying; do not skip verification.
+
 ## Operation
 
 1. Previews expire after ten minutes and bind to the actor, chat/topic, message,
@@ -39,13 +68,15 @@ installation. The bot service's working directory must match the running repo.
    holds the standalone installer's native `install.lock` using `flock`.
 3. Download the exact independently approved CLI archive and verify its digest
    before extracting or executing it. No remote installer script is executed.
-   The same trust entry must contain `sdk.version` and `sdk.integrity` (npm
-   sha512 SRI), reviewed independently of the update download. The SDK version
+   The same trust entry must contain `sdk.version`, `sdk.integrity` (npm
+   sha512 SRI), and the complete `sdk.lockSha256`, reviewed independently of the update download. The SDK version
    can differ from the CLI version when explicitly approved. Missing SDK trust
    fails closed rather than silently performing a CLI-only update.
    Copy regular tracked files from a Git checkout without source changes to a private
-   `.codex-update-deps/run-<id>/project` directory; never copy `.env`, `.npmrc`,
-   state or account credentials. Update only the SDK and CLI development package
+   `MAINTENANCE_CONTROL_DIR/dependencies/run-<id>/project` directory; never copy
+   `.env`, state or account credentials. A tracked root `.npmrc` is accepted only
+   when its trimmed contents are exactly `engine-strict=true`; credentials,
+   registry overrides and other npm configuration remain rejected. Update only the SDK and CLI development package
    pins and reject unrelated lockfile changes. Check the approved SDK integrity
    before `npm ci --ignore-scripts`. Run `npm run verify` and an SDK import smoke
    check with an isolated HOME and filtered environment. npm lifecycle install

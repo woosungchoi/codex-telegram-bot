@@ -95,9 +95,12 @@ export async function stageCodexDependencies(config, state, run = runUpdateProce
     await fs.mkdir(staged); await fs.mkdir(backup);
     const tracked = (await run("git", ["ls-files", "-z"], { cwd: root, timeout: 10_000, maxBuffer: 4 * 1024 * 1024 })).stdout.split("\0").filter(Boolean);
     for (const relative of tracked) {
-      if (relative.startsWith(".codex-update-deps/") || relative === ".env" || relative === ".npmrc" || relative.startsWith("state/")) throw new Error("Runtime data must not be tracked in the update source.");
+      if (relative.startsWith(".codex-update-deps/") || relative === ".env" || relative.startsWith("state/")) throw new Error("Runtime data must not be tracked in the update source.");
       const source = path.resolve(root, relative);
       if (!source.startsWith(`${root}${path.sep}`) || !(await fs.lstat(source)).isFile()) throw new Error("Update source must contain only regular tracked files.");
+      // Preserve the repository's Node compatibility gate without admitting
+      // credentials, registry overrides or executable npm configuration.
+      if (relative === ".npmrc" && (await fs.readFile(source, "utf8")).trim() !== "engine-strict=true") throw new Error("Unapproved project npm configuration in the update source.");
       const dest = path.join(staged, relative);
       await fs.mkdir(path.dirname(dest), { recursive: true });
       await fs.copyFile(source, dest);

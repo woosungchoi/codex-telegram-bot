@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { readConfig } from "../src/config.js";
 import { textFor } from "../src/i18n.js";
 import { createCodexUpdateController } from "../src/maintenance/update_controller.js";
-import { codexInstallation, latestCodexVersion, newerVersion, stageCodexRelease as stageRelease } from "../src/maintenance/update_install.js";
+import { codexInstallation, latestCodexVersion, newerVersion, runUpdateProcess, stageCodexRelease as stageRelease } from "../src/maintenance/update_install.js";
 import { runCodexUpdate } from "../src/maintenance/update_runner.js";
 import { claimUpdate, readUpdateState, releaseUpdate, updateAdmissionPaused, updateLockPath, writeUpdateState } from "../src/maintenance/update_state.js";
 
@@ -406,6 +406,22 @@ test("a second SDK-only run stages the same verified CLI without colliding with 
   const second = await stageCodexRelease(f.config, { ...f.state, id: randomUUID(), target: entry.version }, run);
   assert.notEqual(first, second);
   assert.equal(await fs.readFile(path.join(first, "bin/codex"), "utf8"), await fs.readFile(path.join(second, "bin/codex"), "utf8"));
+});
+
+test("staged standalone release preserves the current/codex service entry point", async (t) => {
+  const f = await fixture(t);
+  const { archive, entry } = tarFixture({ body: "#!/bin/sh\nprintf 'codex-cli 0.160.0\\n'\n" });
+  await fs.writeFile(f.config.codexUpdateTrustFile, JSON.stringify({ artifacts: [entry] }), { mode: 0o600 });
+  const release = await stageCodexRelease(f.config, { ...f.state, target: entry.version }, async (cmd, args, options) => {
+    if (cmd === "curl") { await fs.writeFile(args.at(-1), archive); return { stdout: "" }; }
+    return runUpdateProcess(cmd, args, options);
+  });
+  assert.equal(await fs.readlink(path.join(release, "codex")), "bin/codex");
+  const current = path.join(f.state.installation.root, "current");
+  await fs.unlink(current);
+  await fs.symlink(release, current);
+  assert.equal(await fs.realpath(path.join(current, "codex")), path.join(release, "bin/codex"));
+  assert.equal((await runUpdateProcess(path.join(current, "codex"), ["--version"])).stdout.trim(), "codex-cli 0.160.0");
 });
 
 test("failed SDK preparation removes only this run's unselected CLI artifact", async (t) => {
