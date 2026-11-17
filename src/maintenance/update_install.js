@@ -74,6 +74,9 @@ export async function stageCodexRelease(config, state, run = runUpdateProcess) {
     const executable = extractApprovedBinary(await fs.readFile(archive), entry);
     await fs.mkdir(path.dirname(bin), { recursive: true, mode: 0o700 });
     await fs.writeFile(bin, executable, { flag: "wx", mode: 0o700 });
+    // Existing standalone services may execute current/codex directly.
+    // Keep both entry points bound to the same verified executable after rename.
+    await fs.symlink("bin/codex", path.join(release, "codex"));
     const env = buildCodexChildEnv({}, { managed: true, home: runDir });
     env.HOME = runDir;
     if (versionFromOutput((await run(bin, ["--version"], { timeout: 10_000, env })).stdout) !== state.target) throw new Error("Verified artifact version mismatch.");

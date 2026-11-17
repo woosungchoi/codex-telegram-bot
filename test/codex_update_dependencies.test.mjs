@@ -74,6 +74,28 @@ test("paired preparation isolates credentials, verifies and leaves the running i
   await assert.rejects(fs.access(path.join(tx.directory, "backup")), { code: "ENOENT" });
 });
 
+test("paired preparation preserves the tracked engine-strict policy", async (t) => {
+  const f = await fixture(t);
+  await fs.writeFile(path.join(f.root, ".npmrc"), "engine-strict=true\n");
+  await runUpdateProcess("git", ["add", ".npmrc"], { cwd: f.root });
+  await runUpdateProcess("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "engine policy"], { cwd: f.root });
+  const tx = await stageCodexDependencies(f.config, f.state, f.run);
+  assert.equal(await fs.readFile(path.join(tx.directory, "project/.npmrc"), "utf8"), "engine-strict=true\n");
+  assert.equal(await installedSdkVersion(f.root), "0.151.0");
+});
+
+for (const setting of ["registry=https://example.invalid", "//registry.npmjs.org/:_authToken=fixture", "ignore-scripts=false", "engine-strict=false"]) {
+  test(`paired preparation rejects npm override ${setting.split("=")[0]}`, async (t) => {
+    const f = await fixture(t);
+    await fs.writeFile(path.join(f.root, ".npmrc"), `engine-strict=true\n${setting}\n`);
+    await runUpdateProcess("git", ["add", ".npmrc"], { cwd: f.root });
+    await runUpdateProcess("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "unsafe npm policy"], { cwd: f.root });
+    await assert.rejects(stageCodexDependencies(f.config, f.state, f.run), /Unapproved project npm configuration/);
+    assert.equal(f.calls.some((c) => c.cmd === "npm" || c.cmd === "/usr/bin/bwrap"), false);
+    assert.equal(await installedSdkVersion(f.root), "0.151.0");
+  });
+}
+
 for (const boundary of ["before-modules", "old-modules-moved", "new-modules-moved", "one-manifest"]) {
   test(`recovery restores both manifests and modules after crash at ${boundary}`, async (t) => {
     const f = await fixture(t), tx = await stageCodexDependencies(f.config, f.state, f.run);

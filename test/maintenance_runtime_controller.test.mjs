@@ -91,7 +91,8 @@ test("repository docs symlink cannot redirect real handoff creation", async (t) 
 test("host maintenance rejects a modified helper before invoking Python", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "maintenance-integrity-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
-  const script = path.join(root, "helper.py"); await fs.writeFile(script, "print('unexpected')\n");
+  // Exercise content integrity independently of the invoking service's umask.
+  const script = path.join(root, "helper.py"); await fs.writeFile(script, "print('unexpected')\n", { mode: 0o600 });
   let calls = 0;
   const controller = createCodexMaintenanceController({ settings: { config: { codexMaintenanceScript: script } },
     state: {}, threadCache: new Map(), chats: {}, sessions: {}, formatting: {}, localization: { text: String }, runProcess: async () => { calls++; } });
